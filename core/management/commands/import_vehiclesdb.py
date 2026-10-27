@@ -94,7 +94,7 @@ class Command(BaseCommand):
                         make_obj, was_created = VehicleMake.objects.get_or_create(
                             kind=kind, slug=make_slug,
                             defaults={"name": make_name, "source": source,
-                                      "source_id": f"{kind}/{make_slug}", "name_norm": make_name.casefold()},
+                                      "external_id": f"{kind}/{make_slug}", "name_norm": make_name.casefold()},
                         )
                         if was_created:
                             created += 1
