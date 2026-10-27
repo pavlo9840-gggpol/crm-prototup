@@ -266,3 +266,13 @@ class TransitTest(TestCase):
         r = self.adm.post("/supplier-prices/apply/", data, follow=True)
         self.assertContains(r, "нових 1")
         self.assertEqual(SupplierItem.objects.get(sku="A-1").cost, D("12.50"))
+
+
+    def test_order_action_rejects_external_next_redirect(self):
+        self.import_price(self.PRICE)
+        si = SupplierItem.objects.get(sku="19-152615")
+        sale = self.checkout(self.mgr, [{"si": si.pk, "qty": 1}])
+        item = sale.items.get()
+        response = self.mgr.post(f"/orders/{item.pk}/arrived/", {"next": "https://evil.example/phishing"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/orders/")
