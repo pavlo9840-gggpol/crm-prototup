@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from core.models import Customer, Product, Sale, SaleItem, Shift, SaleReturn
+from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn
 from core.services import StockError, create_return, save_held
 
 
@@ -89,3 +89,14 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(Sale.objects.filter(status=Sale.DONE).count(), 1)
         self.product.refresh_from_db()
         self.assertEqual(self.product.current_stock, Decimal("9.000"))
+
+    def test_cash_drawer_rejects_operation_with_wrong_direction(self):
+        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("0.00"), drawer={})
+        self.client.login(username="cashier", password="secret")
+
+        response = self.client.post("/drawer/", {"kind": "out", "c_1000": "1"})
+
+        self.assertEqual(response.status_code, 302)
+        shift.refresh_from_db()
+        self.assertEqual(shift.drawer, {})
+        self.assertEqual(CashOperation.objects.filter(shift=shift).count(), 0)
