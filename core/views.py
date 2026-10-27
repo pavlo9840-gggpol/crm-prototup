@@ -824,8 +824,14 @@ def shift_view(request):
 
 
 @login_required
+@transaction.atomic
 def drawer_view(request):
     shift = current_shift(request.user)
+    if request.method == "POST":
+        # A checkout and a drawer adjustment must never overwrite each other's counts.
+        shift = Shift.objects.select_for_update().filter(
+            cashier=request.user, closed_at__isnull=True
+        ).first()
     if not shift:
         messages.info(request, "Спочатку відкрийте зміну")
         return redirect("shift")
@@ -835,8 +841,13 @@ def drawer_view(request):
         if new is not None and new != old:
             delta_kop = cashlib.total(new) - cashlib.total(old)
             kind = request.POST.get("kind", "adjust")
+            if kind not in ("in", "out", "adjust"):
+                kind = "adjust"
+            if (kind == "in" and delta_kop < 0) or (kind == "out" and delta_kop > 0):
+                messages.error(request, "Тип касової операції не відповідає зміні суми. Перевірте купюри та повторіть.")
+                return redirect("drawer")
             CashOperation.objects.create(
-                shift=shift, user=request.user, kind=kind if kind in ("in", "out", "adjust") else "adjust",
+                shift=shift, user=request.user, kind=kind,
                 amount=cashlib.to_dec(delta_kop), note=request.POST.get("note", "")[:200],
                 detail={str(k): new.get(k, 0) - old.get(k, 0) for k in cashlib.DENOMS if new.get(k, 0) != old.get(k, 0)})
             shift.drawer = cashlib.store(new)
