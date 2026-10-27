@@ -71,3 +71,44 @@ class StaffAccessControlTests(TestCase):
         self.assertEqual(self.product.current_stock, Decimal("5.000"))
         self.assertEqual(StockAdjustment.objects.count(), 0)
         self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
+
+    def test_only_superuser_can_access_user_and_backup_management(self):
+        User = get_user_model()
+        root = User.objects.create_superuser(
+            username="system-root",
+            email="root@example.invalid",
+            password="test-password",
+        )
+        protected_routes = ("user_list", "user_new", "backup")
+
+        for user in (self.cashier, self.staff):
+            self.client.force_login(user)
+            for route in protected_routes:
+                with self.subTest(user=user.username, route=route):
+                    self.assertEqual(self.client.get(reverse(route)).status_code, 403)
+
+        self.client.force_login(root)
+        for route in protected_routes:
+            with self.subTest(user=root.username, route=route):
+                self.assertEqual(self.client.get(reverse(route)).status_code, 200)
+
+    def test_staff_cannot_create_users_or_trigger_backup_by_direct_post(self):
+        User = get_user_model()
+        before = User.objects.count()
+        self.client.force_login(self.staff)
+
+        user_response = self.client.post(
+            reverse("user_new"),
+            {
+                "username": "unauthorized-new-user",
+                "first_name": "No",
+                "role": "admin",
+                "is_active": "on",
+                "password": "test-password",
+            },
+        )
+        backup_response = self.client.post(reverse("backup"), {"action": "save"})
+
+        self.assertEqual(user_response.status_code, 403)
+        self.assertEqual(backup_response.status_code, 403)
+        self.assertEqual(User.objects.count(), before)
