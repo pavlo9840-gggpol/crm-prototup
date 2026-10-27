@@ -44,7 +44,7 @@ class Command(BaseCommand):
         source, _ = CatalogSource.objects.get_or_create(
             name=opts["source"],
             defaults={"url": opts["url"], "license_name": opts["license"],
-                      "attribution": opts["attribution"], "commercial_use": bool(opts["license"]),
+                      "attribution": opts["attribution"], "commercial_use": False,
                       "notes": "Імпорт CSV; перед використанням перевірте права на комерційне використання та поширення."},
         )
         if opts["url"] and source.url != opts["url"]:
