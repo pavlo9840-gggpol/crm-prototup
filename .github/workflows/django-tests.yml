@@ -27,4 +27,4 @@ jobs:
       - name: Check Django configuration
         run: python manage.py check
       - name: Run workflow regression tests
-        run: python manage.py test core.tests_dashboard core.tests_receive core.tests_transit --verbosity 2
+        run: python manage.py test core.tests_dashboard core.tests_receive core.tests_transit core.tests_catalog --verbosity 2
