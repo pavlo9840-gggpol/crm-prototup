@@ -175,3 +175,35 @@ class ReceivingTest(TestCase):
         self.assertContains(response, "уже прийнято")
         self.assertEqual(Receipt.objects.filter(supplier=self.sup, number="INV-UNIQUE").count(), 1)
         self.assertFalse(Product.objects.filter(sku="NEW-DOUBLE").exists())
+
+    def test_cashier_cannot_preview_or_apply_supplier_receiving(self):
+        # Cashiers must not reach the receiving UI or mutate stock through direct POSTs.
+        product_before = Product.objects.count()
+        receipt_before = Receipt.objects.count()
+        movement_before = StockMovement.objects.count()
+        self.assertEqual(self.anna.get("/receive/").status_code, 403)
+
+        preview = self.anna.post(
+            "/receive/preview/",
+            {"supplier": self.sup.pk, "paste": "MEYLE;DENIED-1;Forbidden part;3;10"},
+        )
+        apply = self.anna.post(
+            "/receive/apply/",
+            {
+                "supplier": self.sup.pk,
+                "paste": "MEYLE;DENIED-1;Forbidden part;3;10",
+                "header_row": "0",
+                "col_brand": "0",
+                "col_sku": "1",
+                "col_name": "2",
+                "col_qty": "3",
+                "col_cost": "4",
+            },
+        )
+
+        self.assertEqual(preview.status_code, 403)
+        self.assertEqual(apply.status_code, 403)
+        self.assertEqual(Product.objects.count(), product_before)
+        self.assertEqual(Receipt.objects.count(), receipt_before)
+        self.assertEqual(StockMovement.objects.count(), movement_before)
+        self.assertFalse(Product.objects.filter(sku="DENIED-1").exists())
