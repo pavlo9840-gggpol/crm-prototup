@@ -695,3 +695,150 @@ class ExchangeRate(models.Model):
     class Meta:
         unique_together = [("currency", "date")]
         ordering = ["-date", "currency__code"]
+
+
+# ---------------------------------------------------------------------------
+# Normalized spare-parts catalogue. Catalogue identities are separate from
+# stock Products and supplier offers; importing a catalogue must never create
+# stock or alter prices.
+class CatalogSource(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    url = models.URLField(max_length=500, blank=True)
+    license_name = models.CharField(max_length=120, blank=True)
+    attribution = models.CharField(max_length=250, blank=True)
+    version = models.CharField(max_length=80, blank=True)
+    commercial_use = models.BooleanField(default=False)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class CatalogImportRun(models.Model):
+    source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="runs")
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=12, default="running",
+                              choices=[("running", "Виконується"), ("success", "Успішно"), ("failed", "Помилка")])
+    created_count = models.PositiveIntegerField(default=0)
+    updated_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(default=0)
+    error_count = models.PositiveIntegerField(default=0)
+    message = models.TextField(blank=True)
+
+
+class VehicleMake(models.Model):
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=140)
+    kind = models.CharField(max_length=20, default="car", db_index=True)
+    source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="vehicle_makes")
+    source_id = models.CharField(max_length=180, blank=True)
+    name_norm = models.CharField(max_length=140, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "slug"], name="uniq_vehicle_make_kind_slug"),
+            models.UniqueConstraint(fields=["source", "source_id"], name="uniq_vehicle_make_source_id"),
+        ]
+        ordering = ["name", "kind"]
+
+    def __str__(self):
+        return self.name
+
+
+class VehicleModel(models.Model):
+    make = models.ForeignKey(VehicleMake, on_delete=models.PROTECT, related_name="models")
+    name = models.CharField(max_length=160)
+    slug = models.SlugField(max_length=180)
+    source_id = models.CharField(max_length=220, blank=True)
+    body_types = models.JSONField(default=list, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["make", "slug"], name="uniq_vehicle_model_make_slug"),
+            models.UniqueConstraint(fields=["make", "source_id"], name="uniq_vehicle_model_source_id"),
+        ]
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.make.name} {self.name}"
+
+
+class VehicleVariant(models.Model):
+    """A more specific fitment target; the open base catalogue may only know nameplates."""
+    model = models.ForeignKey(VehicleModel, on_delete=models.PROTECT, related_name="variants")
+    label = models.CharField(max_length=180)
+    year_from = models.PositiveSmallIntegerField(null=True, blank=True)
+    year_to = models.PositiveSmallIntegerField(null=True, blank=True)
+    engine_code = models.CharField(max_length=80, blank=True)
+    engine_description = models.CharField(max_length=160, blank=True)
+    body_code = models.CharField(max_length=80, blank=True)
+    source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="vehicle_variants")
+    source_id = models.CharField(max_length=220, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["model", "source", "source_id"], name="uniq_vehicle_variant_source_id"),
+        ]
+        indexes = [models.Index(fields=["model", "year_from", "year_to"])]
+
+    def __str__(self):
+        return f"{self.model} {self.label}".strip()
+
+
+class CatalogPart(models.Model):
+    """Logical catalogue part, distinct from a stock Product or supplier listing."""
+    name = models.CharField(max_length=250, blank=True)
+    category_name = models.CharField(max_length=120, blank=True)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+
+class CatalogPartNumber(models.Model):
+    part = models.ForeignKey(CatalogPart, on_delete=models.CASCADE, related_name="numbers")
+    brand = models.CharField(max_length=60)
+    brand_norm = models.CharField(max_length=60, db_index=True)
+    sku = models.CharField(max_length=80)
+    sku_norm = models.CharField(max_length=80, db_index=True)
+    source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="part_numbers")
+    source_id = models.CharField(max_length=180, blank=True)
+    product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.SET_NULL, related_name="catalog_numbers")
+    confidence = models.PositiveSmallIntegerField(default=100)
+    verified = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["brand_norm", "sku_norm"], name="uniq_catalog_brand_sku"),
+            models.UniqueConstraint(fields=["source", "source_id"], name="uniq_catalog_part_source_id"),
+        ]
+        indexes = [models.Index(fields=["sku_norm", "brand_norm"])]
+
+    def __str__(self):
+        return f"{self.brand} {self.sku}"
+
+
+class PartFitment(models.Model):
+    part_number = models.ForeignKey(CatalogPartNumber, on_delete=models.CASCADE, related_name="fitments")
+    vehicle_model = models.ForeignKey(VehicleModel, on_delete=models.CASCADE, related_name="part_fitments")
+    variant = models.ForeignKey(VehicleVariant, null=True, blank=True, on_delete=models.CASCADE, related_name="part_fitments")
+    source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="fitments")
+    year_from = models.PositiveSmallIntegerField(null=True, blank=True)
+    year_to = models.PositiveSmallIntegerField(null=True, blank=True)
+    engine_code = models.CharField(max_length=80, blank=True)
+    notes = models.CharField(max_length=250, blank=True)
+    verified = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["part_number", "vehicle_model", "variant", "source", "year_from", "year_to", "engine_code"],
+                                    name="uniq_part_fitment_evidence"),
+        ]
+        indexes = [models.Index(fields=["vehicle_model", "year_from", "year_to"])]
+
