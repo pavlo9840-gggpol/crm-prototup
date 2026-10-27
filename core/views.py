@@ -6,6 +6,7 @@ from functools import wraps
 from urllib.parse import urlencode
 
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
@@ -802,7 +803,7 @@ def shift_view(request):
     shift = current_shift(request.user)
     if request.method == "POST":
         # Serialize open/close actions for this cashier and refresh the shift under lock.
-        type(request.user).objects.select_for_update().get(pk=request.user.pk)
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
         shift = Shift.objects.select_for_update().filter(
             cashier=request.user, closed_at__isnull=True
         ).first()
