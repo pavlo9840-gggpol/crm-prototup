@@ -6,6 +6,7 @@ from . import transit as tr
 from . import parts as pt
 from . import pricing_views as pv
 from . import carparts as cp
+from . import catalog_views as cat
 from . import payroll_views as pr
 from . import currency_views as cv
 from . import receive_views as rv
@@ -50,6 +51,7 @@ urlpatterns = [
     path("price-rules/<int:pk>/edit/", pv.price_rule_edit, name="price_rule_edit"),
     path("price-review/", pv.price_review, name="price_review"),
     path("car-parts/", cp.car_parts, name="car_parts"),
+    path("catalogue/", cat.catalogue_home, name="catalogue_home"),
     path("rates/", cv.rates, name="rates"),
     path("payroll/", pr.payroll_view, name="payroll"),
     path("pay-plans/", pr.pay_plans, name="pay_plans"),
