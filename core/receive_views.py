@@ -4,6 +4,7 @@ import uuid
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -100,9 +101,11 @@ def receive_preview(request):
 
 @login_required
 @require_POST
+@transaction.atomic
 def receive_apply(request):
     try:
-        sup = get_object_or_404(Supplier, pk=request.POST.get("supplier") or 0)
+        # Серіалізуємо приймання по постачальнику, щоб два паралельні запити не пройшли перевірку одночасно.
+        sup = get_object_or_404(Supplier.objects.select_for_update(), pk=request.POST.get("supplier") or 0)
         token, fname, rows = _read(request)
         hdr = max(0, int(request.POST.get("header_row") or 0))
         cols = {k: int(request.POST[f"col_{k}"]) for k, _ in FIELDS if request.POST.get(f"col_{k}", "") != ""}
