@@ -147,3 +147,42 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(response.context["cost"], Decimal("12.00"))
         self.assertEqual(response.context["margin"], Decimal("8.00"))
         self.assertEqual(len(response.context["rows"]), 1)
+
+    def test_inventory_shortage_cannot_drive_stock_below_zero(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            "/inventory/adjust/",
+            {
+                "product": self.product.pk,
+                "kind": "shortage",
+                "quantity": "11.000",
+                "reason": "other",
+                "note": "Перевірка нестачі",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Недостатньо залишку")
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("10.000"))
+        from core.models import StockAdjustment, StockMovement
+        self.assertEqual(StockAdjustment.objects.count(), 0)
+        self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
+
+    def test_inventory_adjustment_is_staff_only(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            "/inventory/adjust/",
+            {
+                "product": self.product.pk,
+                "kind": "surplus",
+                "quantity": "1.000",
+                "reason": "other",
+                "note": "Не має бути дозволено касиру",
+            },
+        )
+        self.assertEqual(response.status_code, 403)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("10.000"))
+        from core.models import StockAdjustment, StockMovement
+        self.assertEqual(StockAdjustment.objects.count(), 0)
+        self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
