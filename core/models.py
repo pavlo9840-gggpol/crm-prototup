@@ -832,13 +832,25 @@ class PartFitment(models.Model):
     year_from = models.PositiveSmallIntegerField(null=True, blank=True)
     year_to = models.PositiveSmallIntegerField(null=True, blank=True)
     engine_code = models.CharField(max_length=80, blank=True)
+    fitment_key = models.CharField(max_length=180, blank=True, default="", editable=False)
     notes = models.CharField(max_length=250, blank=True)
     verified = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["part_number", "vehicle_model", "variant", "source", "year_from", "year_to", "engine_code"],
+            models.UniqueConstraint(fields=["part_number", "vehicle_model", "source", "fitment_key"],
                                     name="uniq_part_fitment_evidence"),
         ]
         indexes = [models.Index(fields=["vehicle_model", "year_from", "year_to"], name="core_partfi_vehicle_96e2f0_idx")]
+
+    def save(self, *args, **kwargs):
+        # Non-null canonical key makes deduplication reliable on SQLite and PostgreSQL,
+        # including fitments whose year range or variant is unknown.
+        self.fitment_key = (
+            f"v:{self.variant_id or 0}|y:{self.year_from or 0}-{self.year_to or 0}|"
+            f"e:{(self.engine_code or '').strip().upper()}"
+        )[:180]
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = list(kwargs["update_fields"]) + ["fitment_key"]
+        super().save(*args, **kwargs)
 
