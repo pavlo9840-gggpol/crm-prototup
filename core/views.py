@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import (Count, DecimalField, ExpressionWrapper, F, Max, Q, Sum)
 from django.db.models.functions import TruncDate
 from django.http import JsonResponse
@@ -412,6 +413,10 @@ def _parse_cart(request):
     held = None
     if d.get("resume_id"):
         held = Sale.objects.filter(pk=d["resume_id"], status=Sale.HELD).first()
+        if held is None:
+            raise StockError("Чернетка вже проведена або видалена. Оновіть касу та створіть чек заново.")
+        if held.cashier_id != request.user.id and not request.user.is_staff:
+            raise PermissionDenied
     car = None
     if customer and d.get("car_id"):
         car = CustomerCar.objects.filter(pk=d["car_id"], customer=customer).first()
@@ -502,8 +507,10 @@ def pos_change(request):
 
 @login_required
 @require_POST
+@transaction.atomic
 def pos_checkout(request):
-    shift = current_shift(request.user)
+    # Serialize checkouts in the same cash shift before reading/updating its drawer.
+    shift = Shift.objects.select_for_update().filter(cashier=request.user, closed_at__isnull=True).first()
     if not shift and not request.user.is_staff:
         return JsonResponse({"error": "Зміну не відкрито"}, status=400)
     try:
