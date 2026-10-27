@@ -87,6 +87,7 @@ class Migration(migrations.Migration):
             ("year_from", models.PositiveSmallIntegerField(blank=True, null=True)),
             ("year_to", models.PositiveSmallIntegerField(blank=True, null=True)),
             ("engine_code", models.CharField(blank=True, max_length=80)),
+            ("fitment_key", models.CharField(blank=True, default="", editable=False, max_length=180)),
             ("notes", models.CharField(blank=True, max_length=250)),
             ("verified", models.BooleanField(default=False)),
             ("part_number", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="fitments", to="core.catalogpartnumber")),
@@ -102,7 +103,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(model_name="catalogpartnumber", constraint=models.UniqueConstraint(fields=("brand_norm", "sku_norm"), name="uniq_catalog_brand_sku")),
         migrations.AddConstraint(model_name="catalogpartnumber", constraint=models.UniqueConstraint(condition=models.Q(("source_id", ""), _negated=True), fields=("source", "source_id"), name="uniq_catalog_part_source_id")),
         migrations.AddIndex(model_name="catalogpartnumber", index=models.Index(fields=["sku_norm", "brand_norm"], name="core_catalo_sku_nor_3b8f77_idx")),
-        migrations.AddConstraint(model_name="partfitment", constraint=models.UniqueConstraint(fields=("part_number", "vehicle_model", "variant", "source", "year_from", "year_to", "engine_code"), name="uniq_part_fitment_evidence")),
+        migrations.AddConstraint(model_name="partfitment", constraint=models.UniqueConstraint(fields=("part_number", "vehicle_model", "source", "fitment_key"), name="uniq_part_fitment_evidence")),
         migrations.AddIndex(model_name="partfitment", index=models.Index(fields=["vehicle_model", "year_from", "year_to"], name="core_partfi_vehicle_96e2f0_idx")),
         migrations.AddIndex(model_name="vehiclevariant", index=models.Index(fields=["model", "year_from", "year_to"], name="core_vehicl_model_i_64e7e2_idx")),
     ]
