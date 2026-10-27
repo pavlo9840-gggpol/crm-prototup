@@ -76,7 +76,7 @@ class Command(BaseCommand):
                         )
                         number = CatalogPartNumber.objects.create(
                             part=part, brand=brand, brand_norm=brand_norm, sku=sku, sku_norm=sn,
-                            source=source, source_id=(row.get("source_id") or "").strip()[:180],
+                            source=source, external_id=(row.get("source_id") or "").strip()[:180],
                             verified=(row.get("verified") or "").strip().lower() in ("1", "true", "yes", "так"),
                             confidence=100 if (row.get("verified") or "").strip().lower() in ("1", "true", "yes", "так") else 60,
                         )
