@@ -46,9 +46,9 @@
     {% for r in rows %}
     <tr>
       <td><b>{{ r.brand }}</b></td>
-      <td><a href="{% url 'part_card' %}?b={{ r.number.brand|urlencode }}&s={{ r.sku }}">{{ r.sku }}</a></td>
+      <td><a href="{% url 'part_card' %}?b={{ r.brand|urlencode }}&s={{ r.sku }}">{{ r.sku }}</a></td>
       <td>{{ r.name|default:"—" }}{% if r.verified %}<span class="tag ok">Перевірено</span>{% else %}<span class="tag warning">Потребує перевірки</span>{% endif %}</td>
-      <td>{% for f in r.fitments %}{{ f.vehicle_model.make.name }} {{ f.vehicle_model.name }}{% if f.year_from %} · {{ f.year_from }}{% endif %}{% if f.year_to %}–{{ f.year_to }}{% endif %} <small class="muted">({{ f.source.name }}{% if f.verified %}, підтверджено{% endif %})</small>{% if not forloop.last %}<br>{% endif %}{% empty %}<span class="muted">Сумісність не внесена</span>{% endfor %}</td>
+      <td><small class="muted">{{ r.source }}</small>{% if r.fitments %}<br>{% endif %}{% for f in r.fitments %}{{ f.vehicle_model.make.name }} {{ f.vehicle_model.name }}{% if f.year_from %} · {{ f.year_from }}{% endif %}{% if f.year_to %}–{{ f.year_to }}{% endif %} <small class="muted">({{ f.source.name }}{% if f.verified %}, підтверджено{% endif %})</small>{% if not forloop.last %}<br>{% endif %}{% empty %}<span class="muted">Сумісність не внесена</span>{% endfor %}</td>
       <td class="n">{% if r.stock > 0 %}{{ r.stock|floatformat:"-3" }}{% else %}—{% endif %}</td>
       <td class="n">{% if r.price %}{{ r.price }} ₴{% else %}—{% endif %}</td>
       <td>{% if r.offer %}{{ r.offer.supplier.name }} · {{ r.offer.cost }} ₴{% else %}—{% endif %}</td>
