@@ -111,7 +111,15 @@ def receive_apply(request):
             raise ValueError("Кількість днів відліку: від 1 до 365")
         _code, rate = _inv_rate(request, sup)
         lines, _bad = receiving.parse_lines(_records(request, rows, hdr, cols), rate)
-        rec = receiving.execute(request.user, sup, request.POST.get("number", ""), days, lines)
+        # Захист від повторного оприбуткування тієї самої накладної новим завантаженням.
+        # Порожній номер дозволяємо, оскільки частина постачальників його не надає.
+        number = (request.POST.get("number") or "").strip()[:60]
+        if number and Receipt.objects.filter(supplier=sup, number=number).exists():
+            raise StockError(
+                f"Накладну «{number}» від постачальника «{sup.name}» уже прийнято. "
+                "Перевірте журнал приймань, щоб не оприбуткувати товар повторно."
+            )
+        rec = receiving.execute(request.user, sup, number, days, lines)
     except (TableError, ValueError, StockError, currency.RateError) as e:
         messages.error(request, str(e))
         return redirect("receive_home")
