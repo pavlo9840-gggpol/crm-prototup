@@ -42,7 +42,7 @@ class VehicleCatalogueImportTests(TestCase):
     def test_parts_csv_import_does_not_duplicate_parts_oe_or_fitments(self):
         source = CatalogSource.objects.create(name="Test licensed data", license_name="Test license")
         make = VehicleMake.objects.create(name="Example Motors", slug="example-motors", kind="car",
-                                          source=source, source_id="car/example-motors", name_norm="example motors")
+                                          source=source, external_id="car/example-motors", name_norm="example motors")
         model = VehicleModel.objects.create(make=make, name="Roadster", slug="roadster",
                                             source_id="car/example-motors/roadster")
         content = (
