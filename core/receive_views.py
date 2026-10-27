@@ -3,7 +3,6 @@ import re
 import uuid
 
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -12,11 +11,12 @@ from . import currency, receiving
 from .models import CompanySettings, Currency, Receipt, Supplier
 from .services import StockError
 from .transit import MAX_FILE, TableError, _tmp_dir, _tmp_path, guess_columns, read_table
+from .views import staff_only
 
 FIELDS = [("sku", "Артикул *"), ("brand", "Бренд"), ("qty", "Кількість *"), ("cost", "Ціна закупівлі"), ("name", "Назва")]
 
 
-@login_required
+@staff_only
 def receive_home(request):
     qs = Receipt.objects.select_related("supplier", "user", "purchase")
     if not request.user.is_staff:
@@ -72,7 +72,7 @@ def _cols(request, rows, hdr, fresh):
     return headers, cols, ncol
 
 
-@login_required
+@staff_only
 @require_POST
 def receive_preview(request):
     try:
@@ -99,7 +99,7 @@ def receive_preview(request):
         "can_apply": bool(pl["totals"]["matched"] or pl["totals"]["stock_lines"])})
 
 
-@login_required
+@staff_only
 @require_POST
 @transaction.atomic
 def receive_apply(request):
