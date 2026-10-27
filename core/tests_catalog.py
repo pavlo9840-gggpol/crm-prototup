@@ -60,3 +60,15 @@ class VehicleCatalogueImportTests(TestCase):
         self.assertEqual(PartOe.objects.count(), 1)
         self.assertEqual(PartFitment.objects.count(), 1)
         self.assertEqual(PartFitment.objects.first().vehicle_model_id, model.pk)
+
+
+    def test_catalogue_search_includes_existing_manual_products(self):
+        from django.contrib.auth import get_user_model
+        from core.models import Product
+        user = get_user_model().objects.create_user(username="catalog-user", password="test-pass")
+        Product.objects.create(name="Oil filter", sku="AB-123", brand="ExampleBrand", price=25)
+        self.client.login(username="catalog-user", password="test-pass")
+        response = self.client.get("/catalogue/?q=AB123")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "AB-123")
+        self.assertContains(response, "Oil filter")
