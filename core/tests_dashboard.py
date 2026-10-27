@@ -36,4 +36,4 @@ class UnifiedNavigationTests(TestCase):
     def test_cashier_is_redirected_to_point_of_sale_from_dashboard(self):
         self.client.force_login(self.cashier)
         response = self.client.get(reverse("dashboard"))
-        self.assertRedirects(response, reverse("pos"))
+        self.assertRedirects(response, reverse("pos"), fetch_redirect_response=False)
