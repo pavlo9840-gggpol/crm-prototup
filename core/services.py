@@ -117,6 +117,16 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
     lines = merge_lines(lines)
     if not lines:
         raise StockError("Чек порожній")
+    if held is not None:
+        held = Sale.objects.select_for_update().filter(pk=held.pk).first()
+        if held is None or held.status != Sale.HELD:
+            raise StockError("Цю чернетку вже проведено або видалено. Створіть новий чек.")
+        if held.cashier_id != user.pk and not user.is_staff:
+            raise StockError("Немає доступу до цієї чернетки")
+    if shift is not None:
+        shift = Shift.objects.select_for_update().filter(pk=shift.pk, closed_at__isnull=True).first()
+        if shift is None and not user.is_staff:
+            raise StockError("Зміну вже закрито. Відкрийте нову зміну.")
     need = {}
     for p, q, _pr, x in lines:
         if not x:                                   # товар постачальника склад не перевіряє
@@ -153,12 +163,19 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
 @transaction.atomic
 def create_return(user, sale, qty_map, mode="auto", mtype="customer_return"):
     """mode: auto — на склад, окрім позицій постачальника, що ще не видані клієнту (їх просто скасовано);
-    stock — завжди на склад; nostock — склад не чіпати."""
+    stock — завжди на склад; nostock — склад не чіпати.
+
+    Lock the parent sale first so simultaneous return requests cannot both pass
+    the same returnable-quantity check.
+    """
+    sale = Sale.objects.select_for_update().filter(pk=sale.pk, status=Sale.DONE).first()
+    if sale is None:
+        raise StockError("Повернення можливе лише для проведеного продажу")
     ret = SaleReturn.objects.create(sale=sale, user=user)
     ret.number = f"PV-{ret.pk:06d}"
     ret.save(update_fields=["number"])
     total = D0
-    for item in sale.items.select_for_update():
+    for item in sale.items.select_for_update().order_by("pk"):
         q = qty_map.get(item.pk, D0)
         if q <= 0:
             continue
