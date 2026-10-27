@@ -36,7 +36,7 @@
   <label>Артикул / OE / назва <input name="q" value="{{ query }}" placeholder="напр. 06A115561B"></label>
   <button class="btn">Знайти</button>
 </form>
-{% if not n_models %}
+{% if not n_models and not searched %}
   <div class="card"><h3>Довідник ще не імпортовано</h3><p>Після розгортання запусти команду <code>python manage.py import_vehiclesdb</code>. Вона завантажить відкритий довідник VehiclesDB (CC BY 4.0) і безпечно оновлюватиме його без дублікатів.</p></div>
 {% elif searched %}
   <p class="muted">Знайдено: {{ rows|length }} позицій. Результати сумісності показуються лише за наявними записами застосовності; відсутність результату не означає несумісність.</p>
