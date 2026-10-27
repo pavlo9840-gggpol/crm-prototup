@@ -745,9 +745,13 @@ def report_top(request):
 def report_profit(request):
     today = timezone.localdate()
     d1, d2 = get_date(request, "from", today.replace(day=1)), get_date(request, "to", today)
-    rows = list(_items(d1, d2).values("product__name", "product__sku").annotate(
-        q=Sum(NET), rev=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
-        cost=Sum(ExpressionWrapper(NET * F("cost_price"), output_field=DEC))).order_by("-rev"))
+    # Margin is realized only after the item is handed over to the customer.
+    # Supplier-order sales remain in revenue reports, but are not counted as earned
+    # profit until fulfilment sets earned_at; returns reduce both net revenue and cost.
+    rows = list(_items(d1, d2).filter(earned_at__isnull=False)
+        .values("product__name", "product__sku").annotate(
+            q=Sum(NET), rev=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
+            cost=Sum(ExpressionWrapper(NET * F("cost_price"), output_field=DEC))).order_by("-rev"))
     for r in rows:
         r["margin"] = (r["rev"] or D0) - (r["cost"] or D0)
         r["pct"] = r["margin"] / r["rev"] * 100 if r["rev"] else D0
