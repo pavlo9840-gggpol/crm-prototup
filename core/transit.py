@@ -473,7 +473,11 @@ def order_action(request, pk, action):
             raise StockError("Невідома дія")
     except (StockError, ValueError) as e:
         messages.error(request, str(e))
-    return redirect(request.POST.get("next") or "orders")
+    next_url = (request.POST.get("next") or "").strip()
+    # Дозволяємо лише відносні внутрішні URL, не зовнішні адреси.
+    if next_url.startswith("/") and not next_url.startswith("//"):
+        return redirect(next_url)
+    return redirect("orders")
 
 
 # ============================================================== історія продажів менеджерів
