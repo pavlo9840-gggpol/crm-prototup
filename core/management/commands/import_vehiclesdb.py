@@ -47,7 +47,7 @@ class Command(BaseCommand):
         except (HTTPError, URLError, TimeoutError, ValueError, OSError) as exc:
             raise CommandError(f"Не вдалося завантажити JSON каталогу: {exc}") from exc
 
-        version = str(payload.get("version") or "unknown") if isinstance(payload, dict) else "unknown"
+        version = str(payload.get("version") or "2026.10.3") if isinstance(payload, dict) else "2026.10.3"
         source, _ = CatalogSource.objects.get_or_create(
             name=SOURCE_NAME,
             defaults={
