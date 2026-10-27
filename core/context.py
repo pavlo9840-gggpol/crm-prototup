@@ -4,7 +4,7 @@ from .models import CompanySettings
 STAFF_NAV = [
     ("Огляд", [("Головна", "dashboard")]),
     ("Торгівля", [("Каса", "pos"), ("Продажі", "sale_list"), ("Відкладені чеки", "held_list"), ("Зміна", "shift"),
-                  ("Готівка в касі", "drawer"), ("Замовлення в дорозі", "orders"), ("Приймання накладної", "receive_home"), ("Підбір за авто", "car_parts"),
+                  ("Готівка в касі", "drawer"), ("Замовлення в дорозі", "orders"), ("Приймання накладної", "receive_home"), ("Підбір за авто", "car_parts"), ("Каталог запчастин", "catalogue_home"),
                   ("Продажі менеджерів і маржа", "manager_sales"), ("Зарплата менеджерів", "payroll"), ("Плани оплати", "pay_plans")]),
     ("Склад", [("Товари", "product_list"), ("Категорії", "category_list"), ("Запаси", "inventory"),
                ("Списання / коригування", "adjustment_list"), ("Закупівлі", "purchase_list"),
