@@ -733,13 +733,13 @@ class VehicleMake(models.Model):
     slug = models.SlugField(max_length=140)
     kind = models.CharField(max_length=20, default="car", db_index=True)
     source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="vehicle_makes")
-    source_id = models.CharField(max_length=180, blank=True)
+    external_id = models.CharField(max_length=180, blank=True)
     name_norm = models.CharField(max_length=140, db_index=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["kind", "slug"], name="uniq_vehicle_make_kind_slug"),
-            models.UniqueConstraint(fields=["source", "source_id"], condition=~models.Q(source_id=""), name="uniq_vehicle_make_source_id"),
+            models.UniqueConstraint(fields=["source", "external_id"], condition=~models.Q(external_id=""), name="uniq_vehicle_make_source_id"),
         ]
         ordering = ["name", "kind"]
 
@@ -776,12 +776,12 @@ class VehicleVariant(models.Model):
     engine_description = models.CharField(max_length=160, blank=True)
     body_code = models.CharField(max_length=80, blank=True)
     source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="vehicle_variants")
-    source_id = models.CharField(max_length=220, blank=True)
+    external_id = models.CharField(max_length=220, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["model", "source", "source_id"], condition=~models.Q(source_id=""), name="uniq_vehicle_variant_source_id"),
+            models.UniqueConstraint(fields=["model", "source", "external_id"], condition=~models.Q(external_id=""), name="uniq_vehicle_variant_source_id"),
         ]
         indexes = [models.Index(fields=["model", "year_from", "year_to"], name="core_vehicl_model_i_64e7e2_idx")]
 
@@ -808,7 +808,7 @@ class CatalogPartNumber(models.Model):
     sku = models.CharField(max_length=80)
     sku_norm = models.CharField(max_length=80, db_index=True)
     source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="part_numbers")
-    source_id = models.CharField(max_length=180, blank=True)
+    external_id = models.CharField(max_length=180, blank=True)
     product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.SET_NULL, related_name="catalog_numbers")
     confidence = models.PositiveSmallIntegerField(default=100)
     verified = models.BooleanField(default=False)
@@ -816,7 +816,7 @@ class CatalogPartNumber(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["brand_norm", "sku_norm"], name="uniq_catalog_brand_sku"),
-            models.UniqueConstraint(fields=["source", "source_id"], condition=~models.Q(source_id=""), name="uniq_catalog_part_source_id"),
+            models.UniqueConstraint(fields=["source", "external_id"], condition=~models.Q(external_id=""), name="uniq_catalog_part_source_id"),
         ]
         indexes = [models.Index(fields=["sku_norm", "brand_norm"], name="core_catalo_sku_nor_3b8f77_idx")]
 
