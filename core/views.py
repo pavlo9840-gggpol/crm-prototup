@@ -793,9 +793,15 @@ def _drawer_rows(counts):
 
 
 @login_required
+@transaction.atomic
 def shift_view(request):
     shift = current_shift(request.user)
     if request.method == "POST":
+        # Serialize open/close actions for this cashier and refresh the shift under lock.
+        type(request.user).objects.select_for_update().get(pk=request.user.pk)
+        shift = Shift.objects.select_for_update().filter(
+            cashier=request.user, closed_at__isnull=True
+        ).first()
         action = request.POST.get("action")
         if action == "open" and not shift:
             counts = _counts_from_post(request, "c_", {})
