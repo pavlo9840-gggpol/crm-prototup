@@ -108,10 +108,13 @@ class Command(BaseCommand):
                             def year(field):
                                 val = (row.get(field) or "").strip()
                                 return int(val) if val.isdigit() and 1886 <= int(val) <= 2200 else None
+                            year_from, year_to = year("year_from"), year("year_to")
+                            engine_code = (row.get("engine_code") or "").strip()[:80]
+                            fitment_key = f"v:0|y:{year_from or 0}-{year_to or 0}|e:{engine_code.upper()}"[:180]
                             defaults = {
                                 "part_number": number, "vehicle_model": vehicle_model, "variant": None,
-                                "source": source, "year_from": year("year_from"), "year_to": year("year_to"),
-                                "engine_code": (row.get("engine_code") or "").strip()[:80],
+                                "source": source, "year_from": year_from, "year_to": year_to,
+                                "engine_code": engine_code, "fitment_key": fitment_key,
                                 "notes": (row.get("fitment_notes") or "").strip()[:250],
                                 "verified": (row.get("verified") or "").strip().lower() in ("1", "true", "yes", "так"),
                             }
