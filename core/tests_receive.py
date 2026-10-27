@@ -163,3 +163,15 @@ class ReceivingTest(TestCase):
         self.assertTrue(any("заміна" in w for w in warns))
         self.assertEqual(r.context["plan"]["rows"][0]["stock_qty"], 1)
         self.assertEqual(SaleItem.objects.get(pk=a.pk).fulfil_status, "ordered")
+
+
+    def test_same_supplier_invoice_number_cannot_be_received_twice(self):
+        self.invoice([["BILSTEIN", "19-152615", "", 1, 1000]], number="INV-UNIQUE")
+        self.assertEqual(Receipt.objects.filter(supplier=self.sup, number="INV-UNIQUE").count(), 1)
+        self.assertFalse(Product.objects.filter(sku="NEW-DOUBLE").exists())
+
+        response, _ = self.invoice([["MEYLE", "NEW-DOUBLE", "Не має бути оприбутковано", 2, 50]],
+                                   number="INV-UNIQUE")
+        self.assertContains(response, "уже прийнято")
+        self.assertEqual(Receipt.objects.filter(supplier=self.sup, number="INV-UNIQUE").count(), 1)
+        self.assertFalse(Product.objects.filter(sku="NEW-DOUBLE").exists())
