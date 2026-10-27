@@ -1,0 +1,25 @@
+<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% if preview %}Перегляд{% else %}{{ doc_label }}{% endif %}</title>
+<style>{{ css|safe }}
+@page{size:{{ pw }}mm {{ ph }}mm;margin:0}
+body{margin:0;background:#e9ecf1;font-family:system-ui,Arial,sans-serif}
+.bar{position:sticky;top:0;z-index:5;background:#17213a;color:#fff;padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.bar a,.bar button{background:#2457d6;color:#fff;border:0;border-radius:7px;padding:7px 14px;text-decoration:none;cursor:pointer;font-size:14px}
+.bar a.g{background:#5f6a85}.bar select{padding:6px;border-radius:6px;max-width:260px}
+.pgs{display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px;overflow:auto}
+.pgs .page{box-shadow:0 2px 12px #0004;flex-shrink:0}
+@media print{body{background:#fff}.bar{display:none}.pgs{display:block;padding:0}.pgs .page{box-shadow:none;break-after:page;page-break-after:always}.pgs .page:last-child{break-after:auto;page-break-after:auto}}
+{% if auto %}.bar{display:none}{% endif %}
+</style></head><body>
+{% if not auto and not preview %}<div class="bar"><b>{{ doc_label }}</b>
+<select id="tsel" title="Шаблон">{% for t in templates %}<option value="{{ t.pk }}" {% if t.pk == tpl.pk %}selected{% endif %}>{{ t.name }}</option>{% endfor %}</select>
+<button onclick="window.print()">🖨 Друк</button>
+<a href="?{{ qs }}&template={{ tpl.pk }}&fmt=pdf" target="_blank">PDF</a>
+{% if png_ok %}<a href="?{{ qs }}&template={{ tpl.pk }}&fmt=png">PNG</a><a href="?{{ qs }}&template={{ tpl.pk }}&fmt=jpg">JPG</a>{% endif %}
+{% if doc_type == "receipt" %}<a href="?{{ qs }}&template={{ tpl.pk }}&fmt=txt&cols=42" target="_blank" title="Простий текст для термопринтерів">TXT</a>{% endif %}
+{% if user.is_staff %}<a class="g" href="{% url 'designer_edit' tpl.pk %}">✏ Дизайнер</a>{% endif %}
+<span style="opacity:.7;font-size:13px">Сторінок: {{ npages }}</span></div>
+<script>document.getElementById('tsel').onchange=function(){location.search='?{{ qs|escapejs }}&template='+this.value}</script>{% endif %}
+<div class="pgs">{{ pages_html }}</div>
+{% if auto %}<script>window.onload=function(){var go=function(){setTimeout(function(){window.focus();window.print()},150)};(document.fonts&&document.fonts.ready)?document.fonts.ready.then(go):go()}</script>{% endif %}
+</body></html>

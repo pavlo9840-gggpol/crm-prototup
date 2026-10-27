@@ -1,0 +1,4 @@
+{% extends "core/base.html" %}{% block content %}{% include "core/report_nav.html" %}<h2>Звіт про запаси</h2>
+<div class="card">Вартість запасів (за ціною закупівлі): <b>{{ value|floatformat:2 }} ₴</b></div>
+<h3>Зведення змін за типами</h3><table><tr><th>Тип<th class="n">Записів<th class="n">Сумарна зміна</tr>{% for r in summary %}<tr><td>{{ r.label }}<td class="n">{{ r.n }}<td class="n">{{ r.s|floatformat:"-3" }}</tr>{% endfor %}</table>
+<h3>Низький залишок</h3><table><tr><th>Товар<th class="n">Залишок<th class="n">Мінімум</tr>{% for p in low %}<tr class="low"><td>{{ p.name }}<td class="n">{{ p.current_stock|floatformat:"-3" }}<td class="n">{{ p.min_stock|floatformat:"-3" }}</tr>{% empty %}<tr><td colspan="3">Усе в нормі</tr>{% endfor %}</table>{% endblock %}

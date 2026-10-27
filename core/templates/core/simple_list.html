@@ -1,0 +1,2 @@
+{% extends "core/base.html" %}{% block content %}<h2>{{ title }}</h2><p><a class="btn" href="{% url add %}">+ Додати</a></p>
+<table>{% for i in items %}<tr><td>{{ i }}<td><a href="{% url edit i.pk %}">Редагувати</a></tr>{% empty %}<tr><td>Порожньо</tr>{% endfor %}</table>{% endblock %}

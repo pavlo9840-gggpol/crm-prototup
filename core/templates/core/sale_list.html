@@ -1,0 +1,8 @@
+{% extends "core/base.html" %}{% block content %}<h2>Продажі</h2>
+<form class="filter">З <input type="date" name="from" value="{{ request.GET.from }}"> до <input type="date" name="to" value="{{ request.GET.to }}">
+<select name="payment"><option value="">Усі способи оплати</option>{% for k,v in payments %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+{% if user.is_staff %}<select name="cashier"><option value="">Усі касири</option>{% for c in cashiers %}<option value="{{ c.pk }}">{{ c.username }}</option>{% endfor %}</select>{% endif %}
+<button class="btn">Фільтр</button></form>
+{% include "core/_gpbar.html" %}
+<table><tr><th><input type="checkbox" id="selall"><th>Чек<th>Час<th class="n">Од.<th class="n">Сума<th>Оплата<th>Касир</tr>
+{% for s in sales %}<tr><td><input type="checkbox" name="ids" value="{{ s.pk }}" form="gp"><td><a href="{% url 'sale_detail' s.pk %}">{{ s.number }}</a><td>{{ s.created_at|date:"d.m.Y H:i" }}<td class="n">{{ s.qty|floatformat:"-3" }}<td class="n">{{ s.total }} ₴<td>{{ s.get_payment_method_display }}<td>{{ s.cashier }}</tr>{% endfor %}</table>{% endblock %}

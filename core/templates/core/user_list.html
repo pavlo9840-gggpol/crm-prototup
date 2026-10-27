@@ -1,0 +1,8 @@
+{% extends "core/base.html" %}{% block content %}<h2>Користувачі</h2>
+<p><a class="btn green" href="{% url 'user_new' %}">+ Новий користувач</a></p>
+<table><tr><th>Логін<th>Ім'я<th>Роль<th>Статус<th>Останній вхід<th></tr>
+{% for u in users %}<tr><td><b>{{ u.username }}</b>{% if u == user %} <span class="tag">це ви</span>{% endif %}<td>{{ u.first_name }}
+<td>{% if u.is_superuser %}<span class="tag" style="background:#e1ebff">Адміністратор</span>{% else %}<span class="tag">Касир</span>{% endif %}
+<td>{% if u.is_active %}Активний{% else %}<span class="err">Вимкнений</span>{% endif %}<td>{{ u.last_login|date:"d.m.Y H:i"|default:"—" }}
+<td><a class="btn gray sm" href="{% url 'user_edit' u.pk %}">Редагувати</a></tr>{% endfor %}</table>
+<p style="color:var(--mute);font-size:13px">Касир бачить лише касу, власні продажі й зміни. Адміністратор має повний доступ. Видалення користувачів не передбачене (історія продажів зберігається) — вимкніть обліковий запис.</p>{% endblock %}

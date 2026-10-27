@@ -1,0 +1,76 @@
+<!doctype html><html lang="uk"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf" content="{{ csrf_token }}">
+<title>{% block title %}{{ company_name|default:"Магазин" }}{% endblock %}</title>
+<style>
+:root{--bg:#f3f5fa;--card:#fff;--ink:#182033;--mute:#667085;--line:#e3e8f2;--pri:#3157d5;--pri2:#2542ad;--pri-soft:#eaf0ff;--ok:#16a05b;--ok-soft:#e2f6eb;--bad:#d9412c;--bad-soft:#fdeae6;--warn:#a96a00;--warn-soft:#fff4d9;--side:#101a33;--r:12px;--sh:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);--ring:0 0 0 3px rgba(49,87,213,.22)}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;margin:0;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+a{color:var(--pri)}h2{font-size:22px;letter-spacing:-.01em;margin:0 0 14px}h3{font-size:16px;margin:0 0 10px}
+.top{height:54px;background:linear-gradient(90deg,#0e1730,#1b2a57);color:#fff;display:flex;align-items:center;gap:6px;padding:0 16px;position:sticky;top:0;z-index:30;box-shadow:0 2px 8px rgba(8,14,34,.25)}
+.top b{font-size:16px;letter-spacing:.01em;margin-right:10px;white-space:nowrap}.top .sp{flex:1}
+.top a,.top button{color:#cdd6f0;text-decoration:none;background:none;border:0;font-size:14px;cursor:pointer;padding:7px 11px;border-radius:8px;font-family:inherit;transition:background .15s,color .15s;white-space:nowrap}
+.top a:hover,.top button:hover{background:#ffffff1f;color:#fff}.top a.on{background:#ffffff2e;color:#fff;font-weight:600}.top form{margin:0}
+.top .who{color:#9fb0dc;font-size:13px;padding:0 6px;display:flex;align-items:center;gap:6px}.top .who i{width:26px;height:26px;border-radius:50%;background:#3157d5;color:#fff;font-style:normal;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+.top .nav{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}.top .nav::-webkit-scrollbar{display:none}
+.burger{display:none;font-size:20px!important;padding:4px 10px!important}
+.shell{display:flex;min-height:calc(100vh - 54px)}
+.sidebar{width:236px;background:#fff;border-right:1px solid var(--line);padding:12px 10px;flex-shrink:0;overflow:auto;position:sticky;top:54px;height:calc(100vh - 54px)}
+.grp{margin:3px 0}.gh{width:100%;display:flex;align-items:center;gap:9px;background:none;border:0;padding:9px 10px;border-radius:9px;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer;font-family:inherit;text-align:left}
+.gh .ic{width:22px;text-align:center;font-size:15px}.gh span{flex:1}.gh:hover{background:var(--pri-soft)}.gh i{font-style:normal;transition:transform .2s;font-size:11px;color:var(--mute)}.grp.open>.gh i{transform:rotate(90deg)}
+.grp.act>.gh{color:var(--pri)}.gb{max-height:0;overflow:hidden;transition:max-height .25s ease}.grp.open>.gb{max-height:700px}.gb a{padding-left:41px}
+.sidebar a{display:block;padding:7px 10px;border-radius:8px;color:#344054;text-decoration:none;font-size:14px;transition:background .12s}
+.sidebar a:hover{background:var(--pri-soft)}.sidebar a.on{background:var(--pri);color:#fff;font-weight:600;box-shadow:0 2px 6px rgba(49,87,213,.35)}
+.sidebar a.solo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:13px;color:var(--ink)}.sidebar a.solo .ic{width:22px;text-align:center;font-size:15px}.sidebar a.solo.on{color:#fff}
+main{flex:1;padding:22px 26px;min-width:0;max-width:1500px}main>h2:first-child{margin-top:0}
+.nosb .sidebar{display:none}.nosb main{padding:10px 14px;max-width:none}
+table{border-collapse:separate;border-spacing:0;width:100%;background:var(--card);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh);margin-bottom:14px}
+th,td{padding:10px 14px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}tr:last-child>td{border-bottom:0}
+th{background:#f6f8fc;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);font-weight:700;white-space:nowrap}
+table tr:hover td{background:#f7f9ff}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.card{background:var(--card);padding:18px;border-radius:var(--r);margin-bottom:16px;box-shadow:var(--sh)}
+.card>h3:first-child,.card>h2:first-child{margin-top:0}
+.kpi{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px}.kpi .card{flex:1;min-width:200px;margin-bottom:10px;color:var(--mute);font-size:13px;border-left:4px solid var(--pri)}.kpi .card.low{border-left-color:#f08a24}
+.kpi b{font-size:28px;display:block;color:var(--ink);margin:2px 0;letter-spacing:-.02em}
+.btn,button.btn{background:var(--pri);color:#fff;padding:9px 18px;border:0;border-radius:9px;text-decoration:none;cursor:pointer;font-size:14px;display:inline-block;font-weight:600;font-family:inherit;box-shadow:0 1px 2px rgba(16,24,40,.12);transition:background .15s,transform .05s,box-shadow .15s;line-height:1.3}
+.btn:hover{background:var(--pri2);color:#fff}.btn:active{transform:translateY(1px)}.btn:focus-visible{outline:0;box-shadow:var(--ring)}
+.btn.red{background:var(--bad)}.btn.red:hover{background:#b9331f}.btn.gray{background:#fff;color:#344054;box-shadow:inset 0 0 0 1px #cfd6e4,0 1px 2px rgba(16,24,40,.06)}.btn.gray:hover{background:#f3f5fa;color:#182033}
+.btn.green{background:var(--ok)}.btn.green:hover{background:#12804a}.btn.sm{padding:5px 11px;font-size:13px;border-radius:8px}.btn.lg{padding:12px 24px;font-size:15px}.btn[disabled]{opacity:.55;cursor:not-allowed}
+.msg{padding:11px 14px 11px 16px;border-radius:10px;margin-bottom:10px;background:var(--pri-soft);border-left:4px solid var(--pri);display:flex;gap:10px;align-items:flex-start;box-shadow:var(--sh)}
+.msg .x{margin-left:auto;cursor:pointer;opacity:.5;font-size:18px;line-height:1;background:none;border:0;padding:0 2px;color:inherit}.msg .x:hover{opacity:1}
+.msg.error{background:var(--bad-soft);color:#8a2515;border-left-color:var(--bad)}.msg.success{background:var(--ok-soft);color:#126b3b;border-left-color:var(--ok)}.msg.warning{background:var(--warn-soft);color:#7a5200;border-left-color:#e0a21b}
+.low{background:#fff1e6}.out{background:#fddede}.err{color:var(--bad)}
+form.filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;background:#fff;padding:11px 12px;border-radius:var(--r);box-shadow:var(--sh)}
+input,select,textarea{padding:8px 11px;font-size:14px;border:1px solid #cdd5e4;border-radius:9px;background:#fff;font-family:inherit;color:var(--ink);transition:border-color .15s,box-shadow .15s}
+input:hover,select:hover,textarea:hover{border-color:#aab6d0}input:focus,select:focus,textarea:focus{outline:0;border-color:var(--pri);box-shadow:var(--ring)}
+input[type=checkbox],input[type=radio]{width:17px;height:17px;accent-color:var(--pri)}
+.card form p{margin:12px 0}.card form p>label{display:block;color:#344054;font-size:13px;font-weight:600;margin-bottom:5px;min-width:0}
+.card form p>input:not([type=checkbox]):not([type=radio]):not([type=file]),.card form p>select,.card form p>textarea{width:100%;max-width:520px}
+.card form p:has(>input[type=checkbox]){display:flex;flex-direction:row-reverse;justify-content:flex-end;align-items:center;gap:9px}.card form p:has(>input[type=checkbox])>label{margin:0;font-weight:500}
+ul.errorlist{list-style:none;padding:0;margin:4px 0;color:var(--bad);font-size:13px;font-weight:500}.helptext{display:block;color:var(--mute);font-size:12.5px;margin-top:4px;line-height:1.35}
+.bars{display:flex;gap:10px;align-items:flex-end;height:130px}.bars div{flex:1;text-align:center;font-size:11px;color:var(--mute)}
+.bars i{display:block;background:linear-gradient(180deg,#5b7be6,var(--pri));border-radius:6px 6px 0 0;min-height:2px}
+.tag{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:#e9edf6;color:#344054}
+.tag.ok{background:var(--ok-soft);color:#126b3b}.tag.warn{background:var(--warn-soft);color:#7a5200}.tag.bad{background:var(--bad-soft);color:#8a2515}.tag.info{background:var(--pri-soft);color:var(--pri2)}
+.muted{color:var(--mute)}.grid2{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}
+@media(max-width:1000px){.grid2{grid-template-columns:1fr}}
+@media(max-width:800px){.burger{display:inline-block}.top b{display:none}.sidebar{position:fixed;left:0;top:54px;z-index:25;height:calc(100vh - 54px);transform:translateX(-102%);transition:transform .2s;box-shadow:6px 0 24px rgba(8,14,34,.25)}
+body.sb-open .sidebar{transform:none}main{padding:12px}table{display:block;overflow-x:auto}.top .who span{display:none}}
+@media print{.top,.sidebar,.msg{display:none!important}main{padding:0}.card{box-shadow:none}}
+</style></head><body class="{% block bodyclass %}{% endblock %}">
+{% if user.is_authenticated %}<div class="top">{% if user.is_staff %}<button type="button" class="burger" id="burger" aria-label="Меню">☰</button>{% endif %}<b>🔧 {{ company_name }}</b>
+{% if not user.is_staff %}<div class="nav">{% for label, name in cashier_nav %}{% url name as href %}<a href="{{ href }}" class="{% if cur_url == name %}on{% endif %}">{{ label }}</a>{% endfor %}</div>{% endif %}
+<span class="sp"></span>{% if user.is_staff %}{% for r in rates_chip %}<a href="{% url 'rates' %}" class="rate" title="Курс НБУ / ваш курс. Натисніть, щоб змінити{% if r.stale %}. Курс застарів!{% endif %}" style="font-weight:600;{% if r.stale %}color:#ffd27a{% endif %}">{{ r.code }} {{ r.rate|floatformat:2 }}{% if r.stale %} ⚠{% endif %}</a>{% endfor %}{% endif %}<span class="who"><i>{{ user.username|slice:":1"|upper }}</i><span>{{ user.username }}</span></span>
+<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button>Вийти</button></form></div>{% endif %}
+<div class="shell">{% if user.is_staff %}<nav class="sidebar" id="sidebar">
+{% for g in nav_groups %}{% if g.single %}<a class="solo {% if g.items.0.active %}on{% endif %}" href="{% url g.items.0.name %}"><span class="ic">{{ g.icon }}</span>{{ g.items.0.label }}</a>
+{% else %}<div class="grp {% if g.has_active %}open act{% endif %}" data-g="{{ g.title }}"><button type="button" class="gh"><span class="ic">{{ g.icon }}</span><span>{{ g.title }}</span><i>▸</i></button>
+<div class="gb">{% for it in g.items %}{% url it.name as href %}<a href="{{ href }}" class="{% if it.active %}on{% endif %}">{{ it.label }}</a>{% endfor %}</div></div>{% endif %}{% endfor %}
+<div class="grp" data-g="Система"><button type="button" class="gh"><span class="ic">🧰</span><span>Система</span><i>▸</i></button><div class="gb"><a href="/admin/">Адмін-панель Django</a></div></div>
+</nav>{% endif %}
+<main>{% for m in messages %}<div class="msg {{ m.tags }}"><span>{{ m }}</span><button type="button" class="x" aria-label="Закрити" onclick="this.parentNode.remove()">×</button></div>{% endfor %}{% block content %}{% endblock %}</main></div><script>
+(function(){var sb=document.getElementById('sidebar');if(!sb)return;var K='nav-open',st={};try{st=JSON.parse(localStorage.getItem(K)||'{}')}catch(e){}
+sb.querySelectorAll('.grp').forEach(function(g){var n=g.dataset.g;if(g.classList.contains('act'))return;if(st[n]===true)g.classList.add('open');else g.classList.remove('open')});
+sb.addEventListener('click',function(e){var h=e.target.closest('.gh');if(!h)return;var g=h.parentElement;g.classList.toggle('open');st[g.dataset.g]=g.classList.contains('open');try{localStorage.setItem(K,JSON.stringify(st))}catch(e){}});
+var bg=document.getElementById('burger');if(bg)bg.addEventListener('click',function(){document.body.classList.toggle('sb-open')});
+var a=sb.querySelector('a.on');if(a&&a.scrollIntoView){a.scrollIntoView({block:'nearest'})}})();
+</script><script>document.querySelectorAll('.msg.success').forEach(function(m){setTimeout(function(){if(!m.parentNode)return;m.style.transition='opacity .4s';m.style.opacity='0';setTimeout(function(){m.remove()},450)},7000)});</script></body></html>

@@ -1,0 +1,9 @@
+{% extends "core/base.html" %}{% block content %}<h2>Товари</h2>
+<form class="filter"><input name="q" value="{{ q }}" placeholder="Бренд / артикул / назва"><select name="category"><option value="">Усі категорії</option>
+{% for c in categories %}<option value="{{ c.pk }}" {% if cat == c.pk|stringformat:"s" %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+<select name="sort"><option value="name">Назва</option><option value="brand">Бренд</option><option value="sku">Артикул</option><option value="current_stock">Залишок ↑</option><option value="-current_stock">Залишок ↓</option><option value="price">Ціна ↑</option><option value="-price">Ціна ↓</option></select>
+<button class="btn">Знайти</button> <a class="btn green" href="{% url 'product_new' %}">+ Новий товар</a> <a class="btn gray" href="{% url 'product_export' %}">⬇ CSV</a> <a class="btn gray" href="{% url 'product_import' %}">⬆ Імпорт</a></form>
+{% include "core/_gpbar.html" %}
+<table><tr><th><input type="checkbox" id="selall" title="Для друку цінників"><th>Бренд<th>Артикул<th>Назва<th>Категорія<th class="n">Закупівля<th class="n">Продаж<th class="n">Залишок<th>Статус<th></tr>
+{% for p in products %}<tr class="{% if p.is_low %}low{% endif %}"><td><input type="checkbox" name="ids" value="{{ p.pk }}" form="gp"><td><b>{{ p.brand|default:"—" }}</b><td>{{ p.sku }}<td>{{ p.name }}<td>{{ p.category|default:"—" }}<td class="n">{{ p.cost_price }}<td class="n">{{ p.price }}
+<td class="n">{{ p.current_stock|floatformat:"-3" }} {% if p.is_low %}⚠{% endif %}<td>{% if p.is_active %}Активний{% else %}Неактивний{% endif %}<td><a href="{% url 'product_edit' p.pk %}">Ред.</a></tr>{% endfor %}</table>{% endblock %}

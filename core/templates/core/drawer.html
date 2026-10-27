@@ -1,0 +1,8 @@
+{% extends "core/base.html" %}{% block content %}<h2>Готівка в касі</h2>
+<div class="kpi"><div class="card">У касі зараз<b>{{ total|floatformat:2 }} ₴</b></div></div>
+<form method="post" class="card">{% csrf_token %}<h3>Внесення / вилучення / корекція</h3>
+<p style="color:var(--mute)">Змініть кількість купюр і монет та вкажіть причину — різниця запишеться в журнал.</p>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">{% for r in rows %}<label style="min-width:0">{{ r.l }} ₴<br><input type="number" min="0" name="c_{{ r.k }}" value="{{ r.n }}" style="width:100%"></label>{% endfor %}</div>
+<p><select name="kind"><option value="in">Внесення (розмін)</option><option value="out">Вилучення / інкасація</option><option value="adjust">Корекція</option></select>
+<input name="note" placeholder="Примітка" size="30"> <button class="btn green">Зберегти</button></p></form>
+<h3>Журнал операцій</h3><table><tr><th>Час<th>Тип<th class="n">Сума<th>Примітка</tr>{% for o in ops %}<tr><td>{{ o.created_at|date:"d.m.Y H:i" }}<td>{{ o.get_kind_display }}<td class="n">{{ o.amount }} ₴<td>{{ o.note }}</tr>{% empty %}<tr><td colspan="4">Операцій немає</tr>{% endfor %}</table>{% endblock %}

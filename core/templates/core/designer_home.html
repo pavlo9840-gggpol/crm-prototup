@@ -1,0 +1,20 @@
+{% extends "core/base.html" %}{% block content %}<h2>Дизайнер бланків</h2>
+<p style="color:var(--mute)">Оберіть тип документа, щоб переглянути або створити власні шаблони друкованих форм. Стандартні шаблони не змінюються — їх можна копіювати й редагувати копію.</p>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px">
+{% for c in cards %}<div class="card" style="margin:0"><h3 style="margin-top:0">{{ c.label }}</h3>
+<p style="color:var(--mute);font-size:13px">Шаблонів: <b>{{ c.count }}</b> (власних: {{ c.custom }})<br>За замовчуванням: <b>{{ c.default }}</b></p>
+<a class="btn sm" href="{% url 'designer_select' %}?type={{ c.key }}">Шаблони</a>
+<form method="post" action="{% url 'designer_new' c.key %}" style="display:inline">{% csrf_token %}<button class="btn green sm">+ Новий</button></form></div>{% endfor %}</div>
+<div class="card" style="margin-top:16px"><h3 style="margin-top:0">Завантажити шаблон з файлу</h3>
+<form method="post" action="{% url 'designer_import' %}" enctype="multipart/form-data">{% csrf_token %}
+<input type="file" name="file" accept=".json,.zip,application/json,application/zip" required> <label><input type="checkbox" name="make_default"> призначити за замовчуванням</label>
+<button class="btn sm">Завантажити</button> <a class="btn gray sm" href="{% url 'designer_export_all' %}">⬇ Резервна копія всіх власних шаблонів (ZIP)</a></form>
+<p style="color:var(--mute);font-size:13px;margin-bottom:0">Підтримується формат JSON цієї системи (експорт із дизайнера). Завантажений шаблон завжди додається як новий — існуючі не перезаписуються.</p></div>
+{% if legacy %}<div class="card" style="margin-top:16px;border-left:4px solid #e0a800"><h3 style="margin-top:0">Старі шаблони (попередня версія)</h3>
+<p style="color:var(--mute);font-size:13px">Знайдено HTML-шаблони зі старої версії. Їх можна автоматично перетворити на шаблони дизайнера (результат наближений — перевірте його) або видалити.</p>
+<table><tr><th>Документ<th>Змінено<th></tr>{% for l in legacy %}<tr><td><b>{{ l.label }}</b><details><summary style="cursor:pointer;color:var(--mute)">Показати вихідний код</summary><pre style="white-space:pre-wrap;max-height:200px;overflow:auto;font-size:12px">{{ l.obj.body }}</pre></details>
+<td>{{ l.obj.updated_at|date:"d.m.Y H:i" }}<td style="white-space:nowrap">
+{% if l.ok %}<form method="post" action="{% url 'legacy_convert' l.obj.pk %}" style="display:inline">{% csrf_token %}<button class="btn sm">Перетворити на новий</button></form>{% endif %}
+<form method="post" action="{% url 'legacy_delete' l.obj.pk %}" style="display:inline" onsubmit="return confirm('Видалити старий шаблон?')">{% csrf_token %}<button class="btn red sm">Видалити</button></form></tr>{% endfor %}</table>
+<form method="post" action="{% url 'legacy_clear' %}" onsubmit="return confirm('Видалити ВСІ старі шаблони?')" style="margin-top:8px">{% csrf_token %}<button class="btn gray sm">Видалити всі старі шаблони</button></form></div>{% endif %}
+{% endblock %}

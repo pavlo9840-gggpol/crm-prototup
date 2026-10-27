@@ -1,0 +1,11 @@
+{% extends "core/base.html" %}{% block content %}<h2>Головна</h2>
+<div class="kpi"><div class="card">Продажі сьогодні<b>{{ today_total|floatformat:2 }} ₴</b></div>
+<div class="card">Чеків сьогодні<b>{{ today_count }}</b></div>
+<div class="card">Продажі за місяць<b>{{ month_total|floatformat:2 }} ₴</b></div>
+<div class="card {% if low_count %}low{% endif %}">Низький залишок<b>{{ low_count }}</b><a href="{% url 'inventory' %}?status=low">Переглянути</a></div>
+<div class="card {% if overdue_orders %}low{% endif %}">Товар чекає клієнтів<b>{{ waiting_orders }}</b>{% if overdue_orders %}<span class="err">відлік вичерпано: {{ overdue_orders }}</span> {% endif %}<a href="{% url 'orders' %}">Замовлення в дорозі</a></div></div>
+<div class="card"><h3>Продажі за 7 днів</h3><div class="bars">{% for b in bars %}<div>{{ b.sum|floatformat:0 }}<i style="height:{{ b.h }}px"></i>{{ b.day|date:"d.m" }}</div>{% endfor %}</div></div>
+<div class="card"><h3>Останні 10 продажів</h3><table><tr><th>Чек<th>Час<th>Касир<th class="n">Сума</tr>
+{% for s in last_sales %}<tr><td><a href="{% url 'sale_detail' s.pk %}">{{ s.number }}</a><td>{{ s.created_at|date:"d.m.Y H:i" }}<td>{{ s.cashier }}<td class="n">{{ s.total }} ₴</tr>{% endfor %}</table></div>
+<div class="card"><h3>Останні 10 змін запасів</h3><table><tr><th>Час<th>Товар<th>Тип<th class="n">Зміна<th class="n">Залишок</tr>
+{% for m in last_moves %}<tr><td>{{ m.created_at|date:"d.m.Y H:i" }}<td>{{ m.product.name }}<td>{{ m.get_movement_type_display }}<td class="n">{{ m.quantity_change|floatformat:"-3" }}<td class="n">{{ m.balance_after|floatformat:"-3" }}</tr>{% endfor %}</table></div>{% endblock %}

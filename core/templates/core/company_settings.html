@@ -1,0 +1,8 @@
+{% extends "core/base.html" %}{% block content %}<h2>Фірма та рахунки</h2>
+<form method="post" enctype="multipart/form-data">{% csrf_token %}
+<div class="card"><h3>Дані фірми</h3>{{ form.as_p }}</div>
+<div class="card"><h3>Банківські рахунки</h3>{{ fs.management_form }}
+<table><tr><th>Банк<th>IBAN<th>МФО<th>Отримувач<th>Валюта<th>Примітка<th>Основний<th>Видалити</tr>
+{% for f in fs %}<tr>{% for h in f.hidden_fields %}{{ h }}{% endfor %}<td>{{ f.bank_name }}<td>{{ f.iban }}<td>{{ f.mfo }}<td>{{ f.holder }}<td>{{ f.currency }}<td>{{ f.note }}<td>{{ f.is_default }}<td>{% if f.DELETE %}{{ f.DELETE }}{% endif %}</tr>{% endfor %}</table>
+<p class="err">{{ fs.errors }}</p><p style="color:var(--mute)">Порожній останній рядок — для додавання нового рахунку.</p></div>
+<button class="btn green">Зберегти</button></form>{% endblock %}

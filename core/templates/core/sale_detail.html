@@ -1,0 +1,9 @@
+{% extends "core/base.html" %}{% block content %}<h2>Чек {{ sale.number }}</h2>
+<p>{{ sale.created_at|date:"d.m.Y H:i" }} · Касир: {{ sale.cashier }} · {{ sale.get_payment_method_display }}{% if sale.cash_received %} · отримано {{ sale.cash_received }}, здача {{ sale.change_given }}{% endif %} · Клієнт: {{ sale.customer|default:"Роздрібний покупець" }}{% if sale.car %} · Авто: {{ sale.car.title }}{% if sale.car.vin %} · VIN {{ sale.car.vin }}{% endif %}{% endif %}</p>
+<form method="post" action="{% url 'sale_return' sale.pk %}">{% csrf_token %}<table><tr><th>Товар<th class="n">К-сть<th class="n">Ціна<th class="n">Сума<th class="n">Повернуто{% if user.is_staff %}<th>Повернути{% endif %}</tr>
+{% for i in items %}<tr><td>{{ i.product.name }}<td class="n">{{ i.quantity|floatformat:"-3" }}<td class="n">{{ i.price }}{% if i.price != i.original_price %} <small>(було {{ i.original_price }})</small>{% endif %}<td class="n">{{ i.line_total|floatformat:2 }}<td class="n">{{ i.returned_qty|floatformat:"-3" }}
+{% if user.is_staff %}<td><input type="number" step="0.001" min="0" max="{{ i.returnable }}" name="ret_{{ i.pk }}" style="width:80px">{% endif %}</tr>{% endfor %}
+<tr><th colspan="3">Разом<th class="n">{{ sale.total }} ₴<th><th></tr></table>
+{% if user.is_staff %}<p><button class="btn red">Оформити повернення</button></p>{% endif %}</form>
+{% if returns %}<h3>Повернення</h3><ul>{% for r in returns %}<li>{{ r.number }} — {{ r.created_at|date:"d.m.Y H:i" }} — {{ r.total }} ₴</li>{% endfor %}</ul>{% endif %}
+<p><a class="btn" target="_blank" href="{% url 'print_docs' 'receipt' %}?ids={{ sale.pk }}">🖨 Друк чека</a> {% if user.is_staff %}<a class="btn gray" target="_blank" href="{% url 'print_docs' 'sale_invoice' %}?ids={{ sale.pk }}">Накладна</a>{% endif %} <a class="btn green" href="{% url 'pos' %}">Нова покупка</a></p>{% endblock %}

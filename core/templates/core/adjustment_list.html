@@ -1,0 +1,7 @@
+{% extends "core/base.html" %}{% block content %}<h2>Списання та коригування запасів</h2>
+<p><a class="btn green" href="{% url 'inventory_adjust' %}">+ Нове коригування</a></p>
+{% include "core/_gpbar.html" %}
+<table><tr><th><input type="checkbox" id="selall"><th>Номер<th>Час<th>Товар<th>Тип<th class="n">К-сть<th>Причина<th>Оператор<th></tr>
+{% for a in adjustments %}<tr><td><input type="checkbox" name="ids" value="{{ a.pk }}" form="gp"><td>ADJ-{{ a.pk|stringformat:"06d" }}<td>{{ a.created_at|date:"d.m.Y H:i" }}<td>{{ a.product.name }}<td>{{ a.get_kind_display }}<td class="n">{{ a.quantity|floatformat:"-3" }}<td>{{ a.get_reason_display }} {{ a.note }}<td>{{ a.user }}
+<td><a href="{% url 'print_docs' 'writeoff' %}?ids={{ a.pk }}" target="_blank">🖨 Акт</a></tr>
+{% empty %}<tr><td colspan="9">Ще немає записів</tr>{% endfor %}</table>{% endblock %}

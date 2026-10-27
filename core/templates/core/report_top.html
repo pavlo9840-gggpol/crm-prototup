@@ -1,0 +1,4 @@
+{% extends "core/base.html" %}{% block content %}{% include "core/report_nav.html" %}<h2>Рейтинг товарів</h2>
+<form class="filter"><input type="date" name="from" value="{{ d1|date:'Y-m-d' }}"><input type="date" name="to" value="{{ d2|date:'Y-m-d' }}">ТОП <input name="n" value="{{ n }}" size="3"><button class="btn">Показати</button></form>
+<h3>За сумою</h3><table><tr><th>Товар<th class="n">Продажів<th class="n">К-сть<th class="n">Сума</tr>{% for r in by_sum %}<tr><td>{{ r.product__name }}<td class="n">{{ r.n }}<td class="n">{{ r.q|floatformat:"-3" }}<td class="n">{{ r.s|floatformat:2 }}</tr>{% endfor %}</table>
+<h3>За кількістю</h3><table><tr><th>Товар<th class="n">Продажів<th class="n">К-сть<th class="n">Сума</tr>{% for r in by_qty %}<tr><td>{{ r.product__name }}<td class="n">{{ r.n }}<td class="n">{{ r.q|floatformat:"-3" }}<td class="n">{{ r.s|floatformat:2 }}</tr>{% endfor %}</table>{% endblock %}

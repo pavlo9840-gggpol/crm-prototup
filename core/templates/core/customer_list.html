@@ -1,0 +1,2 @@
+{% extends "core/base.html" %}{% block content %}<h2>Клієнти</h2><form class="filter"><input name="q" value="{{ q }}" placeholder="Ім'я / телефон"><button class="btn">Знайти</button> <a class="btn green" href="{% url 'customer_new' %}">+ Клієнт</a></form>
+<table><tr><th>Ім'я<th>Телефон<th class="n">Сума покупок<th>Остання покупка</tr>{% for c in customers %}<tr><td><a href="{% url 'customer_detail' c.pk %}">{{ c.name }}</a><td>{{ c.phone }}<td class="n">{{ c.total_spent }} ₴<td>{{ c.last|date:"d.m.Y"|default:"—" }}</tr>{% endfor %}</table>{% endblock %}

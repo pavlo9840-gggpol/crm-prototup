@@ -1,0 +1,8 @@
+<form id="gp" method="get" action="{% url 'print_docs' ptype %}" target="_blank"></form>
+<div class="card" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px"><b>🖨 Друк вибраних:</b>
+<select name="template" form="gp"><option value="">Шаблон за замовчуванням</option>{% for t in ptpls %}<option value="{{ t.pk }}">{{ t.name }}</option>{% endfor %}</select>
+{% if ptype == "pricetag" %}<input type="number" name="copies" form="gp" value="1" min="1" max="100" style="width:70px" title="Копій кожного цінника"> копій{% endif %}
+<button class="btn sm" form="gp">Друк / перегляд</button><button class="btn gray sm" form="gp" name="fmt" value="pdf">PDF</button>
+{% if ptype == "receipt" and user.is_staff %}<button class="btn gray sm" form="gp" formaction="{% url 'print_docs' 'sale_invoice' %}">Видаткові накладні</button>{% endif %}
+{% if user.is_staff %}<a href="{% url 'designer_select' %}?type={{ ptype }}">Шаблони…</a>{% endif %}</div>
+<script>document.addEventListener('change',function(e){if(e.target.id==='selall'){document.querySelectorAll('input[name=ids]').forEach(function(c){c.checked=e.target.checked})}});</script>

@@ -1,0 +1,5 @@
+{% extends "core/base.html" %}{% block content %}<h2>Відкладені чеки</h2><table><tr><th>№<th>Створено<th>Клієнт<th class="n">Сума<th></tr>
+{% for s in sales %}<tr><td>{{ s.number }}<td>{{ s.created_at|date:"d.m.Y H:i" }}<td>{{ s.customer|default:"—" }}<td class="n">{{ s.total }} ₴
+<td><a class="btn green" href="{% url 'pos' %}?resume={{ s.pk }}">Продовжити</a>
+<form method="post" action="{% url 'held_delete' s.pk %}" style="display:inline">{% csrf_token %}<button class="btn red">Видалити</button></form></tr>
+{% empty %}<tr><td>Немає відкладених чеків</tr>{% endfor %}</table>{% endblock %}

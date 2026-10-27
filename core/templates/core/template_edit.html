@@ -1,0 +1,16 @@
+{% extends "core/base.html" %}{% block content %}<h2>Шаблон: {{ title }}</h2>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+<form method="post" class="card" id="f">{% csrf_token %}
+<p>Папір: <select name="paper" id="paper">{% for v,l in papers %}<option value="{{ v }}" {% if t.paper == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></p>
+<textarea name="body" id="body" style="width:100%;height:420px;font-family:monospace;font-size:13px">{{ t.body }}</textarea>
+<p><button class="btn green">Зберегти</button> <button type="button" class="btn gray" id="pv">Оновити перегляд</button>
+<button class="btn red" name="action" value="reset" onclick="return confirm('Відновити стандартний шаблон?')">Скинути до стандартного</button></p>
+<details><summary>Доступні змінні</summary><ul>{% for k, v in varlist %}<li><code>{{ k }}</code> — {{ v }}</li>{% endfor %}</ul>
+<p>Синтаксис: <code>&#123;&#123; doc.number &#125;&#125;</code>, цикл <code>&#123;% for i in items %&#125;…&#123;% endfor %&#125;</code>, умова <code>&#123;% if x %&#125;…&#123;% endif %&#125;</code>. Класи: <code>c</code> (по центру), <code>r</code> (праворуч), <code>grid</code>, <code>items</code>, <code>tot</code>.</p></details></form>
+<div class="card"><iframe id="frame" style="width:100%;height:520px;border:1px solid var(--line);border-radius:8px;background:#eee"></iframe></div></div>
+<script>
+const csrf=document.querySelector('meta[name=csrf]').content;let tm;
+async function pv(){const fd=new FormData();fd.append('body',document.getElementById('body').value);fd.append('paper',document.getElementById('paper').value);
+const r=await fetch("{% url 'template_preview' kind %}",{method:'POST',headers:{'X-CSRFToken':csrf},body:fd});document.getElementById('frame').srcdoc=await r.text()}
+document.getElementById('pv').onclick=pv;document.getElementById('body').addEventListener('input',()=>{clearTimeout(tm);tm=setTimeout(pv,500)});document.getElementById('paper').onchange=pv;pv();
+</script>{% endblock %}

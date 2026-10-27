@@ -1,0 +1,4 @@
+{% extends "core/base.html" %}{% block content %}{% include "core/report_nav.html" %}<h2>Звіт про маржу</h2>
+<form class="filter"><input type="date" name="from" value="{{ d1|date:'Y-m-d' }}"><input type="date" name="to" value="{{ d2|date:'Y-m-d' }}"><button class="btn">Показати</button></form>
+<div class="kpi"><div class="card">Продажі<b>{{ rev|floatformat:2 }} ₴</b></div><div class="card">Собівартість<b>{{ cost|floatformat:2 }} ₴</b></div><div class="card">Маржа<b>{{ margin|floatformat:2 }} ₴</b></div></div>
+<table><tr><th>Товар<th class="n">К-сть<th class="n">Продажі<th class="n">Собівартість<th class="n">Маржа<th class="n">%</tr>{% for r in rows %}<tr><td>{{ r.product__name }}<td class="n">{{ r.q|floatformat:"-3" }}<td class="n">{{ r.rev|floatformat:2 }}<td class="n">{{ r.cost|floatformat:2 }}<td class="n">{{ r.margin|floatformat:2 }}<td class="n">{{ r.pct|floatformat:1 }}</tr>{% endfor %}</table>{% endblock %}

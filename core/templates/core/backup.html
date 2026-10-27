@@ -1,0 +1,9 @@
+{% extends "core/base.html" %}{% block content %}<h2>Резервні копії</h2>
+<div class="card"><p>Резервна копія містить базу даних (товари, продажі, шаблони бланків тощо) та завантажені файли (логотипи, фото).</p>
+<form method="post" style="display:inline">{% csrf_token %}<button class="btn green" name="action" value="download">⬇ Завантажити копію зараз</button></form>
+<form method="post" style="display:inline">{% csrf_token %}<button class="btn" name="action" value="save">💾 Зберегти на сервері (залишається останніх 14)</button></form></div>
+<div class="card"><h3 style="margin-top:0">Збережені на сервері</h3>
+{% if files %}<table><tr><th>Файл<th class="n">Розмір<th></tr>{% for f in files %}<tr><td>{{ f.name }}<td class="n">{{ f.kb }} КБ<td><a href="{% url 'backup_download' f.name %}">Завантажити</a></tr>{% endfor %}</table>
+{% else %}<p style="color:var(--mute)">Копій ще немає.</p>{% endif %}
+<p style="color:var(--mute);font-size:13px">Папка: <code>{{ dir }}</code>. Автоматично щодня: додайте в планувальник (cron / Планувальник завдань) команду <code>python manage.py backup</code>.</p></div>
+<div class="card"><h3 style="margin-top:0">Як відновити</h3><ol><li>Зупиніть сервер.</li><li>Розпакуйте архів.</li><li>Замініть <code>db.sqlite3</code> файлом з архіву, а папку <code>media</code> — вмістом <code>media/</code>.</li><li>Запустіть сервер.</li></ol></div>{% endblock %}

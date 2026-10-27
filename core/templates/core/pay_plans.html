@@ -1,0 +1,7 @@
+{% extends "core/base.html" %}{% block content %}<h2>Плани оплати менеджерів</h2>
+<div class="card" style="max-width:860px"><p style="margin-top:0">Оплата = <b>відсоток від маржі</b> менеджера + <b>фіксована частина</b> на місяць. Типовий план діє для всіх, кому не задано окремий.</p><a class="btn" href="{% url 'pay_plan_new' %}">＋ Новий план</a> <a class="btn gray" href="{% url 'payroll' %}">До відомості →</a></div>
+{% if not has_default %}<div class="msg warning">Типового плану немає: менеджери без окремого плану в відомості отримають 0. Створіть план без вибору менеджера, щоб він діяв для всіх.</div>{% endif %}
+<table><tr><th>Менеджер<th class="n">% від маржі<th class="n">Фіксована, ₴/міс<th>Примітка<th></tr>
+{% for p in plans %}<tr><td>{% if p.user %}<b>{{ p.user.first_name|default:p.user.username }}</b>{% else %}<b>Типовий план (для всіх)</b>{% endif %}<td class="n">{{ p.margin_pct|floatformat:"-2" }}%<td class="n">{{ p.fixed_monthly|floatformat:2 }}<td>{{ p.note }}<td><a class="btn gray sm" href="{% url 'pay_plan_edit' p.pk %}">Змінити</a></tr>
+{% empty %}<tr><td colspan="5">Планів ще немає</tr>{% endfor %}</table>
+{% if no_plan %}<p class="muted">Без плану: {% for u in no_plan %}{{ u.first_name|default:u.username }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}{% endblock %}

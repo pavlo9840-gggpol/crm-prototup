@@ -1,0 +1,14 @@
+{% extends "core/base.html" %}{% block content %}<h2>Приймання накладної постачальника</h2>
+<div class="card" style="max-width:860px"><p style="margin-top:0">Завантажте накладну (Excel/CSV) або вставте рядки. Програма <b>сама знайде, чиє це замовлення</b>: позиції клієнтів отримають статус «Прибув» і запуститься відлік на забір (товар піде клієнту <b>минаючи склад</b>), а решту буде оприбутковано на склад. Нічого не змінюється, доки ви не підтвердите на наступному кроці.</p>
+<form method="post" action="{% url 'receive_preview' %}" enctype="multipart/form-data">{% csrf_token %}
+<div class="frow" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px">
+<p style="margin:0"><label>Постачальник *</label><select name="supplier" required style="width:100%"><option value="">— оберіть —</option>{% for s in suppliers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></p>
+<p style="margin:0"><label>Номер накладної</label><input name="number" style="width:100%" placeholder="напр. ДГ000218084"></p>
+<p style="margin:0"><label>Валюта цін у накладній</label><select name="inv_cur" style="width:100%"><option value="">як у постачальника</option><option value="UAH">UAH (гривня)</option>{% for c in currencies %}{% if not c.is_base %}<option value="{{ c.code }}">{{ c.code }}</option>{% endif %}{% endfor %}</select></p>
+<p style="margin:0"><label>Днів на забір клієнтом</label><input type="number" name="days" min="1" max="365" value="{{ days }}" style="width:100%"></p></div>
+<p><label>Файл накладної (.xlsx / .csv)</label><input type="file" name="file" accept=".xlsx,.csv,.txt"></p>
+<p><label>…або вставте рядки: <i>Бренд; Артикул; Кількість; Ціна</i> (по рядку на позицію)</label><textarea name="paste" rows="5" style="width:100%;max-width:640px" placeholder="BILSTEIN;19-152615;2;1000&#10;SOLGY;112021;1;500"></textarea></p>
+<button class="btn lg">Далі: переглянути, що куди піде</button></form></div>
+{% if journal %}<h3>Останні приймання</h3><table><tr><th>Коли<th>Постачальник<th>Накладна<th>Хто<th class="n">Під клієнтів<th class="n">На склад<th class="n">Пропущено<th>Закупівля</tr>
+{% for r in journal %}<tr><td>{{ r.created_at|date:"d.m.Y H:i" }}<td>{{ r.supplier }}<td>{{ r.number|default:"—" }}<td>{{ r.user }}<td class="n">{{ r.n_matched }}<td class="n">{{ r.n_stock }}<td class="n">{{ r.n_skipped }}<td>{% if r.purchase %}<a href="{% url 'purchase_detail' r.purchase.pk %}">{{ r.purchase.number }}</a>{% else %}—{% endif %}</tr>
+{% if r.note %}<tr><td colspan="8" style="padding-top:0"><small class="muted" style="white-space:pre-line">{{ r.note }}</small></tr>{% endif %}{% endfor %}</table>{% endif %}{% endblock %}

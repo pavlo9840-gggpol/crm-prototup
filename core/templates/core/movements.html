@@ -1,0 +1,6 @@
+{% extends "core/base.html" %}{% block content %}<h2>Потік запасів</h2>
+<form class="filter"><select name="product"><option value="">Усі товари</option>{% for p in products %}<option value="{{ p.pk }}">{{ p.name }}</option>{% endfor %}</select>
+<select name="type"><option value="">Усі типи</option>{% for k,v in types %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+<input type="date" name="from" value="{{ request.GET.from }}"><input type="date" name="to" value="{{ request.GET.to }}"><button class="btn">Фільтр</button> <a class="btn" target="_blank" href="{% url 'print_movement_report' %}?{{ request.GET.urlencode }}">🖨 Друк звіту</a> <a class="btn gray" href="{% url 'designer_select' %}?type=movement_report">Шаблони звіту</a></form>
+<table><tr><th>Час<th>Товар<th>Тип<th class="n">Зміна<th class="n">Залишок після<th>Документ<th>Оператор<th>Примітка</tr>
+{% for m in moves %}<tr><td>{{ m.created_at|date:"d.m.Y H:i" }}<td>{{ m.product.name }}<td>{{ m.get_movement_type_display }}<td class="n">{{ m.quantity_change|floatformat:"-3" }}<td class="n">{{ m.balance_after|floatformat:"-3" }}<td>{{ m.doc_ref }}<td>{{ m.user|default:"" }}<td>{{ m.note }}</tr>{% endfor %}</table>{% endblock %}

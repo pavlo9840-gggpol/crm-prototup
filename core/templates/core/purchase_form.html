@@ -1,0 +1,24 @@
+{% extends "core/base.html" %}{% block content %}<h2>Нова накладна надходження</h2>
+<form method="post" class="card">{% csrf_token %}
+<p>Постачальник: <select name="supplier"><option value="">—</option>{% for s in suppliers %}<option value="{{ s.pk }}">{{ s }}</option>{% endfor %}</select>
+або новий: <input name="new_supplier" placeholder="Назва нового"></p>
+<p><input id="scan" placeholder="Скануйте штрих-код / код / назву + Enter — рядок додається автоматично" style="width:100%;font-size:17px;padding:10px"></p>
+<table id="rows"><tr><th>Товар<th>К-сть<th>Ціна закупівлі<th>Сума<th></tr></table>
+<p><button type="button" class="btn gray" id="add">+ Рядок</button></p>
+<p><label><input type="checkbox" name="update_cost" checked> Оновити типову ціну закупівлі в картці, якщо відрізняється</label></p>
+<h3>Разом: <span id="total">0.00</span> ₴</h3><button class="btn green">Провести</button></form>
+<select id="tpl" hidden><option value="">— товар —</option>{% for p in products %}<option value="{{ p.pk }}" data-cost="{{ p.cost_price|stringformat:'s' }}" data-code="{{ p.sku }} {{ p.barcode|default:'' }}">{{ p.name }} ({{ p.sku }})</option>{% endfor %}</select>
+<script>
+const rows=document.getElementById('rows'),tpl=document.getElementById('tpl');
+function calc(){let t=0;rows.querySelectorAll('tr.r').forEach(r=>{const s=(+r.querySelector('[name=qty]').value||0)*(+r.querySelector('[name=cost]').value||0);r.querySelector('.s').textContent=s.toFixed(2);t+=s});document.getElementById('total').textContent=t.toFixed(2)}
+function addRow(pid){const tr=document.createElement('tr');tr.className='r';
+tr.innerHTML='<td><select name="product">'+tpl.innerHTML+'</select><td><input name="qty" type="number" step="0.001" min="0" value="1" style="width:90px"><td><input name="cost" type="number" step="0.01" min="0" style="width:100px"><td class="s">0.00<td><button type="button" class="btn red">×</button>';
+tr.querySelector('select').onchange=e=>{const o=e.target.selectedOptions[0];tr.querySelector('[name=cost]').value=o.dataset.cost||'';calc()};
+tr.querySelectorAll('input').forEach(i=>i.oninput=calc);tr.querySelector('button').onclick=()=>{tr.remove();calc()};rows.appendChild(tr);if(pid){const s=tr.querySelector('select');s.value=pid;s.onchange({target:s})}return tr}
+document.getElementById('add').onclick=()=>addRow();
+document.getElementById('scan').addEventListener('keydown',e=>{if(e.key!=='Enter')return;e.preventDefault();const q=e.target.value.trim().toLowerCase();if(!q)return;
+const opts=[...tpl.options].filter(o=>o.value);let o=opts.find(o=>o.dataset.code.toLowerCase().split(' ').includes(q))||opts.find(o=>o.textContent.toLowerCase().includes(q));
+if(!o){e.target.style.background='#fdd';return}e.target.style.background='';let row=[...rows.querySelectorAll('tr.r')].find(r=>r.querySelector('select').value===o.value);
+if(row){const qi=row.querySelector('[name=qty]');qi.value=(+qi.value||0)+1}else{row=addRow(o.value);row.querySelector('[name=qty]').value=1}calc();e.target.value='';row.querySelector('[name=qty]').focus();row.querySelector('[name=qty]').select()});
+addRow();
+</script>{% endblock %}

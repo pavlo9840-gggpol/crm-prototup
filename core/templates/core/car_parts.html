@@ -1,0 +1,14 @@
+{% extends "core/base.html" %}{% block content %}<h2>Підбір деталей за авто{% if car %}: {{ car.title }}{% endif %}</h2>
+<style>.cg{margin-bottom:16px}.cg h3{display:flex;align-items:center;gap:8px}.cg h3 .tag{font-weight:600}</style>
+<form class="filter" method="get">{% if car %}<input type="hidden" name="car" value="{{ car.pk }}"><span class="tag info">🚗 {{ car.customer.name }}: {{ car.make }} {{ car.model }} {{ car.year|default:"" }}</span>{% else %}
+Марка: <input name="make" value="{{ make }}" placeholder="Renault" style="width:120px"> Модель: <input name="model" value="{{ model }}" placeholder="Trafic II" style="width:140px"> Рік: <input name="year" value="{{ year }}" type="number" style="width:90px">{% endif %}
+Тип деталі: <input name="q" value="{{ q }}" placeholder="амортизатор" style="width:150px"> <label style="min-width:0"><input type="checkbox" name="instock" value="1" {% if instock %}checked{% endif %}> лише наявні на складі</label> <button class="btn">Підібрати</button></form>
+{% if not searched %}<div class="card"><p style="margin:0" class="muted">Оберіть авто клієнта (у картці клієнта або на касі, кнопка «🔧 підбір») або введіть марку й модель.</p></div>
+{% elif not known %}<div class="msg warning">У базі ще немає даних про застосовність деталей до авто. Підтягніть їх з API постачальника (налаштування API, група «3», поле «застосовність») або імпортуйте файлом у розділі «OE-номери та описи».</div>
+{% elif not total %}<div class="card"><p style="margin:0">Сумісних деталей не знайдено. Перевірте написання марки й моделі: у каталозі вони можуть бути записані інакше (напр. «Renault» і «Рено»).</p></div>
+{% else %}<p class="muted">Знайдено деталей: <b>{{ total }}</b> у групах: {{ groups|length }}. Ціни вказано{% if customer %} для клієнта <b>{{ customer.name }}</b>{% endif %} з урахуванням правил цін. Це підбір за даними застосовності: для відповідальних вузлів звіряйте з VIN.</p>
+{% for g in groups %}<div class="cg"><h3>{{ g.name }} <span class="tag">{{ g.rows|length }}</span></h3>
+<table><tr><th>Бренд<th>Артикул<th>Назва<th class="n">На складі<th class="n">Ціна<th>У постачальника</tr>
+{% for r in g.rows %}<tr><td><b>{{ r.brand|default:"—" }}</b><td><a href="{% url 'part_card' %}?b={{ r.brand|urlencode }}&s={{ r.sn }}">{{ r.sku }}</a><td>{{ r.name }}
+<td class="n">{% if r.stock > 0 %}<b>{{ r.stock|floatformat:"-3" }}</b>{% else %}—{% endif %}<td class="n">{% if r.stock > 0 and r.price %}<b>{{ r.price }} ₴</b>{% elif r.offer_price %}{{ r.offer_price }} ₴{% else %}—{% endif %}
+<td>{% if r.offer %}{{ r.offer.supplier }} · {% if r.offer.qty_avail is None %}є{% else %}{{ r.offer.qty_avail|floatformat:"-3" }} шт{% endif %}<small class="muted"> · закупівля {{ r.offer.cost }}</small>{% else %}<span class="muted">—</span>{% endif %}</tr>{% endfor %}</table></div>{% endfor %}{% endif %}{% endblock %}

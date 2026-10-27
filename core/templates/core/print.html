@@ -1,0 +1,4 @@
+<!doctype html><html lang="uk"><head><meta charset="utf-8"><title>Друк</title><style>{{ css|safe }}</style></head><body>
+{% if not auto %}<div class="noprint"><button onclick="window.print()">🖨 Друкувати</button></div>{% endif %}
+<div class="paper paper-{{ paper }}">{{ body|safe }}</div>
+{% if auto %}<script>window.onload=function(){window.focus();window.print()}</script>{% endif %}</body></html>

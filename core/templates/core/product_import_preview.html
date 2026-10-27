@@ -1,0 +1,8 @@
+{% extends "core/base.html" %}{% block content %}<h2>Попередній перегляд імпорту</h2>
+<div class="kpi"><div class="card">Буде створено<b>{{ new }}</b></div><div class="card">Буде оновлено<b>{{ upd }}</b></div><div class="card {% if n_err %}low{% endif %}">Рядків з помилками<b>{{ n_err }}</b>пропускаються</div></div>
+{% if n_err %}<div class="card"><h3 style="margin-top:0">Помилки</h3><ul>{% for ln, msg in errors %}<li>Рядок {{ ln }}: {{ msg }}</li>{% endfor %}</ul></div>{% endif %}
+{% if total %}<form method="post" action="{% url 'product_import_apply' %}">{% csrf_token %}<button class="btn green">Застосувати ({{ total }} рядків{% if n_err %}, помилкові буде пропущено{% endif %})</button> <a class="btn gray" href="{% url 'product_import' %}">Скасувати</a></form>
+<table style="margin-top:12px"><tr><th>Рядок<th>Дія<th>Бренд<th>Артикул<th>Назва<th>Категорія<th class="n">Ціна<th class="n">Залишок</tr>
+{% for r in rows %}<tr><td>{{ r.line }}<td>{% if r.new %}<span class="tag" style="background:#d9f2e3">створити</span>{% else %}<span class="tag" style="background:#e1ebff">оновити</span>{% endif %}<td>{{ r.brand|default:"—" }}<td>{{ r.sku }}<td>{{ r.name|default:"—" }}<td>{{ r.category|default:"—" }}<td class="n">{{ r.price|default:"—" }}<td class="n">{{ r.current_stock|default:"—" }}</tr>{% endfor %}</table>
+{% if total > 200 %}<p style="color:var(--mute)">Показано перші 200 рядків із {{ total }}.</p>{% endif %}
+{% else %}<p>Немає коректних рядків для імпорту.</p><a class="btn gray" href="{% url 'product_import' %}">Назад</a>{% endif %}{% endblock %}

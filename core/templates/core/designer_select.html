@@ -1,0 +1,16 @@
+{% extends "core/base.html" %}{% block content %}<p><a href="{% url 'designer_home' %}">← Усі документи</a></p><h2>Шаблони: {{ label }}</h2>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+<form method="post" action="{% url 'designer_new' dt %}">{% csrf_token %}<button class="btn green">+ Новий шаблон</button></form>
+<form method="post" action="{% url 'designer_import' %}" enctype="multipart/form-data" style="display:flex;gap:6px;align-items:center">{% csrf_token %}
+<input type="file" name="file" accept=".json,.zip,application/json,application/zip" required><label><input type="checkbox" name="make_default"> за замовчуванням</label><button class="btn gray sm">Завантажити з файлу</button></form></div>
+<table><tr><th>Назва<th>Тип<th>Оновлено<th></tr>
+{% for t in templates %}<tr><td><b>{{ t.name }}</b>{% if t.pk == default_id %} <span class="tag" style="background:#d9f2e3">за замовчуванням</span>{% endif %}
+<td>{% if t.is_builtin %}<span class="tag">Стандартний</span>{% else %}<span class="tag" style="background:#e1ebff">Власний</span>{% endif %}
+<td>{{ t.updated_at|date:"d.m.Y H:i" }}
+<td style="white-space:nowrap"><a class="btn sm" href="{% url 'designer_edit' t.pk %}">{% if t.is_builtin %}Відкрити{% else %}Редагувати{% endif %}</a>
+<a class="btn gray sm" target="_blank" href="{% url 'designer_preview' t.pk %}">Перегляд</a>
+<form method="post" action="{% url 'designer_copy' t.pk %}" style="display:inline">{% csrf_token %}<button class="btn gray sm">Копія</button></form>
+{% if t.pk != default_id %}<form method="post" action="{% url 'designer_default' t.pk %}" style="display:inline">{% csrf_token %}<button class="btn gray sm">Зробити основним</button></form>{% endif %}
+<a class="btn gray sm" href="{% url 'designer_export' t.pk %}">⬇ Експорт</a>
+{% if not t.is_builtin %}<form method="post" action="{% url 'designer_delete' t.pk %}" style="display:inline" onsubmit="return confirm('Видалити шаблон?')">{% csrf_token %}<button class="btn red sm">Видалити</button></form>{% endif %}</tr>
+{% endfor %}</table>{% endblock %}

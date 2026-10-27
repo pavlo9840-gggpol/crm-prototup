@@ -1,0 +1,7 @@
+{% extends "core/base.html" %}{% block content %}<div class="card" style="max-width:640px"><h2>{{ title }}</h2>
+<form method="post" {% if multipart %}enctype="multipart/form-data"{% endif %}>{% csrf_token %}{{ form.as_p }}
+{% if brands %}<datalist id="brand-list">{% for b in brands %}<option value="{{ b }}">{% endfor %}</datalist>{% endif %}
+<button class="btn">Зберегти</button> <a class="btn gray" href="{% url back %}">Назад</a></form></div>
+{% if history %}<div class="card"><h3>Історія зміни цін</h3><table><tr><th>Коли<th>Хто<th>Поле<th class="n">Було<th class="n">Стало</tr>
+{% for h in history %}<tr><td>{{ h.changed_at|date:"d.m.Y H:i" }}<td>{{ h.changed_by }}<td>{% if h.field == "price" %}Ціна продажу{% else %}Ціна закупівлі{% endif %}<td class="n">{{ h.old_value }}<td class="n">{{ h.new_value }}</tr>{% endfor %}</table></div>{% endif %}
+{% endblock %}

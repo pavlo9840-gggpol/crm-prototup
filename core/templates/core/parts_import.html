@@ -1,0 +1,9 @@
+{% extends "core/base.html" %}{% block content %}<h2>Дані про запчастини: OE-номери та описи</h2>
+<div class="card" style="max-width:820px"><p style="margin-top:0">На основі OE-номерів система знаходить <b>точні аналоги</b>: деталі, привʼязані до одного оригінального номера, взаємозамінні (так само, як у TecDoc). Зараз у базі зв'язків з OE: <b>{{ n_oe }}</b> для <b>{{ n_parts }}</b> деталей, описів: <b>{{ n_info }}</b>.</p>
+<p style="color:var(--mute)">Основне джерело OE-номерів і описів: API постачальника (розділ «Прайси постачальників → налаштувати API»). Файли нижче потрібні для даних, яких немає в API: власних таблиць, куплених каталогів або вивантаження з іншої системи.</p></div>
+<div class="card" style="max-width:820px"><h3 style="margin-top:0">OE-номери з файлу</h3>
+<p>Колонки: <b>Бренд · Артикул · OE-номер · Бренд автовиробника</b> (останнє необов'язково). Один рядок = один звʼязок.</p>
+<form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="kind" value="oe"><input type="file" name="file" accept=".xlsx,.csv,.txt" required> <label><input type="checkbox" name="has_header" value="1" checked> перший рядок — заголовок</label> <button class="btn">Імпортувати OE</button></form></div>
+<div class="card" style="max-width:820px"><h3 style="margin-top:0">Описи з файлу</h3>
+<p>Колонки: <b>Бренд · Артикул · Опис · Характеристики · Застосовність</b> (останні дві необов'язкові; кілька значень розділяйте знаком <code>|</code>, напр. <code>Діаметр: 30 мм|Довжина: 120 мм</code>). Ручні правки в картці не перезаписуються.</p>
+<form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="kind" value="desc"><input type="file" name="file" accept=".xlsx,.csv,.txt" required> <label><input type="checkbox" name="has_header" value="1" checked> перший рядок — заголовок</label> <button class="btn">Імпортувати описи</button></form></div>{% endblock %}

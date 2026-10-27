@@ -1,0 +1,9 @@
+{% extends "core/base.html" %}{% block content %}<h2>Імпорт прайсу: {{ sup.name }}</h2>
+<div class="card"><p style="margin-top:0">Файл: <b>{{ fname }}</b>, рядків з даними: <b>{{ total }}</b>. Вкажіть, у якій колонці що лежить (поля з * обов'язкові). Колонки підібрано автоматично, перевірте їх за зразком нижче.</p>
+{% if rate_info %}{% if rate_info.error %}<div class="msg error">{{ rate_info.error }}</div>{% else %}<div class="msg"><span>Ціни в цьому файлі вважаються в <b>{{ rate_info.code }}</b> і будуть переведені в гривню за курсом <b>{{ rate_info.rate|floatformat:4 }}</b> (з урахуванням умов постачальника). Курс можна змінити на сторінці «Курси валют».</span></div>{% endif %}{% endif %}
+<form method="post" id="mf">{% csrf_token %}<input type="hidden" name="supplier" value="{{ sup.pk }}"><input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="fname" value="{{ fname }}">
+<p>Рядок із заголовками таблиці: <input type="number" name="header_row" min="1" value="{{ hdr }}" style="width:70px"> <button class="btn gray sm" formaction="{% url 'price_map' %}">Оновити зразок</button></p>
+<table style="width:auto">{% for f in fields %}<tr><td>{{ f.label }}<td><select name="col_{{ f.key }}"><option value="">— немає —</option>{% for o in options %}<option value="{{ o.i }}" {% if f.sel == o.i %}selected{% endif %}>{{ o.label }}</option>{% endfor %}</select></tr>{% endfor %}</table>
+<h3>Зразок перших рядків</h3><div style="overflow:auto"><table><tr>{% for h in headers %}<th>{{ h|default:"—" }}{% endfor %}</tr>
+{% for r in preview %}<tr>{% for c in r %}<td>{{ c }}{% endfor %}</tr>{% endfor %}</table></div>
+<p><button class="btn green" formaction="{% url 'price_apply' %}">Імпортувати прайс</button> <a class="btn gray" href="{% url 'supplier_prices' %}">Скасувати</a></p></form></div>{% endblock %}

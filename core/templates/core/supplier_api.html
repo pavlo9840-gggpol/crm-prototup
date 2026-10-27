@@ -1,0 +1,24 @@
+{% extends "core/base.html" %}{% block content %}<h2>API постачальника: {{ sup.name }}</h2>
+<div class="card" style="max-width:820px"><p style="margin-top:0">Програма сама забирає весь каталог постачальника (з цінами та залишками) у розділ «Прайси постачальників». На склад він не потрапляє, менеджер бачить його на касі під час пошуку. Нижче вкажіть, де в відповіді API лежать артикул, ціна тощо. Назви полів є в документації постачальника, а перевірити їх можна кнопкою «Пробний запит».</p>
+<form method="post" style="margin-bottom:10px">{% csrf_token %}<input type="hidden" name="act" value="preset"><input type="hidden" name="preset" value="bmparts">
+<button class="btn gray sm" onclick="return confirm('Заповнити налаштування за шаблоном BM Parts? Поточні значення полів буде замінено (ключ лишиться).')">⚡ Заповнити за шаблоном BM Parts (Busmarket)</button> <small style="color:var(--mute)">за публічною документацією developer.bm.parts</small></form>
+<form method="post">{% csrf_token %}<input type="hidden" name="act" value="save">{{ form.non_field_errors }}
+{% for title, fields in form.groups %}<fieldset class="card" style="margin:0 0 10px;padding:12px"><legend><b>{{ title }}</b></legend>{% for f in fields %}<p style="margin:6px 0">{{ f.label_tag }} {{ f }}{% if f.help_text %}<br><small style="color:var(--mute)">{{ f.help_text }}</small>{% endif %}{{ f.errors }}</p>{% endfor %}</fieldset>{% endfor %}
+{% if has_key %}<p class="tag" style="background:#e1f5e9">🔒 Ключ збережено</p>{% endif %}
+<button class="btn">Зберегти налаштування</button> <a class="btn gray" href="{% url 'supplier_prices' %}">До прайсів</a></form></div>
+{% if cfg %}<div class="card" style="max-width:820px"><h3 style="margin-top:0">Перевірка та оновлення</h3>
+<form method="post" style="display:inline">{% csrf_token %}<input type="hidden" name="act" value="test"><button class="btn gray">Пробний запит (нічого не записує)</button></form>
+<form method="post" style="display:inline;margin-left:8px" onsubmit="return confirm('Оновити каталог постачальника зараз?')">{% csrf_token %}<input type="hidden" name="act" value="sync"><button class="btn green">Оновити каталог зараз</button>
+<label style="min-width:0;color:var(--mute);font-size:13px"><input type="checkbox" name="force" value="1"> Оновити попри суттєве скорочення</label></form>
+{% if cfg.last_result %}<p style="color:var(--mute)">Останній результат: {{ cfg.last_result }}</p>{% endif %}
+<hr><b>OE-коди й описи з картки товару</b>
+<form method="post" style="display:inline">{% csrf_token %}<input type="hidden" name="act" value="probe"><button class="btn gray">Показати структуру картки (1 запит)</button></form>
+<form method="post" style="display:inline;margin-left:8px" onsubmit="return confirm('Підтягнути дані по 200 позиціях? Це 200 запитів до API постачальника.')">{% csrf_token %}<input type="hidden" name="act" value="enrich"><button class="btn green">Підтягнути OE-коди й описи (до 200 позицій)</button></form>
+<p style="color:var(--mute);font-size:13px">Прайс постачальника OE-кодів і описів не містить, тому вони беруться окремим запитом до картки кожної деталі й зберігаються в нас. Для всього каталогу: <code>python manage.py enrich_parts</code> за розкладом.</p>
+<p style="color:var(--mute);font-size:13px;margin-bottom:0">Великі каталоги (сотні тисяч позицій) краще оновлювати автоматично за розкладом командою <code>python manage.py sync_prices</code> (наприклад, щоночі).</p></div>{% endif %}
+{% if result.probe %}<div class="card"><h3 style="margin-top:0">Структура картки ({{ result.item }})</h3>
+<p>Розпізнано автоматично: OE-кодів <b>{{ result.got.oe }}</b>, опис <b>{{ result.got.desc|yesno:"є,немає" }}</b>, характеристики <b>{{ result.got.attrs|yesno:"є,немає" }}</b>, застосовність <b>{{ result.got.cars|yesno:"є,немає" }}</b>, кросів <b>{{ result.got.analogs }}</b>, фото <b>{{ result.got.image|yesno:"є,немає" }}</b>. Якщо чогось не знайдено, вкажіть шлях у групі «3. Дані про деталь».</p>
+<pre style="max-height:320px;overflow:auto;background:#f6f8fc;padding:10px;border-radius:8px;font-size:12px">{% for l in result.probe %}{{ l }}
+{% endfor %}</pre></div>{% endif %}
+{% if result.sample %}<div class="card"><h3 style="margin-top:0">Приклад прочитаних позицій</h3><p>Записів у відповіді: <b>{{ result.records }}</b>, коректних: <b>{{ result.valid }}</b>, пропущено: {{ result.bad }}</p>
+<table><tr><th>Бренд<th>Артикул<th>Назва<th class="n">Ціна<th class="n">Залишок</tr>{% for r in result.sample %}<tr><td>{{ r.brand|default:"—" }}<td>{{ r.sku }}<td>{{ r.name }}<td class="n">{{ r.cost }}<td class="n">{{ r.qty|default_if_none:"є" }}</tr>{% endfor %}</table></div>{% endif %}{% endblock %}

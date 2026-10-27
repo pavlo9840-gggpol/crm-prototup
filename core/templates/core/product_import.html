@@ -1,0 +1,14 @@
+{% extends "core/base.html" %}{% block content %}<h2>Імпорт та експорт товарів (CSV)</h2>
+<div class="card"><h3 style="margin-top:0">Експорт</h3><a class="btn" href="{% url 'product_export' %}">⬇ Завантажити всі товари (CSV)</a>
+<a class="btn gray" href="{% url 'product_export' %}?template=1">⬇ Шаблон для заповнення</a>
+<p style="color:var(--mute);font-size:13px">Файл відкривається в Excel (роздільник «;», UTF-8).</p></div>
+<div class="card"><h3 style="margin-top:0">Імпорт</h3>
+<form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="file" name="file" accept=".csv,text/csv" required> <button class="btn green">Перевірити файл</button></form>
+<p style="color:var(--mute);font-size:13px;margin-bottom:0">Спочатку буде показано попередній перегляд — нічого не збережеться, доки ви не підтвердите.</p></div>
+<div class="card"><h3 style="margin-top:0">Правила</h3><ul style="line-height:1.6">
+<li>Обов'язкова колонка — <b>Код</b> (артикул). Товар визначається парою <b>Бренд + Код</b>: якщо така є, її <b>оновлено</b>, якщо ні — <b>створено</b> (для нового потрібна ще й <b>Назва</b>). Без колонки «Бренд» товар шукається за артикулом, якщо той однозначний.</li>
+<li>Порожня клітинка в існуючого товару означає «не змінювати».</li>
+<li><b>Залишок</b> застосовується лише для нових товарів (як початковий залишок). Залишки існуючих змінюються тільки документами (закупівля, списання).</li>
+<li>Категорія: <code>Напої → Газовані напої</code> — відсутні категорії будуть створені.</li>
+<li>Так/ні: 1/0, так/ні. Числа можна писати з комою. Штрих-код має бути унікальним, а пара бренд + артикул не повторюватись.</li></ul>
+<p style="margin-bottom:0">Колонки: {% for k, l in columns %}<span class="tag">{{ l }}</span> {% endfor %}</p></div>{% endblock %}

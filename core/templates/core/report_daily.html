@@ -1,0 +1,5 @@
+{% extends "core/base.html" %}{% block content %}{% include "core/report_nav.html" %}<h2>Денний звіт — {{ d|date:"d.m.Y" }}</h2>
+<form class="filter"><input type="date" name="date" value="{{ d|date:'Y-m-d' }}"><button class="btn">Показати</button></form>
+<div class="kpi"><div class="card">Сума<b>{{ total|floatformat:2 }} ₴</b></div><div class="card">Чеків<b>{{ count }}</b></div><div class="card">Одиниць<b>{{ units|floatformat:"-3" }}</b></div>
+<div class="card">Готівка<b>{{ cash|floatformat:2 }}</b>Картка: {{ card|floatformat:2 }}</div></div>
+<table><tr><th>Товар<th>Код<th class="n">К-сть<th class="n">Сума</tr>{% for i in items %}<tr><td>{{ i.product__name }}<td>{{ i.product__sku }}<td class="n">{{ i.q|floatformat:"-3" }}<td class="n">{{ i.s|floatformat:2 }}</tr>{% endfor %}</table>{% endblock %}

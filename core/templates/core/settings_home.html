@@ -1,0 +1,4 @@
+{% extends "core/base.html" %}{% block content %}<h2>Налаштування</h2>
+<div class="card"><h3>Фірма та банківські рахунки</h3><p>Назва, реквізити, логотип, тексти чека, рахунки.</p><a class="btn" href="{% url 'company_settings' %}">Відкрити</a></div>
+<div class="card"><h3>Шаблони документів</h3><p>Редагування вигляду друкованих документів з живим переглядом.</p>
+{% for k, name in kinds.items %}<a class="btn gray" href="{% url 'template_edit' k %}" style="margin:2px">{{ name }}</a>{% endfor %}</div>{% endblock %}

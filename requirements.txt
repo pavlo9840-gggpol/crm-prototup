@@ -1,0 +1,5 @@
+Django>=4.2
+Pillow
+reportlab>=4.0
+# optional: PNG/JPG export of printed forms
+pymupdf

@@ -1,0 +1,3 @@
+{% extends "core/base.html" %}{% block content %}<h2>Накладна {{ p.number }}</h2><p>{{ p.created_at|date:"d.m.Y H:i" }} · {{ p.supplier }} · {{ p.user }}</p>
+<table><tr><th>Товар<th class="n">К-сть<th class="n">Ціна<th class="n">Сума</tr>{% for i in p.items.all %}<tr><td>{{ i.product.name }}<td class="n">{{ i.quantity|floatformat:"-3" }}<td class="n">{{ i.cost_price }}<td class="n">{{ i.line_total|floatformat:2 }}</tr>{% endfor %}
+<tr><th colspan="3">Разом<th class="n">{{ p.total }} ₴</tr></table><p><a class="btn" target="_blank" href="{% url 'print_docs' 'purchase' %}?ids={{ p.pk }}">🖨 Друк накладної</a></p>{% endblock %}

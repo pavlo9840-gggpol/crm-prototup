@@ -1,0 +1,15 @@
+{% extends "core/base.html" %}{% block content %}<h2>Зміна</h2>
+{% if closed %}<div class="card"><h3>Зміну закрито</h3><p>{{ closed.opened_at|date:"d.m.Y H:i" }} — {{ closed.closed_at|date:"d.m.Y H:i" }}</p>
+<div class="kpi"><div class="card">Виручка<b>{{ summary.total }} ₴</b></div><div class="card">Чеків<b>{{ summary.count }}</b></div><div class="card">Готівка<b>{{ summary.cash }}</b></div><div class="card">Картка<b>{{ summary.card }}</b></div></div>
+<p>Очікувано в касі: <b>{{ summary.expected }} ₴</b> · Пораховано: <b>{{ summary.counted }} ₴</b> · Розбіжність: <b class="{% if closed.discrepancy %}err{% endif %}">{{ closed.discrepancy }} ₴</b></p>
+<a class="btn" href="{% url 'shift' %}">Далі</a></div>
+{% elif shift %}<div class="card"><p>Відкрита з {{ shift.opened_at|date:"d.m.Y H:i" }}, готівка на початок: {{ shift.opening_cash }} ₴</p>
+<div class="kpi"><div class="card">Виручка<b>{{ summary.total }} ₴</b></div><div class="card">Чеків<b>{{ summary.count }}</b></div><div class="card">Готівка<b>{{ summary.cash }}</b></div><div class="card">Картка<b>{{ summary.card }}</b></div><div class="card">У касі (облік)<b>{{ summary.expected }} ₴</b></div></div>
+<form method="post">{% csrf_token %}<input type="hidden" name="action" value="close"><h3>Закриття: перерахуйте готівку</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">{% for r in rows %}<label style="min-width:0">{{ r.l }} ₴<br><input type="number" min="0" name="c_{{ r.k }}" value="{{ r.n }}" style="width:100%"></label>{% endfor %}</div>
+<p><button class="btn red" onclick="return confirm('Закрити зміну?')">Закрити зміну</button> <a class="btn green" href="{% url 'pos' %}">До каси</a></p></form></div>
+{% else %}<div class="card"><h3>Відкриття зміни</h3><form method="post">{% csrf_token %}<input type="hidden" name="action" value="open">
+<p style="color:var(--mute)">Вкажіть, скільки купюр і монет у касі на початок (підставлено залишок минулої зміни).</p>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">{% for r in rows %}<label style="min-width:0">{{ r.l }} ₴<br><input type="number" min="0" name="c_{{ r.k }}" value="{{ r.n }}" style="width:100%"></label>{% endfor %}</div>
+<p><button class="btn green">Відкрити зміну</button></p></form></div>{% endif %}
+{% if history %}<h3>Мої зміни</h3><table><tr><th>Початок<th>Кінець<th class="n">Розбіжність</tr>{% for s in history %}<tr><td>{{ s.opened_at|date:"d.m.Y H:i" }}<td>{{ s.closed_at|date:"d.m.Y H:i"|default:"відкрита" }}<td class="n">{{ s.discrepancy }}</tr>{% endfor %}</table>{% endif %}{% endblock %}
