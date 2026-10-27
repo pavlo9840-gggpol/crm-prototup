@@ -66,21 +66,23 @@ class Command(BaseCommand):
                         continue
                     brand_norm = brand.casefold().strip()
                     name = (row.get("name") or "").strip()[:250]
-                    part, made = CatalogPart.objects.get_or_create(
-                        name=name, category_name=(row.get("category") or "").strip()[:120],
-                        defaults={"description": (row.get("description") or "").strip()[:5000]},
-                    )
-                    number, made_num = CatalogPartNumber.objects.get_or_create(
-                        brand_norm=brand_norm, sku_norm=sn,
-                        defaults={"part": part, "brand": brand, "sku": sku, "source": source,
-                                  "source_id": (row.get("source_id") or "").strip()[:180],
-                                  "verified": (row.get("verified") or "").strip().lower() in ("1", "true", "yes", "так"),
-                                  "confidence": 100 if (row.get("verified") or "").strip().lower() in ("1", "true", "yes", "так") else 60},
-                    )
-                    if made_num:
+                    number = CatalogPartNumber.objects.filter(brand_norm=brand_norm, sku_norm=sn).first()
+                    if number is None:
+                        # Only create a logical part after confirming this brand/number is new;
+                        # repeated imports must not leave orphan CatalogPart rows behind.
+                        part = CatalogPart.objects.create(
+                            name=name, category_name=(row.get("category") or "").strip()[:120],
+                            description=(row.get("description") or "").strip()[:5000],
+                        )
+                        number = CatalogPartNumber.objects.create(
+                            part=part, brand=brand, brand_norm=brand_norm, sku=sku, sku_norm=sn,
+                            source=source, source_id=(row.get("source_id") or "").strip()[:180],
+                            verified=(row.get("verified") or "").strip().lower() in ("1", "true", "yes", "так"),
+                            confidence=100 if (row.get("verified") or "").strip().lower() in ("1", "true", "yes", "так") else 60,
+                        )
                         created += 1
-                    elif number.part_id != part.pk:
-                        # Never silently reassign an existing brand/sku to a different logical part.
+                    else:
+                        # Existing normalized brand+SKU wins; do not silently reassign its identity.
                         if name and not number.part.name:
                             number.part.name = name
                             number.part.save(update_fields=["name", "updated_at"])
