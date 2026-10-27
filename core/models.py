@@ -739,7 +739,7 @@ class VehicleMake(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["kind", "slug"], name="uniq_vehicle_make_kind_slug"),
-            models.UniqueConstraint(fields=["source", "source_id"], name="uniq_vehicle_make_source_id"),
+            models.UniqueConstraint(fields=["source", "source_id"], condition=~models.Q(source_id=""), name="uniq_vehicle_make_source_id"),
         ]
         ordering = ["name", "kind"]
 
@@ -758,7 +758,7 @@ class VehicleModel(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["make", "slug"], name="uniq_vehicle_model_make_slug"),
-            models.UniqueConstraint(fields=["make", "source_id"], name="uniq_vehicle_model_source_id"),
+            models.UniqueConstraint(fields=["make", "source_id"], condition=~models.Q(source_id=""), name="uniq_vehicle_model_source_id"),
         ]
         ordering = ["name"]
 
@@ -781,7 +781,7 @@ class VehicleVariant(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["model", "source", "source_id"], name="uniq_vehicle_variant_source_id"),
+            models.UniqueConstraint(fields=["model", "source", "source_id"], condition=~models.Q(source_id=""), name="uniq_vehicle_variant_source_id"),
         ]
         indexes = [models.Index(fields=["model", "year_from", "year_to"])]
 
@@ -816,7 +816,7 @@ class CatalogPartNumber(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["brand_norm", "sku_norm"], name="uniq_catalog_brand_sku"),
-            models.UniqueConstraint(fields=["source", "source_id"], name="uniq_catalog_part_source_id"),
+            models.UniqueConstraint(fields=["source", "source_id"], condition=~models.Q(source_id=""), name="uniq_catalog_part_source_id"),
         ]
         indexes = [models.Index(fields=["sku_norm", "brand_norm"])]
 
