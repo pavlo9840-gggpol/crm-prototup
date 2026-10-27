@@ -783,7 +783,7 @@ class VehicleVariant(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["model", "source", "source_id"], condition=~models.Q(source_id=""), name="uniq_vehicle_variant_source_id"),
         ]
-        indexes = [models.Index(fields=["model", "year_from", "year_to"])]
+        indexes = [models.Index(fields=["model", "year_from", "year_to"], name="core_vehicl_model_i_64e7e2_idx")]
 
     def __str__(self):
         return f"{self.model} {self.label}".strip()
@@ -818,7 +818,7 @@ class CatalogPartNumber(models.Model):
             models.UniqueConstraint(fields=["brand_norm", "sku_norm"], name="uniq_catalog_brand_sku"),
             models.UniqueConstraint(fields=["source", "source_id"], condition=~models.Q(source_id=""), name="uniq_catalog_part_source_id"),
         ]
-        indexes = [models.Index(fields=["sku_norm", "brand_norm"])]
+        indexes = [models.Index(fields=["sku_norm", "brand_norm"], name="core_catalo_sku_nor_3b8f77_idx")]
 
     def __str__(self):
         return f"{self.brand} {self.sku}"
@@ -840,5 +840,5 @@ class PartFitment(models.Model):
             models.UniqueConstraint(fields=["part_number", "vehicle_model", "variant", "source", "year_from", "year_to", "engine_code"],
                                     name="uniq_part_fitment_evidence"),
         ]
-        indexes = [models.Index(fields=["vehicle_model", "year_from", "year_to"])]
+        indexes = [models.Index(fields=["vehicle_model", "year_from", "year_to"], name="core_partfi_vehicle_96e2f0_idx")]
 
