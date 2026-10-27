@@ -1,5 +1,6 @@
 import json
 from decimal import Decimal
+from django.utils import timezone
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -100,3 +101,49 @@ class FinancialIntegrityTests(TestCase):
         shift.refresh_from_db()
         self.assertEqual(shift.drawer, {})
         self.assertEqual(CashOperation.objects.filter(shift=shift).count(), 0)
+
+    def test_profit_report_excludes_unfulfilled_supplier_orders_and_nets_returns(self):
+        self.client.login(username="admin", password="secret")
+        pending_sale = Sale.objects.create(
+            number="CH-000101",
+            status=Sale.DONE,
+            cashier=self.user,
+            total=Decimal("40.00"),
+        )
+        SaleItem.objects.create(
+            sale=pending_sale,
+            product=self.product,
+            quantity=Decimal("2.000"),
+            original_price=Decimal("20.00"),
+            price=Decimal("20.00"),
+            cost_price=Decimal("12.00"),
+            source=SaleItem.SUPPLIER,
+            fulfil_status=SaleItem.ORDERED,
+            earned_at=None,
+        )
+
+        issued_sale = Sale.objects.create(
+            number="CH-000102",
+            status=Sale.DONE,
+            cashier=self.user,
+            total=Decimal("40.00"),
+        )
+        SaleItem.objects.create(
+            sale=issued_sale,
+            product=self.product,
+            quantity=Decimal("2.000"),
+            returned_qty=Decimal("1.000"),
+            original_price=Decimal("20.00"),
+            price=Decimal("20.00"),
+            cost_price=Decimal("12.00"),
+            source=SaleItem.SUPPLIER,
+            fulfil_status=SaleItem.ISSUED,
+            earned_at=timezone.now(),
+        )
+
+        response = self.client.get("/reports/profit/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["rev"], Decimal("20.00"))
+        self.assertEqual(response.context["cost"], Decimal("12.00"))
+        self.assertEqual(response.context["margin"], Decimal("8.00"))
+        self.assertEqual(len(response.context["rows"]), 1)
