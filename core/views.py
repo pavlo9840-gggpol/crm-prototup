@@ -252,18 +252,34 @@ def purchase_new(request):
     if request.method == "POST":
         sid, new_name = request.POST.get("supplier"), request.POST.get("new_supplier", "").strip()
         lines = []
-        for pid, q, c in zip(request.POST.getlist("product"), request.POST.getlist("qty"),
-                             request.POST.getlist("cost")):
-            p, q, c = Product.objects.filter(pk=pid or 0).first(), dec(q), dec(c)
-            if p and q and q > 0 and c is not None and c >= 0:
-                lines.append((p, q, c))
+        product_ids = request.POST.getlist("product")
+        quantities = request.POST.getlist("qty")
+        costs = request.POST.getlist("cost")
         try:
+            if not (len(product_ids) == len(quantities) == len(costs)):
+                raise StockError("Дані рядків закупівлі неповні. Оновіть сторінку й повторіть.")
+            for index, (pid, raw_q, raw_cost) in enumerate(zip(product_ids, quantities, costs), start=1):
+                # Empty extra rows are normal in the form; partially filled rows are not.
+                if not any(str(value or "").strip() for value in (pid, raw_q, raw_cost)):
+                    continue
+                p = Product.objects.filter(pk=pid or 0).first()
+                q, cost = dec(raw_q), dec(raw_cost)
+                if p is None:
+                    raise StockError(f"Рядок {index}: оберіть товар зі списку.")
+                if q is None or q <= 0:
+                    raise StockError(f"Рядок {index}: кількість має бути більшою за нуль.")
+                if cost is None or cost < 0:
+                    raise StockError(f"Рядок {index}: закупівельна ціна не може бути від'ємною.")
+                lines.append((p, q, cost))
             if not lines:
                 raise StockError("Додайте хоча б один товар")
-            supplier = Supplier.objects.create(name=new_name) if new_name else Supplier.objects.filter(pk=sid or 0).first()
-            if not supplier:
-                raise StockError("Оберіть або створіть постачальника")
-            pur = services.create_purchase(request.user, supplier, lines, bool(request.POST.get("update_cost")))
+            if new_name and sid:
+                raise StockError("Оберіть наявного постачальника або введіть назву нового, не обидва варіанти.")
+            with transaction.atomic():
+                supplier = Supplier.objects.create(name=new_name) if new_name else Supplier.objects.filter(pk=sid or 0, is_active=True).first()
+                if not supplier:
+                    raise StockError("Оберіть активного постачальника або введіть назву нового.")
+                pur = services.create_purchase(request.user, supplier, lines, bool(request.POST.get("update_cost")))
             messages.success(request, f"Накладну {pur.number} проведено")
             return redirect("purchase_detail", pk=pur.pk)
         except StockError as e:
