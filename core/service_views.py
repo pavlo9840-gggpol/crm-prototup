@@ -98,7 +98,7 @@ def service_order_detail(request, pk):
                 return redirect("service_order_detail", pk=order.pk)
     history = ServiceOrder.objects.filter(car=order.car).exclude(pk=order.pk).prefetch_related("lines").order_by("-created_at")[:20]
     return render(request, "core/service_order_detail.html", {
-        "order": order, "line_form": line_form, "editable": editable, "vehicle_history": history,
+        "order": order, "line_form": line_form, "editable": editable, "vehicle_history": history, "status_options": ServiceOrder.STATUS,
     })
 
 
