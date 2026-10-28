@@ -5,8 +5,8 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn
-from core.services import StockError, create_return, save_held
+from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement
+from core.services import StockError, create_purchase, create_return, save_held
 
 
 class FinancialIntegrityTests(TestCase):
@@ -147,6 +147,21 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(response.context["cost"], Decimal("12.00"))
         self.assertEqual(response.context["margin"], Decimal("8.00"))
         self.assertEqual(len(response.context["rows"]), 1)
+
+    def test_purchase_rejects_invalid_lines_without_creating_document_or_stock_movements(self):
+        supplier = Supplier.objects.create(name="Test supplier")
+        for quantity, cost in [
+            (Decimal("0.000"), Decimal("12.00")),
+            (Decimal("-1.000"), Decimal("12.00")),
+            (Decimal("1.000"), Decimal("-0.01")),
+        ]:
+            with self.subTest(quantity=quantity, cost=cost):
+                with self.assertRaises(StockError):
+                    create_purchase(self.admin, supplier, [(self.product, quantity, cost)])
+                self.product.refresh_from_db()
+                self.assertEqual(self.product.current_stock, Decimal("10.000"))
+                self.assertEqual(Purchase.objects.count(), 0)
+                self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
 
     def test_inventory_shortage_cannot_drive_stock_below_zero(self):
         self.client.force_login(self.admin)
