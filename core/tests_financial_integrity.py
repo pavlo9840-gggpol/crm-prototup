@@ -209,6 +209,31 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(response.context["margin"], Decimal("0"))
         self.assertEqual(len(response.context["rows"]), 0)
 
+    def test_daily_and_monthly_net_revenue_subtracts_returns_in_return_period(self):
+        self.client.force_login(self.admin)
+        sale = Sale.objects.create(
+            number="CH-REPORT-RETURN", status=Sale.DONE, cashier=self.user,
+            total=Decimal("40.00"),
+        )
+        item = SaleItem.objects.create(
+            sale=sale, product=self.product, quantity=Decimal("2.000"),
+            original_price=Decimal("20.00"), price=Decimal("20.00"),
+            cost_price=Decimal("12.00"), earned_at=timezone.now(),
+        )
+        ret = create_return(self.admin, sale, {item.pk: Decimal("1.000")})
+        today = timezone.localdate()
+        daily = self.client.get("/reports/daily/", {"date": today.isoformat()})
+        self.assertEqual(daily.status_code, 200)
+        self.assertEqual(daily.context["total"], Decimal("40.00"))
+        self.assertEqual(daily.context["returns_total"], ret.total)
+        self.assertEqual(daily.context["net_total"], Decimal("20.00"))
+
+        monthly = self.client.get("/reports/monthly/", {"month": today.strftime("%Y-%m")})
+        self.assertEqual(monthly.status_code, 200)
+        self.assertEqual(monthly.context["gross_total"], Decimal("40.00"))
+        self.assertEqual(monthly.context["returns_total"], ret.total)
+        self.assertEqual(monthly.context["total"], Decimal("20.00"))
+
     def test_purchase_rejects_invalid_lines_without_creating_document_or_stock_movements(self):
         supplier = Supplier.objects.create(name="Test supplier")
         for quantity, cost in [
