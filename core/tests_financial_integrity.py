@@ -172,6 +172,42 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(response.context["margin"], Decimal("8.00"))
         self.assertEqual(len(response.context["rows"]), 1)
 
+    def test_profit_report_uses_handover_date_not_sale_creation_date(self):
+        self.client.force_login(self.admin)
+        sale = Sale.objects.create(
+            number="CH-HANDOVER-DATE", status=Sale.DONE, cashier=self.user,
+            total=Decimal("20.00"),
+        )
+        item = SaleItem.objects.create(
+            sale=sale, product=self.product, quantity=Decimal("1.000"),
+            original_price=Decimal("20.00"), price=Decimal("20.00"),
+            cost_price=Decimal("12.00"), earned_at=timezone.now(),
+        )
+        # Simulate an order created in an earlier reporting period and handed
+        # over today. Profit must appear in the handover period only.
+        Sale.objects.filter(pk=sale.pk).update(
+            created_at=timezone.now() - timezone.timedelta(days=40)
+        )
+        today = timezone.localdate()
+        response = self.client.get("/reports/profit/", {
+            "from": today.isoformat(), "to": today.isoformat(),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["rev"], Decimal("20.00"))
+        self.assertEqual(response.context["cost"], Decimal("12.00"))
+        self.assertEqual(response.context["margin"], Decimal("8.00"))
+        self.assertEqual(len(response.context["rows"]), 1)
+
+        old_period = today - timezone.timedelta(days=40)
+        response = self.client.get("/reports/profit/", {
+            "from": old_period.isoformat(), "to": old_period.isoformat(),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["rev"], Decimal("0"))
+        self.assertEqual(response.context["cost"], Decimal("0"))
+        self.assertEqual(response.context["margin"], Decimal("0"))
+        self.assertEqual(len(response.context["rows"]), 0)
+
     def test_purchase_rejects_invalid_lines_without_creating_document_or_stock_movements(self):
         supplier = Supplier.objects.create(name="Test supplier")
         for quantity, cost in [
