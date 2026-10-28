@@ -3,7 +3,6 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -70,6 +69,10 @@ def service_order_new(request):
 def service_order_detail(request, pk):
     order = get_object_or_404(ServiceOrder.objects.select_related("customer", "car", "mechanic"), pk=pk)
     line_form = ServiceOrderLineForm(request.POST or None)
+    editable = order.status in {"draft", "diagnosis", "approval"}
+    if request.method == "POST" and "add_line" in request.POST and not editable:
+        messages.error(request, "Позиції можна змінювати лише до погодження наряду.")
+        return redirect("service_order_detail", pk=order.pk)
     if request.method == "POST" and "add_line" in request.POST and line_form.is_valid():
         line = line_form.save(commit=False)
         line.order = order
@@ -93,7 +96,10 @@ def service_order_detail(request, pk):
             else:
                 messages.success(request, "Позицію додано до наряду.")
                 return redirect("service_order_detail", pk=order.pk)
-    return render(request, "core/service_order_detail.html", {"order": order, "line_form": line_form})
+    history = ServiceOrder.objects.filter(car=order.car).exclude(pk=order.pk).prefetch_related("lines").order_by("-created_at")[:20]
+    return render(request, "core/service_order_detail.html", {
+        "order": order, "line_form": line_form, "editable": editable, "vehicle_history": history,
+    })
 
 
 @staff
