@@ -8,6 +8,7 @@ STAFF_NAV = [
         ("Відкладені чеки", "held_list"), ("Зміна касира", "shift"),
         ("Готівка в касі", "drawer"), ("Клієнти", "customer_list"),
     ]),
+    ("СТО", [("Сервісний центр", "service_home")]),
     ("Замовлення", [
         ("Замовлення в дорозі", "orders"), ("Приймання накладної", "receive_home"),
         ("Відправлення Нової пошти", "shipment_list"),
@@ -48,6 +49,7 @@ CASHIER_NAV = [
 
 # Внутрішні сторінки підсвічують батьківський пункт меню.
 ALIASES = {
+    "service_appointment_new": "service_home", "service_order_new": "service_home", "service_order_detail": "service_home", "service_order_status": "service_home",
     "product_new": "product_list", "product_edit": "product_list",
     "category_new": "category_list", "category_edit": "category_list",
     "supplier_new": "supplier_list", "supplier_edit": "supplier_list",
@@ -70,7 +72,7 @@ ALIASES = {
 }
 
 ICONS = {
-    "Огляд": "🏠", "Продажі": "🧾", "Замовлення": "🚚", "Склад": "📦",
+    "Огляд": "🏠", "Продажі": "🧾", "СТО": "🔧", "Замовлення": "🚚", "Склад": "📦",
     "Постачальники та ціни": "🏷️", "Каталог автозапчастин": "🔎",
     "Звіти": "📊", "Керування": "⚙️",
 }
