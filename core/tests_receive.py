@@ -20,13 +20,15 @@ class ReceivingTest(TestCase):
     def setUp(self):
         U = get_user_model()
         U.objects.create_superuser("admin", "", "x")
-        U.objects.create_user("anna", password="x")
-        U.objects.create_user("petro", password="x")
-        self.adm, self.anna, self.petro = self.client, self.client_class(), self.client_class()
+        U.objects.create_user("anna", password="x", is_staff=True)
+        U.objects.create_user("petro", password="x", is_staff=True)
+        U.objects.create_user("cashier", password="x", is_staff=False)
+        self.adm, self.anna, self.petro, self.cashier = self.client, self.client_class(), self.client_class(), self.client_class()
         self.adm.login(username="admin", password="x")
         self.anna.login(username="anna", password="x")
         self.petro.login(username="petro", password="x")
-        for c in (self.anna, self.petro):
+        self.cashier.login(username="cashier", password="x")
+        for c in (self.anna, self.petro, self.cashier):
             c.post("/shift/", {"action": "open", "cash": "0"})
         self.sup = Supplier.objects.create(name="Busmarket")
         self.bil = self.si("BILSTEIN", "19-152615", 1000, "Амортизатор задній")
@@ -142,7 +144,7 @@ class ReceivingTest(TestCase):
         resp, _ = self.invoice([["BILSTEIN", "19-152615", "", 1, 1000]], client=self.anna)       # приймає anna, замовлення petro
         self.assertEqual(SaleItem.objects.get(pk=petro_item.pk).fulfil_status, "arrived")
         self.assertContains(self.anna.get("/receive/"), "ДГ-1")
-        self.assertNotContains(self.petro.get("/receive/"), "ДГ-1")                              # журнал: лише свої (не адмін)
+        self.assertContains(self.petro.get("/receive/"), "ДГ-1")                              # працівники бачать спільний журнал приймань
         self.assertContains(self.adm.get("/receive/"), "ДГ-1")
         other = Supplier.objects.create(name="Other")
         f = SimpleUploadedFile("i.xlsx", xlsx_bytes([HEAD, ["BILSTEIN", "19-152615", "", 1, 1]]))
@@ -181,13 +183,13 @@ class ReceivingTest(TestCase):
         product_before = Product.objects.count()
         receipt_before = Receipt.objects.count()
         movement_before = StockMovement.objects.count()
-        self.assertEqual(self.anna.get("/receive/").status_code, 403)
+        self.assertEqual(self.cashier.get("/receive/").status_code, 403)
 
-        preview = self.anna.post(
+        preview = self.cashier.post(
             "/receive/preview/",
             {"supplier": self.sup.pk, "paste": "MEYLE;DENIED-1;Forbidden part;3;10"},
         )
-        apply = self.anna.post(
+        apply = self.cashier.post(
             "/receive/apply/",
             {
                 "supplier": self.sup.pk,
