@@ -168,6 +168,8 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return"):
     Lock the parent sale first so simultaneous return requests cannot both pass
     the same returnable-quantity check.
     """
+    if mode not in {"auto", "stock", "nostock"}:
+        raise StockError("Невідомий режим повернення")
     sale = Sale.objects.select_for_update().filter(pk=sale.pk, status=Sale.DONE).first()
     if sale is None:
         raise StockError("Повернення можливе лише для проведеного продажу")
