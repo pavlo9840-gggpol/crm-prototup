@@ -788,8 +788,11 @@ def report_profit(request):
     # Margin is realized only after the item is handed over to the customer.
     # Supplier-order sales remain in revenue reports, but are not counted as earned
     # profit until fulfilment sets earned_at; returns reduce both net revenue and cost.
-    rows = list(_items(d1, d2).filter(earned_at__isnull=False)
-        .values("product__name", "product__sku").annotate(
+    # Profit belongs to the period when the item was handed to the customer,
+    # not the earlier date when the sale/order was first created.
+    rows = list(SaleItem.objects.filter(
+        sale__status=Sale.DONE, earned_at__date__range=(d1, d2)
+    ).values("product__name", "product__sku").annotate(
             q=Sum(NET), rev=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
             cost=Sum(ExpressionWrapper(NET * F("cost_price"), output_field=DEC))).order_by("-rev"))
     for r in rows:
