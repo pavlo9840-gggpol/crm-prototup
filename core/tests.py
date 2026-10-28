@@ -318,6 +318,26 @@ class HardeningTest(DesignerTest):
         SaleItem.objects.create(sale=sale, product=self.p, quantity=1, original_price=30, price=30)
         self.assertEqual(self.cs.get(f"/print/receipt/?ids={sale.pk}&template={bad.pk}").status_code, 400)
 
+    def test_purchase_rejects_invalid_line_without_partial_post_or_orphan_supplier(self):
+        from core.models import Purchase as PurchaseModel
+        product = Product.objects.create(name="Фільтр", sku="F-1", cost_price=Decimal("10"), current_stock=5)
+        supplier = Supplier.objects.create(name="Постачальник")
+        purchase_count = PurchaseModel.objects.count()
+        movement_count = StockMovement.objects.count()
+        response = self.adm.post("/purchases/new/", {
+            "new_supplier": "Не має створитися",
+            "product": [str(product.pk), str(product.pk)],
+            "qty": ["2", "1"],
+            "cost": ["10", "-1"],
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "закупівельна ціна")
+        self.assertEqual(PurchaseModel.objects.count(), purchase_count)
+        self.assertEqual(Supplier.objects.filter(name="Не має створитися").count(), 0)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+        product.refresh_from_db()
+        self.assertEqual(product.current_stock, Decimal("5"))
+
     def test_bad_json_and_empty_purchase(self):
         self.cs.post("/shift/", {"action": "open"})
         for url in ("/pos/checkout/", "/pos/hold/", "/pos/change/", "/pos/customer/new/"):
