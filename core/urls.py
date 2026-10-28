@@ -11,9 +11,14 @@ from . import payroll_views as pr
 from . import currency_views as cv
 from . import receive_views as rv
 from . import views as v
+from . import shipping_views as sh
 
 urlpatterns = [
     path("login/", auth.LoginView.as_view(template_name="core/login.html"), name="login"),
+    path("shipments/", sh.shipment_list, name="shipment_list"),
+    path("shipments/new/", sh.shipment_new, name="shipment_new"),
+    path("shipments/<int:pk>/create-ttn/", sh.shipment_create_ttn, name="shipment_create_ttn"),
+    path("shipments/<int:pk>/track/", sh.shipment_track, name="shipment_track"),
     path("logout/", auth.LogoutView.as_view(), name="logout"),
     path("", v.dashboard, name="dashboard"),
     path("products/", v.product_list, name="product_list"),
