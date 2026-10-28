@@ -129,3 +129,47 @@ class StaffAccessControlTests(TestCase):
         self.assertEqual(user_response.status_code, 403)
         self.assertEqual(backup_response.status_code, 403)
         self.assertEqual(User.objects.count(), before)
+
+    def test_cashier_cannot_access_finance_pricing_payroll_or_stock_reports(self):
+        self.client.force_login(self.cashier)
+        protected_routes = (
+            "purchase_list",
+            "purchase_new",
+            "price_rules",
+            "price_rule_new",
+            "price_review",
+            "rates",
+            "payroll",
+            "pay_plans",
+            "pay_plan_new",
+            "inventory",
+            "inventory_movements",
+            "report_daily",
+            "report_monthly",
+            "report_top",
+            "report_profit",
+            "report_stock",
+            "settings_home",
+            "company_settings",
+            "adjustment_list",
+            "designer_home",
+            "product_export",
+            "product_import",
+            "print_stock_report",
+            "print_movement_report",
+        )
+        for route in protected_routes:
+            with self.subTest(route=route):
+                response = self.client.get(reverse(route))
+                self.assertEqual(response.status_code, 403)
+
+        # Mutation endpoints must reject direct requests too, without creating rules.
+        from core.models import PriceRule
+        before = PriceRule.objects.count()
+        response = self.client.post(
+            reverse("price_rule_new"),
+            {"name": "Unauthorized rule", "brand": "FILTERCO", "percent": "99"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(PriceRule.objects.count(), before)
+
