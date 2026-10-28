@@ -248,6 +248,24 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(StockAdjustment.objects.count(), 0)
         self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
 
+    def test_inventory_movement_history_searches_document_and_preserves_filters(self):
+        StockMovement.objects.create(
+            product=self.product, movement_type="purchase", quantity_change=Decimal("2.000"),
+            balance_after=Decimal("12.000"), doc_ref="NK-TEST-42", user=self.admin,
+        )
+        StockMovement.objects.create(
+            product=self.product, movement_type="sale", quantity_change=Decimal("-1.000"),
+            balance_after=Decimal("11.000"), doc_ref="CH-TEST-42", user=self.admin,
+        )
+        self.client.force_login(self.admin)
+        response = self.client.get("/inventory/movements/", {"q": "NK-TEST-42", "type": "purchase"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["movement_count"], 1)
+        self.assertEqual(len(response.context["moves"]), 1)
+        self.assertEqual(response.context["moves"][0].doc_ref, "NK-TEST-42")
+        self.assertEqual(response.context["q"], "NK-TEST-42")
+        self.assertEqual(response.context["selected_type"], "purchase")
+
     def test_inventory_adjustment_is_staff_only(self):
         self.client.force_login(self.user)
         response = self.client.post(
