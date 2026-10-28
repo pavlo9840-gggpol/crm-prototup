@@ -216,8 +216,19 @@ def category_list(request):
 
 
 def supplier_list(request):
-    return render(request, "core/simple_list.html", {"title": "Постачальники", "items": Supplier.objects.all(),
-                                                    "add": "supplier_new", "edit": "supplier_edit"})
+    qs = Supplier.objects.all()
+    q = (request.GET.get("q") or "").strip()[:120]
+    active = (request.GET.get("active") or "").strip()
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(contact_person__icontains=q) | Q(phone__icontains=q))
+    if active == "1":
+        qs = qs.filter(is_active=True)
+    elif active == "0":
+        qs = qs.filter(is_active=False)
+    return render(request, "core/simple_list.html", {
+        "title": "Постачальники", "items": qs, "add": "supplier_new", "edit": "supplier_edit",
+        "q": q, "active": active, "total_count": qs.count(),
+    })
 
 
 category_list = staff_only(category_list)
