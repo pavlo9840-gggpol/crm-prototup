@@ -372,7 +372,7 @@ class V4Test(TestCase):
         response = self.adm.get("/purchases/?q=Фільтри")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Фільтри Захід")
-        self.assertNotContains(response, "АвтоСвіт")
+        self.assertContains(response, "Знайдено накладних: <strong>1</strong>")
         self.assertContains(response, "24.00 ₴")
         self.assertContains(response, 'value="Фільтри"')
 
