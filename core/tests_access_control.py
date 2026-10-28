@@ -72,6 +72,23 @@ class StaffAccessControlTests(TestCase):
         self.assertEqual(StockAdjustment.objects.count(), 0)
         self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
 
+    def test_cashier_cannot_import_supplier_prices_or_edit_cross_references(self):
+        self.client.force_login(self.cashier)
+        protected_gets = ("supplier_prices", "crossrefs", "markup_list")
+        for route in protected_gets:
+            with self.subTest(route=route):
+                self.assertEqual(self.client.get(reverse(route)).status_code, 403)
+
+        # Direct POSTs must be denied before parsing files or applying price changes.
+        for route in ("price_map", "price_apply"):
+            with self.subTest(route=route):
+                self.assertEqual(self.client.post(reverse(route), {"supplier": "1"}).status_code, 403)
+
+        self.assertEqual(
+            self.client.post(reverse("crossrefs"), {"act": "add", "a": "A-1", "b": "B-1"}).status_code,
+            403,
+        )
+
     def test_only_superuser_can_access_user_and_backup_management(self):
         User = get_user_model()
         root = User.objects.create_superuser(
