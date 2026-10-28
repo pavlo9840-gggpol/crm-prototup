@@ -203,6 +203,13 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return"):
 def create_purchase(user, supplier, lines, update_cost=True):
     if not lines:
         raise StockError("Додайте хоча б один товар")
+    # Validate every line before creating the document or touching stock.
+    # Forms normally enforce this, but the service is also a business-rule boundary.
+    for p, q, cost in lines:
+        if q is None or q <= D0:
+            raise StockError(f"{p.name}: кількість має бути більшою за нуль")
+        if cost is None or cost < D0:
+            raise StockError(f"{p.name}: закупівельна ціна не може бути від'ємною")
     pur = Purchase.objects.create(supplier=supplier, user=user)
     _num(pur, "NK")
     total = D0
