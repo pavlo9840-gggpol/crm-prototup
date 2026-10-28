@@ -236,15 +236,24 @@ def supplier_edit(request, pk=None):
 @staff_only
 def purchase_list(request):
     qs = Purchase.objects.select_related("supplier")
+    q = request.GET.get("q", "").strip()
+    supplier_id = request.GET.get("supplier", "").strip()
     d1, d2 = get_date(request, "from", None), get_date(request, "to", None)
     if d1:
         qs = qs.filter(created_at__date__gte=d1)
     if d2:
         qs = qs.filter(created_at__date__lte=d2)
-    if request.GET.get("supplier"):
-        qs = qs.filter(supplier_id=request.GET["supplier"])
+    if supplier_id.isdigit():
+        qs = qs.filter(supplier_id=int(supplier_id))
+    if q:
+        qs = qs.filter(Q(number__icontains=q) | Q(supplier__name__icontains=q))
+    summary = qs.aggregate(total=Sum("total"), count=Count("pk"))
     from .designer_views import print_bar
-    return render(request, "core/purchase_list.html", {"purchases": qs[:300], "suppliers": Supplier.objects.all(), **print_bar("purchase")})
+    return render(request, "core/purchase_list.html", {
+        "purchases": qs[:300], "suppliers": Supplier.objects.all(),
+        "selected_supplier": supplier_id, "q": q,
+        "summary_total": summary["total"] or D0, "summary_count": summary["count"],
+        **print_bar("purchase")})
 
 
 @staff_only
