@@ -676,17 +676,31 @@ def inventory_adjust(request):
 @staff_only
 def inventory_movements(request):
     qs = StockMovement.objects.select_related("product", "user")
-    if request.GET.get("product"):
-        qs = qs.filter(product_id=request.GET["product"])
-    if request.GET.get("type"):
-        qs = qs.filter(movement_type=request.GET["type"])
+    q = request.GET.get("q", "").strip()
+    product_id = request.GET.get("product", "").strip()
+    movement_type = request.GET.get("type", "").strip()
+    if product_id.isdigit():
+        qs = qs.filter(product_id=int(product_id))
+    valid_types = {value for value, _label in StockMovement.TYPES}
+    if movement_type in valid_types:
+        qs = qs.filter(movement_type=movement_type)
+    if q:
+        qs = qs.filter(Q(product__name__icontains=q) | Q(product__sku__icontains=q)
+                       | Q(doc_ref__icontains=q) | Q(note__icontains=q) | Q(user__username__icontains=q))
     d1, d2 = get_date(request, "from", None), get_date(request, "to", None)
     if d1:
         qs = qs.filter(created_at__date__gte=d1)
     if d2:
         qs = qs.filter(created_at__date__lte=d2)
-    return render(request, "core/movements.html", {"moves": qs[:300], "products": Product.objects.all(),
-                                                   "types": StockMovement.TYPES})
+    if d1 and d2 and d1 > d2:
+        qs = qs.none()
+    count = qs.count()
+    return render(request, "core/movements.html", {
+        "moves": qs[:300], "movement_count": count, "products": Product.objects.all(),
+        "types": StockMovement.TYPES, "q": q, "selected_product": product_id,
+        "selected_type": movement_type, "date_from": request.GET.get("from", ""),
+        "date_to": request.GET.get("to", ""),
+    })
 
 
 # ---------- Customers ----------
