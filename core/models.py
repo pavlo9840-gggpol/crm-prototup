@@ -897,4 +897,4 @@ class Shipment(models.Model):
         return self.ttn or f"Відправлення #{self.pk}"
 
 
-from .service_models import ServiceAppointment  # noqa: E402,F401
+from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine  # noqa: E402,F401
