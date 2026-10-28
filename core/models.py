@@ -895,3 +895,6 @@ class Shipment(models.Model):
 
     def __str__(self):
         return self.ttn or f"Відправлення #{self.pk}"
+
+
+from .service_models import ServiceAppointment  # noqa: E402,F401
