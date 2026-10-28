@@ -296,6 +296,9 @@ def mark_issued(user, item):
 
 
 def _unclaimed(user, item, mode):
+    # Keep lock order consistent with create_return(): sale first, then its items.
+    # Locking the item first here could deadlock against a simultaneous return.
+    Sale.objects.select_for_update().get(pk=item.sale_id)
     item = SaleItem.objects.select_for_update().select_related("sale").get(pk=item.pk)
     _check(user, item, (SaleItem.ARRIVED,))
     before = Product.objects.select_for_update().get(pk=item.product_id).current_stock
