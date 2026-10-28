@@ -163,6 +163,47 @@ class FinancialIntegrityTests(TestCase):
                 self.assertEqual(Purchase.objects.count(), 0)
                 self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
 
+    def test_purchase_updates_stock_cost_history_and_movement_balances(self):
+        supplier = Supplier.objects.create(name="Purchase lifecycle supplier")
+        purchase = create_purchase(
+            self.admin,
+            supplier,
+            [
+                (self.product, Decimal("2.000"), Decimal("13.00")),
+                # A duplicate line must use the newly persisted cost as its history baseline.
+                (self.product, Decimal("3.000"), Decimal("15.00")),
+            ],
+        )
+        self.assertEqual(purchase.total, Decimal("71.00"))
+        self.assertEqual(purchase.items.count(), 2)
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("15.000"))
+        self.assertEqual(self.product.cost_price, Decimal("15.00"))
+
+        moves = list(StockMovement.objects.filter(product=self.product, movement_type="purchase").order_by("pk"))
+        self.assertEqual([m.quantity_change for m in moves], [Decimal("2.000"), Decimal("3.000")])
+        self.assertEqual([m.balance_after for m in moves], [Decimal("12.000"), Decimal("15.000")])
+        self.assertTrue(all(m.doc_ref == purchase.number for m in moves))
+
+        history = list(self.product.price_history.filter(field="cost_price").order_by("pk"))
+        self.assertEqual(
+            [(h.old_value, h.new_value) for h in history],
+            [(Decimal("12.00"), Decimal("13.00")), (Decimal("13.00"), Decimal("15.00"))],
+        )
+
+    def test_purchase_can_preserve_manual_cost_when_update_cost_is_disabled(self):
+        supplier = Supplier.objects.create(name="Fixed cost supplier")
+        purchase = create_purchase(
+            self.admin, supplier, [(self.product, Decimal("1.000"), Decimal("14.00"))],
+            update_cost=False,
+        )
+        self.product.refresh_from_db()
+        self.assertEqual(purchase.total, Decimal("14.00"))
+        self.assertEqual(self.product.current_stock, Decimal("11.000"))
+        self.assertEqual(self.product.cost_price, Decimal("12.00"))
+        self.assertFalse(self.product.price_history.filter(field="cost_price").exists())
+
     def test_inventory_shortage_cannot_drive_stock_below_zero(self):
         self.client.force_login(self.admin)
         response = self.client.post(
