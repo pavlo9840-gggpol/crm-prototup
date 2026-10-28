@@ -21,7 +21,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, Sale, SaleItem, Shift, StockMovement, Supplier, SupplierItem)
+                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem)
 from .models import norm_plate, norm_sku
 from .services import StockError
 
@@ -737,11 +737,14 @@ def report_daily(request):
     d = get_date(request, "date", timezone.localdate())
     sales = done_sales().filter(created_at__date=d)
     split = sales.aggregate(c=Sum("cash_amount"), k=Sum("card_amount"))
+    total = sales.aggregate(s=Sum("total"))["s"] or D0
+    returns_total = SaleReturn.objects.filter(created_at__date=d).aggregate(s=Sum("total"))["s"] or D0
     items = (_items(d, d).values("product__name", "product__sku")
              .annotate(q=Sum("quantity"), s=Sum(ExpressionWrapper(F("quantity") * F("price"), output_field=DEC)))
              .order_by("-s"))
     return render(request, "core/report_daily.html", {
-        "d": d, "total": sales.aggregate(s=Sum("total"))["s"] or D0, "count": sales.count(),
+        "d": d, "total": total, "returns_total": returns_total, "net_total": total - returns_total,
+        "count": sales.count(),
         "units": _items(d, d).aggregate(s=Sum("quantity"))["s"] or D0,
         "cash": split["c"] or D0, "card": split["k"] or D0, "items": items})
 
@@ -759,14 +762,17 @@ def report_monthly(request):
 
     def agg(f):
         qs = done_sales().filter(created_at__year=f.year, created_at__month=f.month)
-        return qs, qs.aggregate(s=Sum("total"))["s"] or D0
-    qs, total = agg(first)
-    _, prev_total = agg(prev_first)
+        gross = qs.aggregate(s=Sum("total"))["s"] or D0
+        returned = SaleReturn.objects.filter(created_at__year=f.year, created_at__month=f.month).aggregate(s=Sum("total"))["s"] or D0
+        return qs, gross - returned, gross, returned
+    qs, total, gross_total, returns_total = agg(first)
+    _, prev_total, _, _ = agg(prev_first)
     days = qs.annotate(day=TruncDate("created_at")).values("day").annotate(s=Sum("total"), n=Count("id")).order_by("day")
     nd = max(len(days), 1)
     pct = ((total - prev_total) / prev_total * 100) if prev_total else None
     return render(request, "core/report_monthly.html", {
-        "first": first, "total": total, "avg": total / nd, "count": qs.count(), "days": days,
+        "first": first, "total": total, "gross_total": gross_total, "returns_total": returns_total,
+        "avg": total / nd, "count": qs.count(), "days": days,
         "prev_total": prev_total, "diff": total - prev_total, "pct": pct})
 
 
