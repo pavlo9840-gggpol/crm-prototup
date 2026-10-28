@@ -3,11 +3,14 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .service_forms import ServiceAppointmentForm, ServiceOrderForm, ServiceOrderLineForm
 from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine
+from .models import Product
+from .services import StockError, add_movement
 
 
 def staff(view):
@@ -91,6 +94,49 @@ def service_order_detail(request, pk):
                 messages.success(request, "Позицію додано до наряду.")
                 return redirect("service_order_detail", pk=order.pk)
     return render(request, "core/service_order_detail.html", {"order": order, "line_form": line_form})
+
+
+@staff
+@require_POST
+def service_order_issue_parts(request, pk):
+    """Списати запчастини з наряду атомарно, не допускаючи повторного списання."""
+    order = get_object_or_404(ServiceOrder, pk=pk)
+    if order.status not in {"approved", "in_progress", "waiting_parts"}:
+        messages.error(request, "Видавати запчастини можна лише після погодження наряду.")
+        return redirect("service_order_detail", pk=pk)
+    try:
+        with transaction.atomic():
+            lines = list(
+                ServiceOrderLine.objects.select_for_update()
+                .filter(order=order, kind=ServiceOrderLine.PART, issued=False)
+                .select_related("product").order_by("product_id", "pk")
+            )
+            if not lines:
+                raise StockError("Немає невиданих запчастин для списання.")
+            totals = {}
+            for line in lines:
+                totals[line.product_id] = totals.get(line.product_id, Decimal("0")) + line.quantity
+            locked = {
+                p.pk: p for p in Product.objects.select_for_update().filter(pk__in=sorted(totals)).order_by("pk")
+            }
+            for product_id, qty in totals.items():
+                product = locked[product_id]
+                if product.current_stock < qty:
+                    raise StockError(
+                        f"Недостатньо залишку «{product.name}»: потрібно {qty}, є {product.current_stock}."
+                    )
+            for line in lines:
+                add_movement(
+                    locked[line.product_id], -line.quantity, "writeoff",
+                    f"STO-{order.pk:06d}", request.user,
+                    note=f"Запчастини до наряду #{order.pk}: {line.description}"[:200],
+                )
+                line.issued = True
+                line.save(update_fields=["issued"])
+        messages.success(request, f"Запчастини списано зі складу: {len(lines)} позицій.")
+    except StockError as exc:
+        messages.error(request, str(exc))
+    return redirect("service_order_detail", pk=pk)
 
 
 @staff
