@@ -358,6 +358,33 @@ class V4Test(TestCase):
         self.adm.login(username="a", password="x"); self.cs.login(username="c", password="x")
         self.PT = PrintTemplate
 
+    def test_purchase_list_search_supplier_and_filtered_totals(self):
+        from decimal import Decimal
+        from core.models import Product, Purchase, Supplier
+        from core.services import create_purchase
+
+        supplier_a = Supplier.objects.create(name="Фільтри Захід")
+        supplier_b = Supplier.objects.create(name="АвтоСвіт")
+        product = Product.objects.create(name="Масляний фільтр", sku="OF-22", cost_price=Decimal("12.00"))
+        create_purchase(self.admin, supplier_a, [(product, Decimal("2"), Decimal("12.00"))])
+        create_purchase(self.admin, supplier_b, [(product, Decimal("1"), Decimal("12.00"))])
+
+        response = self.adm.get("/purchases/?q=Фільтри")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Фільтри Захід")
+        self.assertNotContains(response, "АвтоСвіт")
+        self.assertContains(response, "24.00 ₴")
+        self.assertContains(response, 'value="Фільтри"')
+
+        response = self.adm.get(f"/purchases/?supplier={supplier_b.pk}")
+        self.assertContains(response, "АвтоСвіт")
+        self.assertContains(response, "12.00 ₴")
+        self.assertContains(response, f'value="{supplier_b.pk}" selected')
+
+        response = self.adm.get("/purchases/?q=немає-такого")
+        self.assertContains(response, "Накладних за вибраними умовами не знайдено")
+        self.assertContains(response, "Знайдено накладних: <strong>0</strong>")
+
     # ---- legacy templates -> designer
     def test_legacy_conversion(self):
         from core.models import DocTemplate
