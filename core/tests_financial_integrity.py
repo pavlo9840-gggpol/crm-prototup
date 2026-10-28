@@ -58,6 +58,30 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(item.returned_qty, Decimal("2.000"))
         self.assertEqual(SaleReturn.objects.filter(sale=sale).count(), 1)
 
+    def test_return_rejects_unknown_mode_without_creating_records_or_changing_stock(self):
+        sale = Sale.objects.create(
+            number="CH-INVALID-MODE",
+            status=Sale.DONE,
+            cashier=self.user,
+            total=Decimal("20.00"),
+        )
+        item = SaleItem.objects.create(
+            sale=sale,
+            product=self.product,
+            quantity=Decimal("1.000"),
+            original_price=Decimal("20.00"),
+            price=Decimal("20.00"),
+            cost_price=Decimal("12.00"),
+        )
+        with self.assertRaises(StockError):
+            create_return(self.admin, sale, {item.pk: Decimal("1.000")}, mode="invented")
+        self.product.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("10.000"))
+        self.assertEqual(item.returned_qty, Decimal("0.000"))
+        self.assertEqual(SaleReturn.objects.filter(sale=sale).count(), 0)
+        self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
+
     def test_reusing_a_completed_held_sale_does_not_create_second_sale(self):
         shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("0.00"), drawer={})
         held = save_held(
