@@ -228,6 +228,29 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(self.product.cost_price, Decimal("12.00"))
         self.assertFalse(self.product.price_history.filter(field="cost_price").exists())
 
+    def test_supplier_return_for_unclaimed_order_does_not_change_stock(self):
+        from core.models import SaleItem
+        from core.services import return_to_supplier
+        sale = Sale.objects.create(
+            number="CH-UNCLAIMED-1", status=Sale.DONE, cashier=self.user,
+            total=Decimal("20.00"),
+        )
+        item = SaleItem.objects.create(
+            sale=sale, product=self.product, quantity=Decimal("1.000"),
+            original_price=Decimal("20.00"), price=Decimal("20.00"),
+            cost_price=Decimal("12.00"), source=SaleItem.SUPPLIER,
+            fulfil_status=SaleItem.ARRIVED,
+        )
+        before_moves = StockMovement.objects.filter(product=self.product).count()
+        return_to_supplier(self.admin, item)
+        self.product.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("10.000"))
+        self.assertEqual(item.returned_qty, Decimal("1.000"))
+        self.assertEqual(item.fulfil_status, SaleItem.SUP_RETURN)
+        self.assertEqual(StockMovement.objects.filter(product=self.product).count(), before_moves)
+        self.assertEqual(SaleReturn.objects.filter(sale=sale).count(), 1)
+
     def test_inventory_shortage_cannot_drive_stock_below_zero(self):
         self.client.force_login(self.admin)
         response = self.client.post(
