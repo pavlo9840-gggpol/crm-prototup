@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from decimal import Decimal
 from django.utils import timezone
 
@@ -186,7 +187,7 @@ class FinancialIntegrityTests(TestCase):
         # Simulate an order created in an earlier reporting period and handed
         # over today. Profit must appear in the handover period only.
         Sale.objects.filter(pk=sale.pk).update(
-            created_at=timezone.now() - timezone.timedelta(days=40)
+            created_at=timezone.now() - timedelta(days=40)
         )
         today = timezone.localdate()
         response = self.client.get("/reports/profit/", {
@@ -198,7 +199,7 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(response.context["margin"], Decimal("8.00"))
         self.assertEqual(len(response.context["rows"]), 1)
 
-        old_period = today - timezone.timedelta(days=40)
+        old_period = today - timedelta(days=40)
         response = self.client.get("/reports/profit/", {
             "from": old_period.isoformat(), "to": old_period.isoformat(),
         })
