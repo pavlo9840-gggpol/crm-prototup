@@ -21,6 +21,7 @@ urlpatterns = [
     path("service/orders/new/", svc.service_order_new, name="service_order_new"),
     path("service/orders/<int:pk>/", svc.service_order_detail, name="service_order_detail"),
     path("service/orders/<int:pk>/status/", svc.service_order_status, name="service_order_status"),
+    path("service/orders/<int:pk>/issue-parts/", svc.service_order_issue_parts, name="service_order_issue_parts"),
     path("shipments/", sh.shipment_list, name="shipment_list"),
     path("shipments/new/", sh.shipment_new, name="shipment_new"),
     path("shipments/<int:pk>/create-ttn/", sh.shipment_create_ttn, name="shipment_create_ttn"),
