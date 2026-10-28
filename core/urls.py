@@ -12,9 +12,15 @@ from . import currency_views as cv
 from . import receive_views as rv
 from . import views as v
 from . import shipping_views as sh
+from . import service_views as svc
 
 urlpatterns = [
     path("login/", auth.LoginView.as_view(template_name="core/login.html"), name="login"),
+    path("service/", svc.service_home, name="service_home"),
+    path("service/appointments/new/", svc.service_appointment_new, name="service_appointment_new"),
+    path("service/orders/new/", svc.service_order_new, name="service_order_new"),
+    path("service/orders/<int:pk>/", svc.service_order_detail, name="service_order_detail"),
+    path("service/orders/<int:pk>/status/", svc.service_order_status, name="service_order_status"),
     path("shipments/", sh.shipment_list, name="shipment_list"),
     path("shipments/new/", sh.shipment_new, name="shipment_new"),
     path("shipments/<int:pk>/create-ttn/", sh.shipment_create_ttn, name="shipment_create_ttn"),
