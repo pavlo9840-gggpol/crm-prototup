@@ -66,6 +66,23 @@ class ServiceWorkshopTests(TestCase):
         self.assertFalse(l1.issued)
         self.assertFalse(l2.issued)
 
+    def test_vehicle_history_is_shown_on_order_detail(self):
+        older = ServiceOrder.objects.create(customer=self.customer, car=self.car, status="delivered", created_by=self.staff)
+        ServiceOrderLine.objects.create(order=older, kind="labor", description="Заміна гальмівної рідини", unit_price=Decimal("600"))
+        current = ServiceOrder.objects.create(customer=self.customer, car=self.car, created_by=self.staff)
+        response = self.client.get(reverse("service_order_detail", args=[current.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Заміна гальмівної рідини")
+        self.assertContains(response, f"#{older.pk}")
+
+    def test_cannot_add_order_lines_after_approval(self):
+        order = ServiceOrder.objects.create(customer=self.customer, car=self.car, status="in_progress", created_by=self.staff)
+        response = self.client.post(reverse("service_order_detail", args=[order.pk]), {
+            "add_line": "1", "kind": "labor", "description": "Заміна", "quantity": "1", "unit_price": "100", "product": "",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(order.lines.count(), 0)
+
     def test_non_staff_cannot_access_workshop(self):
         User = get_user_model()
         cashier = User.objects.create_user(username="workshop-cashier", password="pass", is_staff=False)
