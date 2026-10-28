@@ -213,15 +213,20 @@ def create_purchase(user, supplier, lines, update_cost=True):
     pur = Purchase.objects.create(supplier=supplier, user=user)
     _num(pur, "NK")
     total = D0
-    for p, q, cost in lines:
+    for product, q, cost in lines:
+        # Use the locked, fresh product row for both stock and cost updates. The
+        # caller may have supplied a stale Product instance, and one purchase can
+        # contain the same product more than once.
+        movement = add_movement(product, q, "purchase", pur.number, user)
+        p = movement.product
         PurchaseItem.objects.create(purchase=pur, product=p, quantity=q, cost_price=cost)
         total += q * cost
-        add_movement(p, q, "purchase", pur.number, user)
         if update_cost and p.cost_price != cost:
             PriceHistory.objects.create(product=p, field="cost_price", old_value=p.cost_price,
                                         new_value=cost, changed_by=user)
-            Product.objects.filter(pk=p.pk).update(cost_price=cost)
-        if p.auto_price:                                  # автоціна: нова закупівля → ціна за правилами
+            p.cost_price = cost
+            p.save(update_fields=["cost_price"])
+        if p.auto_price:                                  # автоціна має рахуватись від актуальної закупівельної
             from . import pricing
             pricing.reprice_product(p, user)
     pur.total = total
