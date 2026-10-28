@@ -854,3 +854,44 @@ class PartFitment(models.Model):
             kwargs["update_fields"] = list(kwargs["update_fields"]) + ["fitment_key"]
         super().save(*args, **kwargs)
 
+
+
+class Shipment(models.Model):
+    """Відправлення Нової пошти: локальна картка, ТТН і останній відомий статус."""
+    STATUS = [
+        ("draft", "Чернетка"), ("created", "Накладну створено"),
+        ("in_transit", "У дорозі"), ("arrived", "Прибуло у відділення"),
+        ("delivered", "Отримано"), ("returned", "Повернення"),
+        ("problem", "Потрібна увага"),
+    ]
+    customer = models.ForeignKey("Customer", null=True, blank=True, on_delete=models.SET_NULL,
+                                 related_name="shipments", verbose_name="Клієнт")
+    sale = models.ForeignKey("Sale", null=True, blank=True, on_delete=models.SET_NULL,
+                             related_name="shipments", verbose_name="Продаж")
+    recipient_name = models.CharField("Одержувач", max_length=150)
+    recipient_phone = models.CharField("Телефон одержувача", max_length=30)
+    recipient_city = models.CharField("Місто одержувача", max_length=150, blank=True)
+    recipient_city_ref = models.CharField(max_length=80, blank=True)
+    recipient_warehouse = models.CharField("Відділення / адреса", max_length=250, blank=True)
+    recipient_warehouse_ref = models.CharField(max_length=80, blank=True)
+    ttn = models.CharField("ТТН", max_length=40, blank=True, unique=True, null=True)
+    description = models.CharField("Опис відправлення", max_length=200, default="Автозапчастини")
+    weight = models.DecimalField("Вага, кг", max_digits=8, decimal_places=3, default=1)
+    seats_amount = models.PositiveSmallIntegerField("Кількість місць", default=1)
+    declared_cost = models.DecimalField("Оголошена вартість, грн", max_digits=12, decimal_places=2, default=0)
+    cod_amount = models.DecimalField("Післяплата, грн", max_digits=12, decimal_places=2, default=0)
+    status = models.CharField(max_length=20, choices=STATUS, default="draft", db_index=True)
+    status_text = models.CharField("Статус перевізника", max_length=250, blank=True)
+    last_tracked_at = models.DateTimeField(null=True, blank=True)
+    api_error = models.CharField(max_length=500, blank=True)
+    created_by = models.ForeignKey(USER, null=True, on_delete=models.SET_NULL, related_name="created_shipments")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Відправлення"
+        verbose_name_plural = "Відправлення"
+
+    def __str__(self):
+        return self.ttn or f"Відправлення #{self.pk}"
