@@ -276,3 +276,38 @@ class TransitTest(TestCase):
         response = self.mgr.post(f"/orders/{item.pk}/arrived/", {"next": "https://evil.example/phishing"})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], "/orders/")
+
+    def test_cashier_order_and_sales_views_are_isolated_and_actions_cannot_mutate_other_orders(self):
+        self.import_price(self.PRICE)
+        si = SupplierItem.objects.get(sku="19-152615")
+        own_sale = self.checkout(self.mgr, [{"si": si.pk, "qty": 1}])
+        other_sale = self.checkout(self.mgr2c, [{"si": si.pk, "qty": 2}])
+        own_item = own_sale.items.get()
+        other_item = other_sale.items.get()
+
+        # The cashier sees only their own supplier orders, including filtered views.
+        response = self.mgr.get("/orders/?st=ordered")
+        self.assertEqual(response.status_code, 200)
+        visible_ids = {item.pk for item in response.context["items"]}
+        self.assertIn(own_item.pk, visible_ids)
+        self.assertNotIn(other_item.pk, visible_ids)
+
+        # A guessed foreign item ID must be rejected before a state transition.
+        response = self.mgr.post(f"/orders/{other_item.pk}/arrived/", {"days": "3"})
+        self.assertEqual(response.status_code, 404)
+        other_item.refresh_from_db()
+        self.assertEqual(other_item.fulfil_status, SaleItem.ORDERED)
+        self.assertIsNone(other_item.pickup_deadline)
+
+        # The sales page and CSV export must enforce the same cashier boundary.
+        response = self.mgr.get("/my-sales/")
+        self.assertEqual(response.status_code, 200)
+        visible_sales = {row.sale_id for row in response.context["rows"]}
+        self.assertIn(own_sale.pk, visible_sales)
+        self.assertNotIn(other_sale.pk, visible_sales)
+        csv_response = self.mgr.get("/my-sales/?csv=1")
+        self.assertEqual(csv_response.status_code, 200)
+        csv_text = csv_response.content.decode("utf-8-sig")
+        self.assertIn(own_sale.number, csv_text)
+        self.assertNotIn(other_sale.number, csv_text)
+
