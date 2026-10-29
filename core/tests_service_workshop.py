@@ -97,6 +97,63 @@ class ServiceWorkshopTests(TestCase):
         self.assertNotContains(response, 'name="paid_amount"')
         self.assertNotContains(response, 'name="payment_note"')
 
+
+    def test_card_payment_updates_balance_and_is_audited(self):
+        from core.service_models import ServicePayment
+        order = ServiceOrder.objects.create(customer=self.customer, car=self.car, created_by=self.staff)
+        ServiceOrderLine.objects.create(order=order, kind="labor", description="Діагностика", quantity=1, unit_price=Decimal("500"))
+        response = self.client.post(reverse("service_order_payment", args=[order.pk]), {
+            "amount": "200.00", "method": "card", "note": "Передоплата",
+        })
+        self.assertEqual(response.status_code, 302)
+        order.refresh_from_db()
+        self.assertEqual(order.paid_amount, Decimal("200.00"))
+        self.assertEqual(order.balance_due, Decimal("300.00"))
+        payment = ServicePayment.objects.get(order=order)
+        self.assertEqual(payment.method, "card")
+        self.assertIsNone(payment.shift)
+
+    def test_cash_payment_updates_drawer_and_cash_operation(self):
+        from core.models import CashOperation, Shift
+        from core.service_models import ServicePayment
+        order = ServiceOrder.objects.create(customer=self.customer, car=self.car, created_by=self.staff)
+        ServiceOrderLine.objects.create(order=order, kind="labor", description="Діагностика", quantity=1, unit_price=Decimal("350"))
+        shift = Shift.objects.create(cashier=self.staff, drawer={"10000": 1})
+        response = self.client.post(reverse("service_order_payment", args=[order.pk]), {
+            "amount": "150.00", "method": "cash", "note": "Готівкова передоплата",
+        })
+        self.assertEqual(response.status_code, 302)
+        shift.refresh_from_db()
+        order.refresh_from_db()
+        self.assertEqual(order.paid_amount, Decimal("150.00"))
+        self.assertEqual(shift.drawer.get("10000"), 2)
+        self.assertEqual(shift.drawer.get("5000"), 1)
+        operation = CashOperation.objects.get(shift=shift, note__contains="СТО")
+        self.assertEqual(operation.kind, "in")
+        self.assertEqual(operation.amount, Decimal("150.00"))
+        self.assertEqual(ServicePayment.objects.get(order=order).shift, shift)
+
+    def test_cash_payment_requires_open_shift(self):
+        order = ServiceOrder.objects.create(customer=self.customer, car=self.car, created_by=self.staff)
+        ServiceOrderLine.objects.create(order=order, kind="labor", description="Діагностика", unit_price=Decimal("100"))
+        response = self.client.post(reverse("service_order_payment", args=[order.pk]), {
+            "amount": "50", "method": "cash",
+        })
+        self.assertEqual(response.status_code, 302)
+        order.refresh_from_db()
+        self.assertEqual(order.paid_amount, Decimal("0"))
+        self.assertEqual(order.payments.count(), 0)
+
+    def test_payment_cannot_exceed_balance(self):
+        order = ServiceOrder.objects.create(customer=self.customer, car=self.car, created_by=self.staff)
+        ServiceOrderLine.objects.create(order=order, kind="labor", description="Діагностика", unit_price=Decimal("100"))
+        self.client.post(reverse("service_order_payment", args=[order.pk]), {
+            "amount": "100.01", "method": "card",
+        })
+        order.refresh_from_db()
+        self.assertEqual(order.paid_amount, Decimal("0"))
+        self.assertEqual(order.payments.count(), 0)
+
     def test_non_staff_cannot_access_workshop(self):
         User = get_user_model()
         cashier = User.objects.create_user(username="workshop-cashier", password="pass", is_staff=False)
