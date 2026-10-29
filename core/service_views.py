@@ -76,11 +76,12 @@ def service_appointment_new(request):
             # Appointments are exclusive for the same vehicle and, when
             # assigned, for the same mechanic. Check the full possible
             # 12-hour duration window, not only identical start times.
-            window_start = obj.scheduled_at - timedelta(hours=12)
             window_end = obj.scheduled_at + timedelta(minutes=obj.duration_minutes)
+            # Query all active appointments that begin before the proposed
+            # end; duration is variable, so a fixed look-back window can miss
+            # a long appointment that began earlier.
             candidates = ServiceAppointment.objects.select_for_update().filter(
                 status__in=["booked", "arrived"],
-                scheduled_at__gte=window_start,
                 scheduled_at__lt=window_end,
             )
             conflict = None
