@@ -204,6 +204,20 @@ class ServiceWorkshopTests(TestCase):
         self.assertEqual(order.paid_amount, Decimal("0"))
         self.assertEqual(order.payments.count(), 0)
 
+    def test_workshop_reports_show_monthly_labor_parts_and_payments(self):
+        from core.service_models import ServicePayment
+        order = ServiceOrder.objects.create(customer=self.customer, car=self.car, created_by=self.staff)
+        ServiceOrderLine.objects.create(order=order, kind="labor", description="Діагностика", quantity=1, unit_price=Decimal("400"))
+        product = Product.objects.create(name="Фільтр", sku="SVC-REPORT-FILTER")
+        ServiceOrderLine.objects.create(order=order, kind="part", description="Фільтр", product=product, quantity=2, unit_price=Decimal("150"))
+        ServicePayment.objects.create(order=order, amount=Decimal("200"), method="card", received_by=self.staff)
+        response = self.client.get(reverse("service_reports"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "400.00 грн")
+        self.assertContains(response, "300.00 грн")
+        self.assertContains(response, "200.00 грн")
+        self.assertContains(response, f"#{order.pk}")
+
     def test_non_staff_cannot_access_workshop(self):
         User = get_user_model()
         cashier = User.objects.create_user(username="workshop-cashier", password="pass", is_staff=False)
