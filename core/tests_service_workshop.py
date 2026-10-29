@@ -83,6 +83,20 @@ class ServiceWorkshopTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(order.lines.count(), 0)
 
+
+    def test_status_menu_only_shows_allowed_transitions(self):
+        order = ServiceOrder.objects.create(customer=self.customer, car=self.car, status="approval", created_by=self.staff)
+        response = self.client.get(reverse("service_order_detail", args=[order.pk]))
+        self.assertContains(response, '<option value="approved">')
+        self.assertContains(response, '<option value="cancelled">')
+        self.assertNotContains(response, '<option value="delivered">')
+
+    def test_order_creation_form_does_not_allow_manual_payment_edits(self):
+        response = self.client.get(reverse("service_order_new"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'name="paid_amount"')
+        self.assertNotContains(response, 'name="payment_note"')
+
     def test_non_staff_cannot_access_workshop(self):
         User = get_user_model()
         cashier = User.objects.create_user(username="workshop-cashier", password="pass", is_staff=False)
