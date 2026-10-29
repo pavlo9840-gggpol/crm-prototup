@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import Sum, F, DecimalField, ExpressionWrapper
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -29,6 +30,39 @@ def service_home(request):
     appointments = ServiceAppointment.objects.select_related("customer", "car", "assigned_to").order_by("scheduled_at")[:80]
     orders = ServiceOrder.objects.select_related("customer", "car", "mechanic").order_by("-created_at")[:30]
     return render(request, "core/service_home.html", {"appointments": appointments, "orders": orders})
+
+
+@staff
+def service_reports(request):
+    """Operational and financial overview for the current calendar month."""
+    today = timezone.localdate()
+    month_start = today.replace(day=1)
+    month_orders = ServiceOrder.objects.filter(created_at__date__gte=month_start, created_at__date__lte=today)
+    month_payments = ServicePayment.objects.filter(created_at__date__gte=month_start, created_at__date__lte=today)
+    line_total = ExpressionWrapper(
+        F("quantity") * F("unit_price"),
+        output_field=DecimalField(max_digits=14, decimal_places=2),
+    )
+    month_lines = ServiceOrderLine.objects.filter(
+        order__created_at__date__gte=month_start, order__created_at__date__lte=today
+    )
+    labor_total = month_lines.filter(kind=ServiceOrderLine.LABOR).aggregate(total=Sum(line_total))["total"] or Decimal("0")
+    parts_total = month_lines.filter(kind=ServiceOrderLine.PART).aggregate(total=Sum(line_total))["total"] or Decimal("0")
+    collected = month_payments.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+    outstanding = sum(
+        (order.balance_due for order in ServiceOrder.objects.exclude(status__in=["cancelled", "delivered"]).prefetch_related("lines")),
+        Decimal("0"),
+    )
+    return render(request, "core/service_reports.html", {
+        "month_start": month_start, "today": today, "orders_count": month_orders.count(),
+        "labor_total": labor_total, "parts_total": parts_total, "service_total": labor_total + parts_total,
+        "collected": collected, "outstanding": outstanding,
+        "status_counts": [
+            (label, ServiceOrder.objects.filter(status=code).count())
+            for code, label in ServiceOrder.STATUS if code != "cancelled"
+        ],
+        "recent_payments": month_payments.select_related("order", "received_by").order_by("-created_at")[:30],
+    })
 
 
 @staff
