@@ -141,6 +141,20 @@ def service_order_payment(request, pk):
         messages.error(request, "Оплата перевищує залишок до сплати (" + str(balance) + " грн).")
         return redirect("service_order_detail", pk=pk)
 
+    # Validate the payment before touching the cash drawer. Since validation
+    # errors are reported as a redirect, catching one after cash mutations
+    # would otherwise allow the surrounding atomic transaction to commit them.
+    payment = ServicePayment(
+        order=order, amount=amount, method=method,
+        note=request.POST.get("note", "").strip()[:200],
+        received_by=request.user,
+    )
+    try:
+        payment.full_clean()
+    except ValidationError as exc:
+        messages.error(request, "; ".join(exc.messages))
+        return redirect("service_order_detail", pk=pk)
+
     shift = None
     if method == "cash":
         shift = Shift.objects.select_for_update().filter(cashier=request.user, closed_at__isnull=True).first()
@@ -157,18 +171,8 @@ def service_order_payment(request, pk):
             note=("Оплата СТО: наряд #" + str(order.pk))[:200],
             detail={str(k): v for k, v in incoming.items()},
         )
-
-    payment = ServicePayment(
-        order=order, amount=amount, method=method,
-        note=request.POST.get("note", "").strip()[:200],
-        received_by=request.user, shift=shift,
-    )
-    try:
-        payment.full_clean()
-        payment.save()
-    except ValidationError as exc:
-        messages.error(request, "; ".join(exc.messages))
-        return redirect("service_order_detail", pk=pk)
+    payment.shift = shift
+    payment.save()
 
     order.paid_amount += amount
     order.payment_note = payment.note
@@ -240,6 +244,10 @@ def service_order_status(request, pk):
         messages.error(request, "Недопустимий перехід статусу наряду.")
     elif target in {"completed", "delivered"} and order.lines.count() == 0:
         messages.error(request, "Не можна завершити порожній наряд.")
+    elif target == "completed" and order.lines.filter(kind=ServiceOrderLine.PART, issued=False).exists():
+        messages.error(request, "Перед завершенням ремонту спишіть зі складу всі запчастини наряду.")
+    elif target == "delivered" and order.balance_due > 0:
+        messages.error(request, "Не можна видати автомобіль клієнту: залишок до сплати " + str(order.balance_due) + " грн.")
     else:
         order.status = target
         if target == "approved":
