@@ -17,6 +17,7 @@ from . import service_views as svc
 urlpatterns = [
     path("login/", auth.LoginView.as_view(template_name="core/login.html"), name="login"),
     path("service/", svc.service_home, name="service_home"),
+    path("service/reports/", svc.service_reports, name="service_reports"),
     path("service/appointments/new/", svc.service_appointment_new, name="service_appointment_new"),
     path("service/orders/new/", svc.service_order_new, name="service_order_new"),
     path("service/orders/<int:pk>/", svc.service_order_detail, name="service_order_detail"),
