@@ -97,8 +97,21 @@ def service_order_detail(request, pk):
                 messages.success(request, "Позицію додано до наряду.")
                 return redirect("service_order_detail", pk=order.pk)
     history = ServiceOrder.objects.filter(car=order.car).exclude(pk=order.pk).prefetch_related("lines").order_by("-created_at")[:20]
+    transitions = {
+        "draft": {"diagnosis", "cancelled"},
+        "diagnosis": {"approval", "cancelled"},
+        "approval": {"approved", "cancelled"},
+        "approved": {"in_progress", "waiting_parts", "cancelled"},
+        "in_progress": {"waiting_parts", "completed", "cancelled"},
+        "waiting_parts": {"in_progress", "cancelled"},
+        "completed": {"delivered"},
+        "delivered": set(), "cancelled": set(),
+    }
+    next_statuses = transitions.get(order.status, set())
+    status_options = [choice for choice in ServiceOrder.STATUS if choice[0] in next_statuses]
     return render(request, "core/service_order_detail.html", {
-        "order": order, "line_form": line_form, "editable": editable, "vehicle_history": history, "status_options": ServiceOrder.STATUS,
+        "order": order, "line_form": line_form, "editable": editable, "vehicle_history": history,
+        "status_options": status_options,
     })
 
 
