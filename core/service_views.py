@@ -1,14 +1,15 @@
 from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .service_forms import ServiceAppointmentForm, ServiceOrderForm, ServiceOrderLineForm
-from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine
-from .models import Product
+from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine, ServicePayment
+from .models import Product, Shift, CashOperation
+from . import cash as cashlib
 from .services import StockError, add_movement
 
 
@@ -111,8 +112,69 @@ def service_order_detail(request, pk):
     status_options = [choice for choice in ServiceOrder.STATUS if choice[0] in next_statuses]
     return render(request, "core/service_order_detail.html", {
         "order": order, "line_form": line_form, "editable": editable, "vehicle_history": history,
-        "status_options": status_options,
+        "status_options": status_options, "payments": order.payments.select_related("received_by", "shift").all(),
     })
+
+
+@staff
+@require_POST
+@transaction.atomic
+def service_order_payment(request, pk):
+    order = get_object_or_404(ServiceOrder.objects.select_for_update(), pk=pk)
+    if order.status == "cancelled":
+        messages.error(request, "Не можна приймати оплату за скасованим нарядом.")
+        return redirect("service_order_detail", pk=pk)
+    try:
+        amount = Decimal(request.POST.get("amount", "").replace(",", "."))
+    except Exception:
+        messages.error(request, "Вкажіть коректну суму оплати.")
+        return redirect("service_order_detail", pk=pk)
+    method = request.POST.get("method", "")
+    if method not in {"cash", "card"}:
+        messages.error(request, "Оберіть готівку або картку.")
+        return redirect("service_order_detail", pk=pk)
+    if amount <= 0 or amount.quantize(Decimal("0.01")) != amount:
+        messages.error(request, "Сума має бути додатною та містити не більше двох знаків після коми.")
+        return redirect("service_order_detail", pk=pk)
+    balance = order.balance_due
+    if amount > balance:
+        messages.error(request, "Оплата перевищує залишок до сплати (" + str(balance) + " грн).")
+        return redirect("service_order_detail", pk=pk)
+
+    shift = None
+    if method == "cash":
+        shift = Shift.objects.select_for_update().filter(cashier=request.user, closed_at__isnull=True).first()
+        if shift is None:
+            messages.error(request, "Для готівкової оплати відкрийте касову зміну.")
+            return redirect("service_order_detail", pk=pk)
+        amount_kop = cashlib.to_kop(amount)
+        incoming = cashlib.decompose(amount_kop)
+        drawer = cashlib.clean(shift.drawer)
+        shift.drawer = cashlib.store(cashlib.add(drawer, incoming))
+        shift.save(update_fields=["drawer"])
+        CashOperation.objects.create(
+            shift=shift, user=request.user, kind="in", amount=amount,
+            note=("Оплата СТО: наряд #" + str(order.pk))[:200],
+            detail={str(k): v for k, v in incoming.items()},
+        )
+
+    payment = ServicePayment(
+        order=order, amount=amount, method=method,
+        note=request.POST.get("note", "").strip()[:200],
+        received_by=request.user, shift=shift,
+    )
+    try:
+        payment.full_clean()
+        payment.save()
+    except ValidationError as exc:
+        messages.error(request, "; ".join(exc.messages))
+        return redirect("service_order_detail", pk=pk)
+
+    order.paid_amount += amount
+    order.payment_note = payment.note
+    order.save(update_fields=["paid_amount", "payment_note", "updated_at"])
+    messages.success(request, "Оплату " + str(amount) + " грн зафіксовано (" + payment.get_method_display().lower() + ").")
+    return redirect("service_order_detail", pk=pk)
 
 
 @staff
