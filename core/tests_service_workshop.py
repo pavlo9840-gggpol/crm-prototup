@@ -213,9 +213,9 @@ class ServiceWorkshopTests(TestCase):
         ServicePayment.objects.create(order=order, amount=Decimal("200"), method="card", received_by=self.staff)
         response = self.client.get(reverse("service_reports"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "400.00 грн")
-        self.assertContains(response, "300.00 грн")
-        self.assertContains(response, "200.00 грн")
+        self.assertContains(response, "400,00 грн")
+        self.assertContains(response, "300,00 грн")
+        self.assertContains(response, "200,00 грн")
         self.assertContains(response, f"#{order.pk}")
 
     def test_non_staff_cannot_access_workshop(self):
