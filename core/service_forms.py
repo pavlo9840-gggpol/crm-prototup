@@ -21,7 +21,7 @@ class ServiceAppointmentForm(forms.ModelForm):
 class ServiceOrderForm(forms.ModelForm):
     class Meta:
         model = ServiceOrder
-        fields = ["customer", "car", "appointment", "mechanic", "mileage", "complaint", "diagnosis", "recommendation", "status", "paid_amount", "payment_note"]
+        fields = ["customer", "car", "appointment", "mechanic", "mileage", "complaint", "diagnosis", "recommendation", "status"]
         widgets = {"complaint": forms.Textarea(attrs={"rows": 2}), "diagnosis": forms.Textarea(attrs={"rows": 3}), "recommendation": forms.Textarea(attrs={"rows": 2})}
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
