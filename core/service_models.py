@@ -90,3 +90,21 @@ class ServiceOrderLine(models.Model):
             raise ValidationError({"product": "Робота не повинна списувати товар зі складу."})
     class Meta:
         ordering = ["id"]
+
+
+class ServicePayment(models.Model):
+    METHODS = [("cash", "Готівка"), ("card", "Картка")]
+    order = models.ForeignKey(ServiceOrder, on_delete=models.PROTECT, related_name="payments")
+    amount = models.DecimalField("Сума оплати, грн", max_digits=12, decimal_places=2)
+    method = models.CharField("Спосіб оплати", max_length=10, choices=METHODS)
+    note = models.CharField("Примітка", max_length=200, blank=True)
+    received_by = models.ForeignKey(USER, null=True, on_delete=models.SET_NULL, related_name="service_payments")
+    shift = models.ForeignKey("core.Shift", null=True, blank=True, on_delete=models.PROTECT, related_name="service_payments")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        if self.amount <= D0:
+            raise ValidationError({"amount": "Сума оплати має бути більшою за нуль."})
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
