@@ -25,6 +25,39 @@ class ServiceWorkshopTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(ServiceAppointment.objects.count(), 1)
 
+    def test_overlapping_appointment_for_same_vehicle_is_rejected(self):
+        start = timezone.now() + timedelta(days=2)
+        ServiceAppointment.objects.create(
+            customer=self.customer, car=self.car, scheduled_at=start,
+            duration_minutes=90, complaint="Перша перевірка", created_by=self.staff,
+        )
+        response = self.client.post(reverse("service_appointment_new"), {
+            "customer": self.customer.pk, "car": self.car.pk,
+            "scheduled_at": (start + timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M"),
+            "duration_minutes": 60, "complaint": "Друга перевірка", "assigned_to": "",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ServiceAppointment.objects.count(), 1)
+        self.assertContains(response, "Конфлікт запису")
+
+    def test_overlapping_appointment_for_same_mechanic_is_rejected(self):
+        mechanic = get_user_model().objects.create_user(username="mechanic", password="pass")
+        other_customer = Customer.objects.create(name="Іван", phone="+380501111112")
+        other_car = CustomerCar.objects.create(customer=other_customer, make="VW", model="Golf", year=2017, plate="AC9876BC", vin="WVWZZZ1JZXW000001")
+        start = timezone.now() + timedelta(days=3)
+        ServiceAppointment.objects.create(
+            customer=self.customer, car=self.car, scheduled_at=start,
+            duration_minutes=60, assigned_to=mechanic, created_by=self.staff,
+        )
+        response = self.client.post(reverse("service_appointment_new"), {
+            "customer": other_customer.pk, "car": other_car.pk,
+            "scheduled_at": (start + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M"),
+            "duration_minutes": 60, "complaint": "Інший автомобіль", "assigned_to": mechanic.pk,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ServiceAppointment.objects.count(), 1)
+        self.assertContains(response, "Конфлікт запису")
+
     def test_order_totals_labor_and_parts(self):
         order = ServiceOrder.objects.create(customer=self.customer, car=self.car, created_by=self.staff)
         ServiceOrderLine.objects.create(order=order, kind="labor", description="Заміна масла", quantity=Decimal("1.5"), unit_price=Decimal("400"))
@@ -143,6 +176,23 @@ class ServiceWorkshopTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.paid_amount, Decimal("0"))
         self.assertEqual(order.payments.count(), 0)
+
+    def test_vehicle_cannot_be_delivered_with_outstanding_balance(self):
+        order = ServiceOrder.objects.create(customer=self.customer, car=self.car, status="completed", created_by=self.staff)
+        ServiceOrderLine.objects.create(order=order, kind="labor", description="Ремонт", unit_price=Decimal("500"))
+        self.client.post(reverse("service_order_status", args=[order.pk]), {"status": "delivered"})
+        order.refresh_from_db()
+        self.assertEqual(order.status, "completed")
+
+    def test_repair_cannot_be_completed_before_parts_are_issued(self):
+        order = ServiceOrder.objects.create(customer=self.customer, car=self.car, status="in_progress", created_by=self.staff)
+        product = Product.objects.create(name="Фільтр", sku="SVC-ISSUE-REQUIRED", current_stock=Decimal("2"))
+        ServiceOrderLine.objects.create(order=order, kind="part", description="Фільтр", product=product, quantity=1, unit_price=Decimal("100"))
+        self.client.post(reverse("service_order_status", args=[order.pk]), {"status": "completed"})
+        order.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(order.status, "in_progress")
+        self.assertEqual(product.current_stock, Decimal("2"))
 
     def test_payment_cannot_exceed_balance(self):
         order = ServiceOrder.objects.create(customer=self.customer, car=self.car, created_by=self.staff)
