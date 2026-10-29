@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -38,8 +39,32 @@ def service_appointment_new(request):
         obj.created_by = request.user
         try:
             obj.full_clean()
+            # Appointments are exclusive for the same vehicle and, when
+            # assigned, for the same mechanic. Check the full possible
+            # 12-hour duration window, not only identical start times.
+            window_start = obj.scheduled_at - timedelta(hours=12)
+            window_end = obj.scheduled_at + timedelta(minutes=obj.duration_minutes)
+            candidates = ServiceAppointment.objects.select_for_update().filter(
+                status__in=["booked", "arrived"],
+                scheduled_at__gte=window_start,
+                scheduled_at__lt=window_end,
+            )
+            conflict = None
+            for existing in candidates:
+                existing_end = existing.scheduled_at + timedelta(minutes=existing.duration_minutes)
+                overlaps = obj.scheduled_at < existing_end and existing.scheduled_at < window_end
+                same_vehicle = existing.car_id == obj.car_id
+                same_mechanic = obj.assigned_to_id and existing.assigned_to_id == obj.assigned_to_id
+                if overlaps and (same_vehicle or same_mechanic):
+                    conflict = existing
+                    break
+            if conflict:
+                raise ValidationError(
+                    "Конфлікт запису: автомобіль або призначений майстер уже зайнятий у цей час "
+                    f"(запис #{conflict.pk})."
+                )
             obj.save()
-        except Exception as exc:
+        except (ValidationError, ValueError) as exc:
             form.add_error(None, str(exc))
         else:
             messages.success(request, "Запис на СТО створено.")
