@@ -20,7 +20,11 @@ details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more
  <div class="fld"><label for="id_sku">Артикул <span class="req">*</span></label>{{ form.sku }}{{ form.sku.errors }}<span class="helptext">Можна з пробілами та дефісами</span></div></div>
  <div class="status" id="st"></div>
  <div class="fld"><label for="id_name">Назва <span class="req">*</span></label>{{ form.name }}{{ form.name.errors }}</div>
- <div class="frow"><div class="fld"><label for="id_category">Категорія</label>{{ form.category }}{{ form.category.errors }}</div><div class="fld"><label for="id_unit">Одиниця виміру</label>{{ form.unit }}{{ form.unit.errors }}</div></div>
+ <div class="frow"><div class="fld"><label for="id_category">Категорія</label>{{ form.category }}{{ form.category.errors }}<span class="helptext">Система запропонує категорію за назвою, якщо залишити поле порожнім.</span></div><div class="fld"><label for="id_unit">Одиниця виміру</label>{{ form.unit }}{{ form.unit.errors }}</div></div>
+ <div class="sec" style="margin-top:14px"><i>!</i><h3>Стан товару</h3></div>
+ <div class="frow"><div class="fld"><label for="id_condition">Стан товару</label>{{ form.condition }}{{ form.condition.errors }}</div>
+ <div class="fld" id="defect-wrap"><label style="display:flex;gap:8px;align-items:center;font-weight:600">{{ form.has_defect }} Є дефект</label>{{ form.has_defect.errors }}</div></div>
+ <div class="fld" id="condition-description-wrap"><label for="id_condition_description">Опис стану</label>{{ form.condition_description }}{{ form.condition_description.errors }}<span class="helptext" id="condition-help">Для нового товару поле необов'язкове.</span></div>
 </div>
 <div class="card"><div class="sec"><i>2</i><h3>Ціни</h3></div>
  <div class="frow"><div class="fld"><label for="id_cost_price">Закупівельна ціна, ₴</label>{{ form.cost_price }}{{ form.cost_price.errors }}</div>
@@ -33,7 +37,9 @@ details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more
  <div class="frow">{% if form.initial_stock %}<div class="fld"><label for="id_initial_stock">Початковий залишок</label>{{ form.initial_stock }}{{ form.initial_stock.errors }}</div>{% endif %}
  <div class="fld"><label for="id_min_stock">Мінімальний залишок</label>{{ form.min_stock }}{{ form.min_stock.errors }}<span class="helptext">Нижче цього числа товар вважається «закінчується»</span></div>
  <div class="fld"><label for="id_barcode">Штрих-код</label>{{ form.barcode }}{{ form.barcode.errors }}<span class="helptext">Необов'язково. Можна відсканувати.</span></div></div>
- <div class="fld"><label for="id_photo">Фото</label>{{ form.photo }}{{ form.photo.errors }}</div>
+ <div class="fld"><label for="id_photo">Завантажити фото з комп'ютера</label>{{ form.photo }}{{ form.photo.errors }}</div>
+ <div class="fld"><label for="id_photo_url">Або посилання на фото (HTTPS)</label>{{ form.photo_url }}{{ form.photo_url.errors }}<span class="helptext">Використовуйте пряме посилання на зображення.</span></div>
+ <div class="fld"><label>Попередній перегляд</label><div id="photo-preview" style="min-height:90px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);border-radius:8px;padding:8px;color:var(--mute)">Фото не вибрано</div></div>
  <details class="more"{% if form.errors.notes or form.errors.is_active %} open{% endif %}><summary>Додатково</summary><div style="margin-top:10px">
   <div class="fld"><label style="display:flex;gap:8px;align-items:center;font-weight:500">{{ form.is_favorite }} Швидка кнопка на касі</label></div>
   <div class="fld"><label style="display:flex;gap:8px;align-items:center;font-weight:500">{{ form.allow_price_change }} Дозволити змінювати ціну на касі</label></div>
@@ -51,6 +57,14 @@ details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more
 (function(){
 const $=id=>document.getElementById(id),esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const brand=$('id_brand'),sku=$('id_sku'),nm=$('id_name'),cost=$('id_cost_price'),price=$('id_price'),mk=$('mk'),calc=$('calc'),st=$('st'),hints=$('hints');
+const condition=$('id_condition'),defect=$('id_has_defect'),desc=$('id_condition_description'),defectWrap=$('defect-wrap'),photoFile=$('id_photo'),photoUrl=$('id_photo_url'),photoPreview=$('photo-preview');
+function updateCondition(){const used=condition.value==='used',incomplete=condition.value==='incomplete';defectWrap.hidden=!used;if(!used)defect.checked=false;desc.required=incomplete||(used&&defect.checked);$('condition-help').textContent=incomplete?'Обов’язково вкажіть, чого саме не вистачає.':(used&&defect.checked?'Обов’язково опишіть дефект.':'Для цього стану поле необов’язкове.');}
+condition.addEventListener('change',updateCondition);defect.addEventListener('change',updateCondition);updateCondition();
+function previewPhoto(src){photoPreview.replaceChildren();if(!src){photoPreview.textContent='Фото не вибрано';return}const img=document.createElement('img');img.src=src;img.alt='Попередній перегляд фото';img.style.cssText='max-width:100%;max-height:180px;object-fit:contain';img.onerror=()=>{photoPreview.textContent='Не вдалося відкрити зображення'};photoPreview.appendChild(img)}
+photoFile.addEventListener('change',()=>{if(photoFile.files&&photoFile.files[0])previewPhoto(URL.createObjectURL(photoFile.files[0]));else previewPhoto(photoUrl.value)});
+photoUrl.addEventListener('input',()=>{if(!photoFile.files.length)previewPhoto(photoUrl.value)});
+if(photoFile.files.length)previewPhoto(URL.createObjectURL(photoFile.files[0]));else if(photoUrl.value)previewPhoto(photoUrl.value);
+
 const DEF={{ default_pct|stringformat:'f' }},PK={% if obj %}{{ obj.pk }}{% else %}0{% endif %},EDIT={% if obj %}true{% else %}false{% endif %};
 const n=v=>{const x=parseFloat(String(v).replace(',','.'));return isNaN(x)?null:x},r2=x=>Math.round(x*100)/100,fmt=x=>x.toLocaleString('uk-UA',{minimumFractionDigits:2,maximumFractionDigits:2});
 let touched=EDIT&&n(price.value)>0;   // ціну вже вводили вручну: не перезаписуємо її автоматично
