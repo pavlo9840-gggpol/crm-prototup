@@ -8,7 +8,7 @@
 {% elif not total %}<div class="card"><p style="margin:0">Сумісних деталей не знайдено. Перевірте написання марки й моделі: у каталозі вони можуть бути записані інакше (напр. «Renault» і «Рено»).</p></div>
 {% else %}<p class="muted">Знайдено деталей: <b>{{ total }}</b> у групах: {{ groups|length }}. Ціни вказано{% if customer %} для клієнта <b>{{ customer.name }}</b>{% endif %} з урахуванням правил цін. Це підбір за даними застосовності з каталогу та карток деталей. Позначка «підтверджена» означає наявність перевіреного запису джерела; для відповідальних вузлів звіряйте за VIN.</p>
 {% for g in groups %}<div class="cg"><h3>{{ g.name }} <span class="tag">{{ g.rows|length }}</span></h3>
-<table><tr><th>Бренд<th>Артикул<th>Назва<th class="n">На складі<th class="n">Ціна<th>У постачальника</tr>
+<table><tr><th>Бренд<th>Артикул<th>Назва<th class="n">На складі<th class="n">Ціна<th>У постачальника<th>Застосовність</tr>
 {% for r in g.rows %}<tr><td><b>{{ r.brand|default:"—" }}</b><td><a href="{% url 'part_card' %}?b={{ r.brand|urlencode }}&s={{ r.sn }}">{{ r.sku }}</a><td>{{ r.name }}
 <td class="n">{% if r.stock > 0 %}<b>{{ r.stock|floatformat:"-3" }}</b>{% else %}—{% endif %}<td class="n">{% if r.stock > 0 and r.price %}<b>{{ r.price }} ₴</b>{% elif r.offer_price %}{{ r.offer_price }} ₴{% else %}—{% endif %}
 <td>{% if r.offer %}{{ r.offer.supplier }} · {% if r.offer.qty_avail is None %}є{% else %}{{ r.offer.qty_avail|floatformat:"-3" }} шт{% endif %}<small class="muted"> · закупівля {{ r.offer.cost }}</small>{% else %}<span class="muted">—</span>{% endif %}</tr>{% endfor %}</table></div>{% endfor %}{% endif %}{% endblock %}
