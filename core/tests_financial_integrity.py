@@ -5,9 +5,11 @@ from django.utils import timezone
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
+from django.db import connection
 
 from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement
-from core.services import StockError, create_purchase, create_return, save_held
+from core.services import StockError, _lock_products, create_purchase, create_return, save_held
 
 
 class FinancialIntegrityTests(TestCase):
@@ -22,6 +24,23 @@ class FinancialIntegrityTests(TestCase):
             cost_price=Decimal("12.00"),
             current_stock=Decimal("10.000"),
         )
+
+    def test_multi_product_stock_locks_are_acquired_in_primary_key_order(self):
+        other = Product.objects.create(
+            name="Air filter", sku="AF-002", price=Decimal("30.00"),
+            cost_price=Decimal("18.00"), current_stock=Decimal("5.000"),
+        )
+        requested = [other.pk, self.product.pk, other.pk]
+        with CaptureQueriesContext(connection) as queries:
+            locked = _lock_products(requested)
+
+        self.assertEqual(list(locked), sorted({other.pk, self.product.pk}))
+        lock_query = next(
+            query["sql"] for query in queries
+            if "FROM \"core_product\"" in query["sql"] and " IN " in query["sql"]
+        )
+        self.assertIn("ORDER BY", lock_query)
+        self.assertLess(lock_query.index("ORDER BY"), len(lock_query))
 
     def test_second_return_cannot_exceed_remaining_quantity(self):
         sale = Sale.objects.create(
