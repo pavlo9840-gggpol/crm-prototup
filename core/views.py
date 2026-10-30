@@ -103,6 +103,9 @@ def dashboard(request):
 def product_list(request):
     qs = Product.objects.select_related("category")
     q, cat = request.GET.get("q", "").strip(), request.GET.get("category", "")
+    condition = request.GET.get("condition", "").strip()
+    if condition in dict(Product.CONDITION_CHOICES):
+        qs = qs.filter(condition=condition)
     if q:
         qn = norm_sku(q)
         cond = Q(name_lc__contains=q.lower()) | Q(sku__icontains=q) | Q(barcode__icontains=q) | Q(brand__icontains=q)
@@ -118,7 +121,7 @@ def product_list(request):
         qs = qs.order_by(sort)
     from .designer_views import print_bar
     return render(request, "core/product_list.html",
-                  {"products": qs, "categories": Category.objects.all(), "q": q, "cat": cat, **print_bar("pricetag")})
+                  {"products": qs, "categories": Category.objects.all(), "q": q, "cat": cat, "condition": condition, **print_bar("pricetag")})
 
 
 def all_brands():
