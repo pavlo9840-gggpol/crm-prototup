@@ -46,6 +46,18 @@ class StructuredFitmentLookupTests(TestCase):
         self.assertTrue(PartFitment.objects.filter(part_number__sku_norm="19152615", verified=True,
                                                    year_from=2006, year_to=2014).exists())
 
+
+    def test_fitment_import_rolls_back_all_rows_when_later_row_is_invalid(self):
+        payload = (
+            "Марка;Модель;Бренд;Артикул;Рік від;Рік до;Двигун;Перевірено\n"
+            "Renault;Trafic II;MEYLE;19-152615;2006;2014;M9R;так\n"
+            "Renault;Trafic II;MEYLE;19-152616;1800;2014;M9R;так\n"
+        )
+        file = SimpleUploadedFile("invalid-fitments.csv", payload.encode("utf-8"))
+        response = self.client.post("/parts-data/", {"kind": "fitment", "file": file, "has_header": "1"}, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(PartFitment.objects.filter(part_number__sku_norm__in=["19152615", "19152616"]).exists())
+
     def test_cross_reference_screen_shows_real_stock_and_supplier_data(self):
         CrossRef.objects.create(a="315849", b="19152615", a_raw="315 849", b_raw="19-152615", source="manual")
         response = self.client.get("/crossrefs/")
