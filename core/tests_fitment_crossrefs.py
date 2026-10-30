@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from core.models import (
     CatalogPart, CatalogPartNumber, CatalogSource, CrossRef, Customer,
@@ -36,6 +37,14 @@ class StructuredFitmentLookupTests(TestCase):
         response = self.client.get("/car-parts/?make=Renault&model=Trafic%20II&year=2020")
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "315 849")
+
+    def test_structured_fitment_file_import_creates_evidence(self):
+        payload = "Марка;Модель;Бренд;Артикул;Рік від;Рік до;Двигун;Перевірено\nRenault;Trafic II;MEYLE;19-152615;2006;2014;M9R;так\n"
+        file = SimpleUploadedFile("fitments.csv", payload.encode("utf-8"))
+        response = self.client.post("/parts-data/", {"kind": "fitment", "file": file, "has_header": "1"}, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(PartFitment.objects.filter(part_number__sku_norm="19152615", verified=True,
+                                                   year_from=2006, year_to=2014).exists())
 
     def test_cross_reference_screen_shows_real_stock_and_supplier_data(self):
         CrossRef.objects.create(a="315849", b="19152615", a_raw="315 849", b_raw="19-152615", source="manual")
