@@ -15,6 +15,14 @@ class StockError(Exception):
     pass
 
 
+def _lock_products(product_ids):
+    """Lock multiple stock rows in primary-key order to avoid cross-operation deadlocks."""
+    ids = sorted(set(product_ids))
+    if not ids:
+        return {}
+    return {p.pk: p for p in Product.objects.select_for_update().filter(pk__in=ids).order_by("pk")}
+
+
 def add_movement(product, change, mtype, doc="", user=None, note=""):
     """The ONLY place that changes Product.current_stock."""
     p = Product.objects.select_for_update().get(pk=product.pk)
@@ -131,8 +139,11 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
     for p, q, _pr, x in lines:
         if not x:                                   # товар постачальника склад не перевіряє
             need[p.pk] = need.get(p.pk, D0) + q
+    # A cart can contain several stock products. Acquire every row lock in
+    # the same order used by purchases and adjustments, regardless of cart order.
+    locked_products = _lock_products(need)
     for pk, q in need.items():
-        fresh = Product.objects.select_for_update().get(pk=pk)
+        fresh = locked_products[pk]
         if fresh.current_stock < q:
             raise StockError(f"Товару {fresh.name} недостатньо, поточний залишок {fresh.current_stock.normalize():f}")
     sale = held or Sale(cashier=user)
@@ -212,6 +223,9 @@ def create_purchase(user, supplier, lines, update_cost=True):
             raise StockError(f"{p.name}: кількість має бути більшою за нуль")
         if cost is None or cost < D0:
             raise StockError(f"{p.name}: закупівельна ціна не може бути від'ємною")
+    # Lock all affected stock rows before changing any of them. Sorting makes
+    # two purchases with the same products acquire locks in a consistent order.
+    _lock_products(p.pk for p, _q, _cost in lines)
     pur = Purchase.objects.create(supplier=supplier, user=user)
     _num(pur, "NK")
     total = D0
