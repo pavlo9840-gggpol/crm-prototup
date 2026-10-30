@@ -71,6 +71,11 @@ class Product(models.Model):
     is_active = models.BooleanField("Активний", default=True)
     is_favorite = models.BooleanField("Швидка кнопка на касі", default=False)
     photo = models.ImageField("Фото", upload_to="products/", blank=True, null=True)
+    photo_url = models.URLField("Фото за посиланням", max_length=500, blank=True)
+    CONDITION_CHOICES = [("new", "Новий"), ("used", "Б/В"), ("refurbished", "Відновлений"), ("incomplete", "Некомплект")]
+    condition = models.CharField("Стан товару", max_length=15, choices=CONDITION_CHOICES, default="new", db_index=True)
+    has_defect = models.BooleanField("Є дефект", default=False)
+    condition_description = models.TextField("Опис стану", blank=True)
     notes = models.TextField("Примітки", blank=True)
     brand = models.CharField("Бренд (виробник)", max_length=60, blank=True, db_index=True)
     sku_norm = models.CharField(max_length=60, blank=True, db_index=True, editable=False)
