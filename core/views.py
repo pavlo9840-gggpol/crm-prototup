@@ -101,7 +101,7 @@ def dashboard(request):
 # ---------- Products / categories / suppliers ----------
 @staff_only
 def product_list(request):
-    qs = Product.objects.select_related("category")
+    qs = Product.objects.select_related("category").prefetch_related("supplier_items__supplier")
     q, cat = request.GET.get("q", "").strip(), request.GET.get("category", "")
     condition = request.GET.get("condition", "").strip()
     if condition in dict(Product.CONDITION_CHOICES):
