@@ -1,11 +1,92 @@
-{% extends "core/base.html" %}{% block content %}<h2>Головна</h2>
-<div class="kpi"><div class="card">Продажі сьогодні<b>{{ today_total|floatformat:2 }} ₴</b></div>
-<div class="card">Чеків сьогодні<b>{{ today_count }}</b></div>
-<div class="card">Продажі за місяць<b>{{ month_total|floatformat:2 }} ₴</b></div>
-<div class="card {% if low_count %}low{% endif %}">Низький залишок<b>{{ low_count }}</b><a href="{% url 'inventory' %}?status=low">Переглянути</a></div>
-<div class="card {% if overdue_orders %}low{% endif %}">Товар чекає клієнтів<b>{{ waiting_orders }}</b>{% if overdue_orders %}<span class="err">відлік вичерпано: {{ overdue_orders }}</span> {% endif %}<a href="{% url 'orders' %}">Замовлення в дорозі</a></div></div>
-<div class="card"><h3>Продажі за 7 днів</h3><div class="bars">{% for b in bars %}<div>{{ b.sum|floatformat:0 }}<i style="height:{{ b.h }}px"></i>{{ b.day|date:"d.m" }}</div>{% endfor %}</div></div>
-<div class="card"><h3>Останні 10 продажів</h3><table><tr><th>Чек<th>Час<th>Касир<th class="n">Сума</tr>
-{% for s in last_sales %}<tr><td><a href="{% url 'sale_detail' s.pk %}">{{ s.number }}</a><td>{{ s.created_at|date:"d.m.Y H:i" }}<td>{{ s.cashier }}<td class="n">{{ s.total }} ₴</tr>{% endfor %}</table></div>
-<div class="card"><h3>Останні 10 змін запасів</h3><table><tr><th>Час<th>Товар<th>Тип<th class="n">Зміна<th class="n">Залишок</tr>
-{% for m in last_moves %}<tr><td>{{ m.created_at|date:"d.m.Y H:i" }}<td>{{ m.product.name }}<td>{{ m.get_movement_type_display }}<td class="n">{{ m.quantity_change|floatformat:"-3" }}<td class="n">{{ m.balance_after|floatformat:"-3" }}</tr>{% endfor %}</table></div>{% endblock %}
+{% extends "core/base.html" %}
+{% block title %}Операційний центр · {{ company_name|default:"АвтоЗапас" }}{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px">
+  <div>
+    <h2 style="margin-bottom:4px">Операційний центр</h2>
+    <div class="muted">Продажі, склад, замовлення та закупівлі — в одному робочому просторі.</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="btn" href="{% url 'pos' %}">＋ Новий продаж</a>
+    <a class="btn gray" href="{% url 'receive_home' %}">Приймання накладної</a>
+  </div>
+</div>
+
+<div class="kpi">
+  <div class="card">Продажі сьогодні<b>{{ today_total|floatformat:2 }} ₴</b><span class="muted">{{ today_count }} чеків</span></div>
+  <div class="card">Продажі за місяць<b>{{ month_total|floatformat:2 }} ₴</b><a href="{% url 'report_monthly' %}">Звіт за місяць →</a></div>
+  <div class="card {% if low_count %}low{% endif %}">Потрібно поповнити<b>{{ low_count }}</b><a href="{% url 'inventory' %}?status=low">Перевірити залишки →</a></div>
+  <div class="card {% if overdue_orders %}low{% endif %}">Замовлення для клієнтів<b>{{ waiting_orders }}</b>{% if overdue_orders %}<span class="err">Прострочених: {{ overdue_orders }}</span>{% endif %}<a href="{% url 'orders' %}">Відкрити замовлення →</a></div>
+</div>
+
+<div class="grid2">
+  <section>
+    <div class="card">
+      <h3>Робочі процеси</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">
+        <a href="{% url 'pos' %}" style="display:block;padding:14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:#fff">
+          <div style="font-size:22px;margin-bottom:6px">🧾</div><b>Продаж / каса</b><div class="muted" style="font-size:13px">Оформити продаж, знайти товар або замовити у постачальника</div>
+        </a>
+        <a href="{% url 'receive_home' %}" style="display:block;padding:14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:#fff">
+          <div style="font-size:22px;margin-bottom:6px">📦</div><b>Приймання товару</b><div class="muted" style="font-size:13px">Зіставити накладну, розподілити позиції клієнтам і на склад</div>
+        </a>
+        <a href="{% url 'orders' %}" style="display:block;padding:14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:#fff">
+          <div style="font-size:22px;margin-bottom:6px">🚚</div><b>Замовлення в дорозі</b><div class="muted" style="font-size:13px">Контролювати прибуття та видачу замовлень</div>
+        </a>
+        <a href="{% url 'supplier_prices' %}" style="display:block;padding:14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:#fff">
+          <div style="font-size:22px;margin-bottom:6px">🔎</div><b>Прайси постачальників</b><div class="muted" style="font-size:13px">Знайти артикул і порівняти закупівельні пропозиції</div>
+        </a>
+        <a href="{% url 'inventory' %}" style="display:block;padding:14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:#fff">
+          <div style="font-size:22px;margin-bottom:6px">🗃️</div><b>Склад</b><div class="muted" style="font-size:13px">Залишки, дефіцит і рух товарів</div>
+        </a>
+        <a href="{% url 'price_review' %}" style="display:block;padding:14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:#fff">
+          <div style="font-size:22px;margin-bottom:6px">💹</div><b>Контроль цін і маржі</b><div class="muted" style="font-size:13px">Перевірити ціни перед продажем і зміну маржі</div>
+        </a>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Продажі за 7 днів</h3>
+      <div class="bars">{% for b in bars %}<div>{{ b.sum|floatformat:0 }}<i style="height:{{ b.h }}px"></i>{{ b.day|date:"d.m" }}</div>{% endfor %}</div>
+    </div>
+    <div class="card">
+      <h3>Останні 10 продажів</h3>
+      <table><tr><th>Чек</th><th>Час</th><th>Касир</th><th class="n">Сума</th></tr>
+      {% for s in last_sales %}<tr><td><a href="{% url 'sale_detail' s.pk %}">{{ s.number }}</a></td><td>{{ s.created_at|date:"d.m.Y H:i" }}</td><td>{{ s.cashier }}</td><td class="n">{{ s.total }} ₴</td></tr>
+      {% empty %}<tr><td colspan="4" class="muted">Продажів поки немає.</td></tr>{% endfor %}</table>
+    </div>
+  </section>
+  <aside>
+    <div class="card">
+      <h3>Потребує уваги</h3>
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)"><span>Низький залишок</span><b>{{ low_count }}</b></div>
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)"><span>Замовлено / очікує видачі</span><b>{{ waiting_orders }}</b></div>
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0"><span>Прострочені замовлення</span><b class="{% if overdue_orders %}err{% endif %}">{{ overdue_orders }}</b></div>
+      {% if low_count %}<a class="btn gray" style="display:block;text-align:center;margin-top:8px" href="{% url 'inventory' %}?status=low">Перевірити дефіцит</a>{% endif %}
+      {% if overdue_orders %}<a class="btn red" style="display:block;text-align:center;margin-top:8px" href="{% url 'orders' %}">Перевірити прострочені</a>{% endif %}
+    </div>
+    <div class="card">
+      <h3>Швидкі дії</h3>
+      <div style="display:grid;gap:8px">
+        <a class="btn gray" href="{% url 'product_new' %}">＋ Додати товар</a>
+        <a class="btn gray" href="{% url 'purchase_new' %}">＋ Створити закупівлю</a>
+        <a class="btn gray" href="{% url 'customer_new' %}">＋ Додати клієнта</a>
+        <a class="btn gray" href="{% url 'report_profit' %}">Переглянути прибуток</a>
+        <a class="btn gray" href="{% url 'rates' %}">Курси валют</a>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Останні рухи складу</h3>
+      <div style="display:grid;gap:10px">
+      {% for m in last_moves %}
+        <div style="padding-bottom:9px;border-bottom:1px solid var(--line)">
+          <div style="font-weight:600">{{ m.product.name }}</div>
+          <div class="muted" style="font-size:12px">{{ m.created_at|date:"d.m.Y H:i" }} · {{ m.get_movement_type_display }}</div>
+          <div>Зміна: <b>{{ m.quantity_change|floatformat:"-3" }}</b> · Залишок: {{ m.balance_after|floatformat:"-3" }}</div>
+        </div>
+      {% empty %}<div class="muted">Рухів товару поки немає.</div>{% endfor %}
+      </div>
+      <a href="{% url 'inventory_movements' %}">Усі рухи →</a>
+    </div>
+  </aside>
+</div>
+{% endblock %}

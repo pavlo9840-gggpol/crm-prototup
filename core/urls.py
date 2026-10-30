@@ -6,13 +6,28 @@ from . import transit as tr
 from . import parts as pt
 from . import pricing_views as pv
 from . import carparts as cp
+from . import catalog_views as cat
 from . import payroll_views as pr
 from . import currency_views as cv
 from . import receive_views as rv
 from . import views as v
+from . import shipping_views as sh
+from . import service_views as svc
 
 urlpatterns = [
     path("login/", auth.LoginView.as_view(template_name="core/login.html"), name="login"),
+    path("service/", svc.service_home, name="service_home"),
+    path("service/reports/", svc.service_reports, name="service_reports"),
+    path("service/appointments/new/", svc.service_appointment_new, name="service_appointment_new"),
+    path("service/orders/new/", svc.service_order_new, name="service_order_new"),
+    path("service/orders/<int:pk>/", svc.service_order_detail, name="service_order_detail"),
+    path("service/orders/<int:pk>/payment/", svc.service_order_payment, name="service_order_payment"),
+    path("service/orders/<int:pk>/status/", svc.service_order_status, name="service_order_status"),
+    path("service/orders/<int:pk>/issue-parts/", svc.service_order_issue_parts, name="service_order_issue_parts"),
+    path("shipments/", sh.shipment_list, name="shipment_list"),
+    path("shipments/new/", sh.shipment_new, name="shipment_new"),
+    path("shipments/<int:pk>/create-ttn/", sh.shipment_create_ttn, name="shipment_create_ttn"),
+    path("shipments/<int:pk>/track/", sh.shipment_track, name="shipment_track"),
     path("logout/", auth.LogoutView.as_view(), name="logout"),
     path("", v.dashboard, name="dashboard"),
     path("products/", v.product_list, name="product_list"),
@@ -50,6 +65,7 @@ urlpatterns = [
     path("price-rules/<int:pk>/edit/", pv.price_rule_edit, name="price_rule_edit"),
     path("price-review/", pv.price_review, name="price_review"),
     path("car-parts/", cp.car_parts, name="car_parts"),
+    path("catalogue/", cat.catalogue_home, name="catalogue_home"),
     path("rates/", cv.rates, name="rates"),
     path("payroll/", pr.payroll_view, name="payroll"),
     path("pay-plans/", pr.pay_plans, name="pay_plans"),

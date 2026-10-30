@@ -71,6 +71,11 @@ class Product(models.Model):
     is_active = models.BooleanField("Активний", default=True)
     is_favorite = models.BooleanField("Швидка кнопка на касі", default=False)
     photo = models.ImageField("Фото", upload_to="products/", blank=True, null=True)
+    photo_url = models.URLField("Фото за посиланням", max_length=500, blank=True)
+    CONDITION_CHOICES = [("new", "Новий"), ("used", "Б/В"), ("refurbished", "Відновлений"), ("incomplete", "Некомплект")]
+    condition = models.CharField("Стан товару", max_length=15, choices=CONDITION_CHOICES, default="new", db_index=True)
+    has_defect = models.BooleanField("Є дефект", default=False)
+    condition_description = models.TextField("Опис стану", blank=True)
     notes = models.TextField("Примітки", blank=True)
     brand = models.CharField("Бренд (виробник)", max_length=60, blank=True, db_index=True)
     sku_norm = models.CharField(max_length=60, blank=True, db_index=True, editable=False)
@@ -695,3 +700,206 @@ class ExchangeRate(models.Model):
     class Meta:
         unique_together = [("currency", "date")]
         ordering = ["-date", "currency__code"]
+
+
+# ---------------------------------------------------------------------------
+# Normalized spare-parts catalogue. Catalogue identities are separate from
+# stock Products and supplier offers; importing a catalogue must never create
+# stock or alter prices.
+class CatalogSource(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    url = models.URLField(max_length=500, blank=True)
+    license_name = models.CharField(max_length=120, blank=True)
+    attribution = models.CharField(max_length=250, blank=True)
+    version = models.CharField(max_length=80, blank=True)
+    commercial_use = models.BooleanField(default=False)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class CatalogImportRun(models.Model):
+    source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="runs")
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=12, default="running",
+                              choices=[("running", "Виконується"), ("success", "Успішно"), ("failed", "Помилка")])
+    created_count = models.PositiveIntegerField(default=0)
+    updated_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(default=0)
+    error_count = models.PositiveIntegerField(default=0)
+    message = models.TextField(blank=True)
+
+
+class VehicleMake(models.Model):
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=140)
+    kind = models.CharField(max_length=20, default="car", db_index=True)
+    source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="vehicle_makes")
+    external_id = models.CharField(max_length=180, blank=True)
+    name_norm = models.CharField(max_length=140, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "slug"], name="uniq_vehicle_make_kind_slug"),
+            models.UniqueConstraint(fields=["source", "external_id"], condition=~models.Q(external_id=""), name="uniq_vehicle_make_source_id"),
+        ]
+        ordering = ["name", "kind"]
+
+    def __str__(self):
+        return self.name
+
+
+class VehicleModel(models.Model):
+    make = models.ForeignKey(VehicleMake, on_delete=models.PROTECT, related_name="models")
+    name = models.CharField(max_length=160)
+    slug = models.SlugField(max_length=180)
+    source_id = models.CharField(max_length=220, blank=True)
+    body_types = models.JSONField(default=list, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["make", "slug"], name="uniq_vehicle_model_make_slug"),
+            models.UniqueConstraint(fields=["make", "source_id"], condition=~models.Q(source_id=""), name="uniq_vehicle_model_source_id"),
+        ]
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.make.name} {self.name}"
+
+
+class VehicleVariant(models.Model):
+    """A more specific fitment target; the open base catalogue may only know nameplates."""
+    model = models.ForeignKey(VehicleModel, on_delete=models.PROTECT, related_name="variants")
+    label = models.CharField(max_length=180)
+    year_from = models.PositiveSmallIntegerField(null=True, blank=True)
+    year_to = models.PositiveSmallIntegerField(null=True, blank=True)
+    engine_code = models.CharField(max_length=80, blank=True)
+    engine_description = models.CharField(max_length=160, blank=True)
+    body_code = models.CharField(max_length=80, blank=True)
+    source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="vehicle_variants")
+    external_id = models.CharField(max_length=220, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["model", "source", "external_id"], condition=~models.Q(external_id=""), name="uniq_vehicle_variant_source_id"),
+        ]
+        indexes = [models.Index(fields=["model", "year_from", "year_to"], name="core_vehicl_model_i_64e7e2_idx")]
+
+    def __str__(self):
+        return f"{self.model} {self.label}".strip()
+
+
+class CatalogPart(models.Model):
+    """Logical catalogue part, distinct from a stock Product or supplier listing."""
+    name = models.CharField(max_length=250, blank=True)
+    category_name = models.CharField(max_length=120, blank=True)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+
+class CatalogPartNumber(models.Model):
+    part = models.ForeignKey(CatalogPart, on_delete=models.CASCADE, related_name="numbers")
+    brand = models.CharField(max_length=60)
+    brand_norm = models.CharField(max_length=60, db_index=True)
+    sku = models.CharField(max_length=80)
+    sku_norm = models.CharField(max_length=80, db_index=True)
+    source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="part_numbers")
+    external_id = models.CharField(max_length=180, blank=True)
+    product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.SET_NULL, related_name="catalog_numbers")
+    confidence = models.PositiveSmallIntegerField(default=100)
+    verified = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["brand_norm", "sku_norm"], name="uniq_catalog_brand_sku"),
+            models.UniqueConstraint(fields=["source", "external_id"], condition=~models.Q(external_id=""), name="uniq_catalog_part_source_id"),
+        ]
+        indexes = [models.Index(fields=["sku_norm", "brand_norm"], name="core_catalo_sku_nor_3b8f77_idx")]
+
+    def __str__(self):
+        return f"{self.brand} {self.sku}"
+
+
+class PartFitment(models.Model):
+    part_number = models.ForeignKey(CatalogPartNumber, on_delete=models.CASCADE, related_name="fitments")
+    vehicle_model = models.ForeignKey(VehicleModel, on_delete=models.CASCADE, related_name="part_fitments")
+    variant = models.ForeignKey(VehicleVariant, null=True, blank=True, on_delete=models.CASCADE, related_name="part_fitments")
+    source = models.ForeignKey(CatalogSource, on_delete=models.PROTECT, related_name="fitments")
+    year_from = models.PositiveSmallIntegerField(null=True, blank=True)
+    year_to = models.PositiveSmallIntegerField(null=True, blank=True)
+    engine_code = models.CharField(max_length=80, blank=True)
+    fitment_key = models.CharField(max_length=180, blank=True, default="", editable=False)
+    notes = models.CharField(max_length=250, blank=True)
+    verified = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["part_number", "vehicle_model", "source", "fitment_key"],
+                                    name="uniq_part_fitment_evidence"),
+        ]
+        indexes = [models.Index(fields=["vehicle_model", "year_from", "year_to"], name="core_partfi_vehicle_96e2f0_idx")]
+
+    def save(self, *args, **kwargs):
+        # Non-null canonical key makes deduplication reliable on SQLite and PostgreSQL,
+        # including fitments whose year range or variant is unknown.
+        self.fitment_key = (
+            f"v:{self.variant_id or 0}|y:{self.year_from or 0}-{self.year_to or 0}|"
+            f"e:{(self.engine_code or '').strip().upper()}"
+        )[:180]
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = list(kwargs["update_fields"]) + ["fitment_key"]
+        super().save(*args, **kwargs)
+
+
+
+class Shipment(models.Model):
+    """Відправлення Нової пошти: локальна картка, ТТН і останній відомий статус."""
+    STATUS = [
+        ("draft", "Чернетка"), ("created", "Накладну створено"),
+        ("in_transit", "У дорозі"), ("arrived", "Прибуло у відділення"),
+        ("delivered", "Отримано"), ("returned", "Повернення"),
+        ("problem", "Потрібна увага"),
+    ]
+    customer = models.ForeignKey("Customer", null=True, blank=True, on_delete=models.SET_NULL,
+                                 related_name="shipments", verbose_name="Клієнт")
+    sale = models.ForeignKey("Sale", null=True, blank=True, on_delete=models.SET_NULL,
+                             related_name="shipments", verbose_name="Продаж")
+    recipient_name = models.CharField("Одержувач", max_length=150)
+    recipient_phone = models.CharField("Телефон одержувача", max_length=30)
+    recipient_city = models.CharField("Місто одержувача", max_length=150, blank=True)
+    recipient_city_ref = models.CharField(max_length=80, blank=True)
+    recipient_warehouse = models.CharField("Відділення / адреса", max_length=250, blank=True)
+    recipient_warehouse_ref = models.CharField(max_length=80, blank=True)
+    ttn = models.CharField("ТТН", max_length=40, blank=True, unique=True, null=True)
+    description = models.CharField("Опис відправлення", max_length=200, default="Автозапчастини")
+    weight = models.DecimalField("Вага, кг", max_digits=8, decimal_places=3, default=1)
+    seats_amount = models.PositiveSmallIntegerField("Кількість місць", default=1)
+    declared_cost = models.DecimalField("Оголошена вартість, грн", max_digits=12, decimal_places=2, default=0)
+    cod_amount = models.DecimalField("Післяплата, грн", max_digits=12, decimal_places=2, default=0)
+    status = models.CharField(max_length=20, choices=STATUS, default="draft", db_index=True)
+    status_text = models.CharField("Статус перевізника", max_length=250, blank=True)
+    last_tracked_at = models.DateTimeField(null=True, blank=True)
+    api_error = models.CharField(max_length=500, blank=True)
+    created_by = models.ForeignKey(USER, null=True, on_delete=models.SET_NULL, related_name="created_shipments")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Відправлення"
+        verbose_name_plural = "Відправлення"
+
+    def __str__(self):
+        return self.ttn or f"Відправлення #{self.pk}"
+
+
+from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine, ServicePayment  # noqa: E402,F401

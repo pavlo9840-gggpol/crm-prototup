@@ -6,8 +6,10 @@ from functools import wraps
 from urllib.parse import urlencode
 
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import (Count, DecimalField, ExpressionWrapper, F, Max, Q, Sum)
 from django.db.models.functions import TruncDate
 from django.http import JsonResponse
@@ -19,7 +21,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, Sale, SaleItem, Shift, StockMovement, Supplier, SupplierItem)
+                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem)
 from .models import norm_plate, norm_sku
 from .services import StockError
 
@@ -99,8 +101,11 @@ def dashboard(request):
 # ---------- Products / categories / suppliers ----------
 @staff_only
 def product_list(request):
-    qs = Product.objects.select_related("category")
+    qs = Product.objects.select_related("category").prefetch_related("supplier_items__supplier")
     q, cat = request.GET.get("q", "").strip(), request.GET.get("category", "")
+    condition = request.GET.get("condition", "").strip()
+    if condition in dict(Product.CONDITION_CHOICES):
+        qs = qs.filter(condition=condition)
     if q:
         qn = norm_sku(q)
         cond = Q(name_lc__contains=q.lower()) | Q(sku__icontains=q) | Q(barcode__icontains=q) | Q(brand__icontains=q)
@@ -116,7 +121,7 @@ def product_list(request):
         qs = qs.order_by(sort)
     from .designer_views import print_bar
     return render(request, "core/product_list.html",
-                  {"products": qs, "categories": Category.objects.all(), "q": q, "cat": cat, **print_bar("pricetag")})
+                  {"products": qs, "categories": Category.objects.all(), "q": q, "cat": cat, "condition": condition, **print_bar("pricetag")})
 
 
 def all_brands():
@@ -214,8 +219,19 @@ def category_list(request):
 
 
 def supplier_list(request):
-    return render(request, "core/simple_list.html", {"title": "Постачальники", "items": Supplier.objects.all(),
-                                                    "add": "supplier_new", "edit": "supplier_edit"})
+    qs = Supplier.objects.all()
+    q = (request.GET.get("q") or "").strip()[:120]
+    active = (request.GET.get("active") or "").strip()
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(contact_person__icontains=q) | Q(phone__icontains=q))
+    if active == "1":
+        qs = qs.filter(is_active=True)
+    elif active == "0":
+        qs = qs.filter(is_active=False)
+    return render(request, "core/simple_list.html", {
+        "title": "Постачальники", "items": qs, "add": "supplier_new", "edit": "supplier_edit",
+        "q": q, "active": active, "total_count": qs.count(),
+    })
 
 
 category_list = staff_only(category_list)
@@ -234,15 +250,24 @@ def supplier_edit(request, pk=None):
 @staff_only
 def purchase_list(request):
     qs = Purchase.objects.select_related("supplier")
+    q = request.GET.get("q", "").strip()
+    supplier_id = request.GET.get("supplier", "").strip()
     d1, d2 = get_date(request, "from", None), get_date(request, "to", None)
     if d1:
         qs = qs.filter(created_at__date__gte=d1)
     if d2:
         qs = qs.filter(created_at__date__lte=d2)
-    if request.GET.get("supplier"):
-        qs = qs.filter(supplier_id=request.GET["supplier"])
+    if supplier_id.isdigit():
+        qs = qs.filter(supplier_id=int(supplier_id))
+    if q:
+        qs = qs.filter(Q(number__icontains=q) | Q(supplier__name__icontains=q))
+    summary = qs.aggregate(total=Sum("total"), count=Count("pk"))
     from .designer_views import print_bar
-    return render(request, "core/purchase_list.html", {"purchases": qs[:300], "suppliers": Supplier.objects.all(), **print_bar("purchase")})
+    return render(request, "core/purchase_list.html", {
+        "purchases": qs[:300], "suppliers": Supplier.objects.all(),
+        "selected_supplier": supplier_id, "q": q,
+        "summary_total": summary["total"] or D0, "summary_count": summary["count"],
+        **print_bar("purchase")})
 
 
 @staff_only
@@ -250,18 +275,34 @@ def purchase_new(request):
     if request.method == "POST":
         sid, new_name = request.POST.get("supplier"), request.POST.get("new_supplier", "").strip()
         lines = []
-        for pid, q, c in zip(request.POST.getlist("product"), request.POST.getlist("qty"),
-                             request.POST.getlist("cost")):
-            p, q, c = Product.objects.filter(pk=pid or 0).first(), dec(q), dec(c)
-            if p and q and q > 0 and c is not None and c >= 0:
-                lines.append((p, q, c))
+        product_ids = request.POST.getlist("product")
+        quantities = request.POST.getlist("qty")
+        costs = request.POST.getlist("cost")
         try:
+            if not (len(product_ids) == len(quantities) == len(costs)):
+                raise StockError("Дані рядків закупівлі неповні. Оновіть сторінку й повторіть.")
+            for index, (pid, raw_q, raw_cost) in enumerate(zip(product_ids, quantities, costs), start=1):
+                # Empty extra rows are normal in the form; partially filled rows are not.
+                if not any(str(value or "").strip() for value in (pid, raw_q, raw_cost)):
+                    continue
+                p = Product.objects.filter(pk=pid or 0).first()
+                q, cost = dec(raw_q), dec(raw_cost)
+                if p is None:
+                    raise StockError(f"Рядок {index}: оберіть товар зі списку.")
+                if q is None or q <= 0:
+                    raise StockError(f"Рядок {index}: кількість має бути більшою за нуль.")
+                if cost is None or cost < 0:
+                    raise StockError(f"Рядок {index}: закупівельна ціна не може бути від'ємною.")
+                lines.append((p, q, cost))
             if not lines:
                 raise StockError("Додайте хоча б один товар")
-            supplier = Supplier.objects.create(name=new_name) if new_name else Supplier.objects.filter(pk=sid or 0).first()
-            if not supplier:
-                raise StockError("Оберіть або створіть постачальника")
-            pur = services.create_purchase(request.user, supplier, lines, bool(request.POST.get("update_cost")))
+            if new_name and sid:
+                raise StockError("Оберіть наявного постачальника або введіть назву нового, не обидва варіанти.")
+            with transaction.atomic():
+                supplier = Supplier.objects.create(name=new_name) if new_name else Supplier.objects.filter(pk=sid or 0, is_active=True).first()
+                if not supplier:
+                    raise StockError("Оберіть активного постачальника або введіть назву нового.")
+                pur = services.create_purchase(request.user, supplier, lines, bool(request.POST.get("update_cost")))
             messages.success(request, f"Накладну {pur.number} проведено")
             return redirect("purchase_detail", pk=pur.pk)
         except StockError as e:
@@ -412,6 +453,10 @@ def _parse_cart(request):
     held = None
     if d.get("resume_id"):
         held = Sale.objects.filter(pk=d["resume_id"], status=Sale.HELD).first()
+        if held is None:
+            raise StockError("Чернетка вже проведена або видалена. Оновіть касу та створіть чек заново.")
+        if held.cashier_id != request.user.id and not request.user.is_staff:
+            raise PermissionDenied
     car = None
     if customer and d.get("car_id"):
         car = CustomerCar.objects.filter(pk=d["car_id"], customer=customer).first()
@@ -502,8 +547,10 @@ def pos_change(request):
 
 @login_required
 @require_POST
+@transaction.atomic
 def pos_checkout(request):
-    shift = current_shift(request.user)
+    # Serialize checkouts in the same cash shift before reading/updating its drawer.
+    shift = Shift.objects.select_for_update().filter(cashier=request.user, closed_at__isnull=True).first()
     if not shift and not request.user.is_staff:
         return JsonResponse({"error": "Зміну не відкрито"}, status=400)
     try:
@@ -643,17 +690,31 @@ def inventory_adjust(request):
 @staff_only
 def inventory_movements(request):
     qs = StockMovement.objects.select_related("product", "user")
-    if request.GET.get("product"):
-        qs = qs.filter(product_id=request.GET["product"])
-    if request.GET.get("type"):
-        qs = qs.filter(movement_type=request.GET["type"])
+    q = request.GET.get("q", "").strip()
+    product_id = request.GET.get("product", "").strip()
+    movement_type = request.GET.get("type", "").strip()
+    if product_id.isdigit():
+        qs = qs.filter(product_id=int(product_id))
+    valid_types = {value for value, _label in StockMovement.TYPES}
+    if movement_type in valid_types:
+        qs = qs.filter(movement_type=movement_type)
+    if q:
+        qs = qs.filter(Q(product__name__icontains=q) | Q(product__sku__icontains=q)
+                       | Q(doc_ref__icontains=q) | Q(note__icontains=q) | Q(user__username__icontains=q))
     d1, d2 = get_date(request, "from", None), get_date(request, "to", None)
     if d1:
         qs = qs.filter(created_at__date__gte=d1)
     if d2:
         qs = qs.filter(created_at__date__lte=d2)
-    return render(request, "core/movements.html", {"moves": qs[:300], "products": Product.objects.all(),
-                                                   "types": StockMovement.TYPES})
+    if d1 and d2 and d1 > d2:
+        qs = qs.none()
+    count = qs.count()
+    return render(request, "core/movements.html", {
+        "moves": qs[:300], "movement_count": count, "products": Product.objects.all(),
+        "types": StockMovement.TYPES, "q": q, "selected_product": product_id,
+        "selected_type": movement_type, "date_from": request.GET.get("from", ""),
+        "date_to": request.GET.get("to", ""),
+    })
 
 
 # ---------- Customers ----------
@@ -690,11 +751,14 @@ def report_daily(request):
     d = get_date(request, "date", timezone.localdate())
     sales = done_sales().filter(created_at__date=d)
     split = sales.aggregate(c=Sum("cash_amount"), k=Sum("card_amount"))
+    total = sales.aggregate(s=Sum("total"))["s"] or D0
+    returns_total = SaleReturn.objects.filter(created_at__date=d).aggregate(s=Sum("total"))["s"] or D0
     items = (_items(d, d).values("product__name", "product__sku")
              .annotate(q=Sum("quantity"), s=Sum(ExpressionWrapper(F("quantity") * F("price"), output_field=DEC)))
              .order_by("-s"))
     return render(request, "core/report_daily.html", {
-        "d": d, "total": sales.aggregate(s=Sum("total"))["s"] or D0, "count": sales.count(),
+        "d": d, "total": total, "returns_total": returns_total, "net_total": total - returns_total,
+        "count": sales.count(),
         "units": _items(d, d).aggregate(s=Sum("quantity"))["s"] or D0,
         "cash": split["c"] or D0, "card": split["k"] or D0, "items": items})
 
@@ -712,14 +776,17 @@ def report_monthly(request):
 
     def agg(f):
         qs = done_sales().filter(created_at__year=f.year, created_at__month=f.month)
-        return qs, qs.aggregate(s=Sum("total"))["s"] or D0
-    qs, total = agg(first)
-    _, prev_total = agg(prev_first)
+        gross = qs.aggregate(s=Sum("total"))["s"] or D0
+        returned = SaleReturn.objects.filter(created_at__year=f.year, created_at__month=f.month).aggregate(s=Sum("total"))["s"] or D0
+        return qs, gross - returned, gross, returned
+    qs, total, gross_total, returns_total = agg(first)
+    _, prev_total, _, _ = agg(prev_first)
     days = qs.annotate(day=TruncDate("created_at")).values("day").annotate(s=Sum("total"), n=Count("id")).order_by("day")
     nd = max(len(days), 1)
     pct = ((total - prev_total) / prev_total * 100) if prev_total else None
     return render(request, "core/report_monthly.html", {
-        "first": first, "total": total, "avg": total / nd, "count": qs.count(), "days": days,
+        "first": first, "total": total, "gross_total": gross_total, "returns_total": returns_total,
+        "avg": total / nd, "count": qs.count(), "days": days,
         "prev_total": prev_total, "diff": total - prev_total, "pct": pct})
 
 
@@ -738,9 +805,16 @@ def report_top(request):
 def report_profit(request):
     today = timezone.localdate()
     d1, d2 = get_date(request, "from", today.replace(day=1)), get_date(request, "to", today)
-    rows = list(_items(d1, d2).values("product__name", "product__sku").annotate(
-        q=Sum(NET), rev=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
-        cost=Sum(ExpressionWrapper(NET * F("cost_price"), output_field=DEC))).order_by("-rev"))
+    # Margin is realized only after the item is handed over to the customer.
+    # Supplier-order sales remain in revenue reports, but are not counted as earned
+    # profit until fulfilment sets earned_at; returns reduce both net revenue and cost.
+    # Profit belongs to the period when the item was handed to the customer,
+    # not the earlier date when the sale/order was first created.
+    rows = list(SaleItem.objects.filter(
+        sale__status=Sale.DONE, earned_at__date__range=(d1, d2)
+    ).values("product__name", "product__sku").annotate(
+            q=Sum(NET), rev=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
+            cost=Sum(ExpressionWrapper(NET * F("cost_price"), output_field=DEC))).order_by("-rev"))
     for r in rows:
         r["margin"] = (r["rev"] or D0) - (r["cost"] or D0)
         r["pct"] = r["margin"] / r["rev"] * 100 if r["rev"] else D0
@@ -786,9 +860,15 @@ def _drawer_rows(counts):
 
 
 @login_required
+@transaction.atomic
 def shift_view(request):
     shift = current_shift(request.user)
     if request.method == "POST":
+        # Serialize open/close actions for this cashier and refresh the shift under lock.
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        shift = Shift.objects.select_for_update().filter(
+            cashier=request.user, closed_at__isnull=True
+        ).first()
         action = request.POST.get("action")
         if action == "open" and not shift:
             counts = _counts_from_post(request, "c_", {})
@@ -817,8 +897,14 @@ def shift_view(request):
 
 
 @login_required
+@transaction.atomic
 def drawer_view(request):
     shift = current_shift(request.user)
+    if request.method == "POST":
+        # A checkout and a drawer adjustment must never overwrite each other's counts.
+        shift = Shift.objects.select_for_update().filter(
+            cashier=request.user, closed_at__isnull=True
+        ).first()
     if not shift:
         messages.info(request, "Спочатку відкрийте зміну")
         return redirect("shift")
@@ -828,8 +914,13 @@ def drawer_view(request):
         if new is not None and new != old:
             delta_kop = cashlib.total(new) - cashlib.total(old)
             kind = request.POST.get("kind", "adjust")
+            if kind not in ("in", "out", "adjust"):
+                kind = "adjust"
+            if (kind == "in" and delta_kop < 0) or (kind == "out" and delta_kop > 0):
+                messages.error(request, "Тип касової операції не відповідає зміні суми. Перевірте купюри та повторіть.")
+                return redirect("drawer")
             CashOperation.objects.create(
-                shift=shift, user=request.user, kind=kind if kind in ("in", "out", "adjust") else "adjust",
+                shift=shift, user=request.user, kind=kind,
                 amount=cashlib.to_dec(delta_kop), note=request.POST.get("note", "")[:200],
                 detail={str(k): new.get(k, 0) - old.get(k, 0) for k in cashlib.DENOMS if new.get(k, 0) != old.get(k, 0)})
             shift.drawer = cashlib.store(new)

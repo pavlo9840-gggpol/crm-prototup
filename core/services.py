@@ -15,6 +15,14 @@ class StockError(Exception):
     pass
 
 
+def _lock_products(product_ids):
+    """Lock multiple stock rows in primary-key order to avoid cross-operation deadlocks."""
+    ids = sorted(set(product_ids))
+    if not ids:
+        return {}
+    return {p.pk: p for p in Product.objects.select_for_update().filter(pk__in=ids).order_by("pk")}
+
+
 def add_movement(product, change, mtype, doc="", user=None, note=""):
     """The ONLY place that changes Product.current_stock."""
     p = Product.objects.select_for_update().get(pk=product.pk)
@@ -117,12 +125,25 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
     lines = merge_lines(lines)
     if not lines:
         raise StockError("Чек порожній")
+    if held is not None:
+        held = Sale.objects.select_for_update().filter(pk=held.pk).first()
+        if held is None or held.status != Sale.HELD:
+            raise StockError("Цю чернетку вже проведено або видалено. Створіть новий чек.")
+        if held.cashier_id != user.pk and not user.is_staff:
+            raise StockError("Немає доступу до цієї чернетки")
+    if shift is not None:
+        shift = Shift.objects.select_for_update().filter(pk=shift.pk, closed_at__isnull=True).first()
+        if shift is None and not user.is_staff:
+            raise StockError("Зміну вже закрито. Відкрийте нову зміну.")
     need = {}
     for p, q, _pr, x in lines:
         if not x:                                   # товар постачальника склад не перевіряє
             need[p.pk] = need.get(p.pk, D0) + q
+    # A cart can contain several stock products. Acquire every row lock in
+    # the same order used by purchases and adjustments, regardless of cart order.
+    locked_products = _lock_products(need)
     for pk, q in need.items():
-        fresh = Product.objects.select_for_update().get(pk=pk)
+        fresh = locked_products[pk]
         if fresh.current_stock < q:
             raise StockError(f"Товару {fresh.name} недостатньо, поточний залишок {fresh.current_stock.normalize():f}")
     sale = held or Sale(cashier=user)
@@ -153,12 +174,21 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
 @transaction.atomic
 def create_return(user, sale, qty_map, mode="auto", mtype="customer_return"):
     """mode: auto — на склад, окрім позицій постачальника, що ще не видані клієнту (їх просто скасовано);
-    stock — завжди на склад; nostock — склад не чіпати."""
+    stock — завжди на склад; nostock — склад не чіпати.
+
+    Lock the parent sale first so simultaneous return requests cannot both pass
+    the same returnable-quantity check.
+    """
+    if mode not in {"auto", "stock", "nostock"}:
+        raise StockError("Невідомий режим повернення")
+    sale = Sale.objects.select_for_update().filter(pk=sale.pk, status=Sale.DONE).first()
+    if sale is None:
+        raise StockError("Повернення можливе лише для проведеного продажу")
     ret = SaleReturn.objects.create(sale=sale, user=user)
     ret.number = f"PV-{ret.pk:06d}"
     ret.save(update_fields=["number"])
     total = D0
-    for item in sale.items.select_for_update():
+    for item in sale.items.select_for_update().order_by("pk"):
         q = qty_map.get(item.pk, D0)
         if q <= 0:
             continue
@@ -186,18 +216,33 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return"):
 def create_purchase(user, supplier, lines, update_cost=True):
     if not lines:
         raise StockError("Додайте хоча б один товар")
+    # Validate every line before creating the document or touching stock.
+    # Forms normally enforce this, but the service is also a business-rule boundary.
+    for p, q, cost in lines:
+        if q is None or q <= D0:
+            raise StockError(f"{p.name}: кількість має бути більшою за нуль")
+        if cost is None or cost < D0:
+            raise StockError(f"{p.name}: закупівельна ціна не може бути від'ємною")
+    # Lock all affected stock rows before changing any of them. Sorting makes
+    # two purchases with the same products acquire locks in a consistent order.
+    _lock_products(p.pk for p, _q, _cost in lines)
     pur = Purchase.objects.create(supplier=supplier, user=user)
     _num(pur, "NK")
     total = D0
-    for p, q, cost in lines:
+    for product, q, cost in lines:
+        # Use the locked, fresh product row for both stock and cost updates. The
+        # caller may have supplied a stale Product instance, and one purchase can
+        # contain the same product more than once.
+        movement = add_movement(product, q, "purchase", pur.number, user)
+        p = movement.product
         PurchaseItem.objects.create(purchase=pur, product=p, quantity=q, cost_price=cost)
         total += q * cost
-        add_movement(p, q, "purchase", pur.number, user)
         if update_cost and p.cost_price != cost:
             PriceHistory.objects.create(product=p, field="cost_price", old_value=p.cost_price,
                                         new_value=cost, changed_by=user)
-            Product.objects.filter(pk=p.pk).update(cost_price=cost)
-        if p.auto_price:                                  # автоціна: нова закупівля → ціна за правилами
+            p.cost_price = cost
+            p.save(update_fields=["cost_price"])
+        if p.auto_price:                                  # автоціна має рахуватись від актуальної закупівельної
             from . import pricing
             pricing.reprice_product(p, user)
     pur.total = total
@@ -265,6 +310,9 @@ def mark_issued(user, item):
 
 
 def _unclaimed(user, item, mode):
+    # Keep lock order consistent with create_return(): sale first, then its items.
+    # Locking the item first here could deadlock against a simultaneous return.
+    Sale.objects.select_for_update().get(pk=item.sale_id)
     item = SaleItem.objects.select_for_update().select_related("sale").get(pk=item.pk)
     _check(user, item, (SaleItem.ARRIVED,))
     before = Product.objects.select_for_update().get(pk=item.product_id).current_stock

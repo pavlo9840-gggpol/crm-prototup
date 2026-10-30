@@ -1,2 +1,8 @@
-{% extends "core/base.html" %}{% block content %}<h2>{{ title }}</h2><p><a class="btn" href="{% url add %}">+ Додати</a></p>
-<table>{% for i in items %}<tr><td>{{ i }}<td><a href="{% url edit i.pk %}">Редагувати</a></tr>{% empty %}<tr><td>Порожньо</tr>{% endfor %}</table>{% endblock %}
+{% extends "core/base.html" %}{% block content %}<h2>{{ title }}</h2>
+{% if title == "Постачальники" %}
+<form class="filter" method="get"><input name="q" value="{{ q }}" placeholder="Назва, контактна особа або телефон">
+<select name="active"><option value="">Усі постачальники</option><option value="1" {% if active == "1" %}selected{% endif %}>Лише активні</option><option value="0" {% if active == "0" %}selected{% endif %}>Лише неактивні</option></select>
+<button class="btn">Фільтрувати</button><a class="btn gray" href="{% url 'supplier_list' %}">Скинути</a><span class="muted">Знайдено: {{ total_count }}</span></form>
+{% endif %}
+<p><a class="btn" href="{% url add %}">+ Додати</a></p>
+<table>{% for i in items %}<tr><td>{{ i }}{% if title == "Постачальники" %}<br><small class="muted">{{ i.contact_person }}{% if i.phone %} · {{ i.phone }}{% endif %}{% if not i.is_active %} · Неактивний{% endif %}</small>{% endif %}<td><a href="{% url edit i.pk %}">Редагувати</a>{% if title == "Постачальники" %} · <a href="{% url 'supplier_api' i.pk %}">API / прайс</a>{% endif %}</tr>{% empty %}<tr><td>Нічого не знайдено</tr>{% endfor %}</table>{% endblock %}

@@ -20,13 +20,15 @@ class ReceivingTest(TestCase):
     def setUp(self):
         U = get_user_model()
         U.objects.create_superuser("admin", "", "x")
-        U.objects.create_user("anna", password="x")
-        U.objects.create_user("petro", password="x")
-        self.adm, self.anna, self.petro = self.client, self.client_class(), self.client_class()
+        U.objects.create_user("anna", password="x", is_staff=True)
+        U.objects.create_user("petro", password="x", is_staff=True)
+        U.objects.create_user("cashier", password="x", is_staff=False)
+        self.adm, self.anna, self.petro, self.cashier = self.client, self.client_class(), self.client_class(), self.client_class()
         self.adm.login(username="admin", password="x")
         self.anna.login(username="anna", password="x")
         self.petro.login(username="petro", password="x")
-        for c in (self.anna, self.petro):
+        self.cashier.login(username="cashier", password="x")
+        for c in (self.anna, self.petro, self.cashier):
             c.post("/shift/", {"action": "open", "cash": "0"})
         self.sup = Supplier.objects.create(name="Busmarket")
         self.bil = self.si("BILSTEIN", "19-152615", 1000, "Амортизатор задній")
@@ -142,7 +144,7 @@ class ReceivingTest(TestCase):
         resp, _ = self.invoice([["BILSTEIN", "19-152615", "", 1, 1000]], client=self.anna)       # приймає anna, замовлення petro
         self.assertEqual(SaleItem.objects.get(pk=petro_item.pk).fulfil_status, "arrived")
         self.assertContains(self.anna.get("/receive/"), "ДГ-1")
-        self.assertNotContains(self.petro.get("/receive/"), "ДГ-1")                              # журнал: лише свої (не адмін)
+        self.assertContains(self.petro.get("/receive/"), "ДГ-1")                              # працівники бачать спільний журнал приймань
         self.assertContains(self.adm.get("/receive/"), "ДГ-1")
         other = Supplier.objects.create(name="Other")
         f = SimpleUploadedFile("i.xlsx", xlsx_bytes([HEAD, ["BILSTEIN", "19-152615", "", 1, 1]]))
@@ -163,3 +165,47 @@ class ReceivingTest(TestCase):
         self.assertTrue(any("заміна" in w for w in warns))
         self.assertEqual(r.context["plan"]["rows"][0]["stock_qty"], 1)
         self.assertEqual(SaleItem.objects.get(pk=a.pk).fulfil_status, "ordered")
+
+
+    def test_same_supplier_invoice_number_cannot_be_received_twice(self):
+        self.invoice([["BILSTEIN", "19-152615", "", 1, 1000]], number="INV-UNIQUE")
+        self.assertEqual(Receipt.objects.filter(supplier=self.sup, number="INV-UNIQUE").count(), 1)
+        self.assertFalse(Product.objects.filter(sku="NEW-DOUBLE").exists())
+
+        response, _ = self.invoice([["MEYLE", "NEW-DOUBLE", "Не має бути оприбутковано", 2, 50]],
+                                   number="INV-UNIQUE")
+        self.assertContains(response, "уже прийнято")
+        self.assertEqual(Receipt.objects.filter(supplier=self.sup, number="INV-UNIQUE").count(), 1)
+        self.assertFalse(Product.objects.filter(sku="NEW-DOUBLE").exists())
+
+    def test_cashier_cannot_preview_or_apply_supplier_receiving(self):
+        # Cashiers must not reach the receiving UI or mutate stock through direct POSTs.
+        product_before = Product.objects.count()
+        receipt_before = Receipt.objects.count()
+        movement_before = StockMovement.objects.count()
+        self.assertEqual(self.cashier.get("/receive/").status_code, 403)
+
+        preview = self.cashier.post(
+            "/receive/preview/",
+            {"supplier": self.sup.pk, "paste": "MEYLE;DENIED-1;Forbidden part;3;10"},
+        )
+        apply = self.cashier.post(
+            "/receive/apply/",
+            {
+                "supplier": self.sup.pk,
+                "paste": "MEYLE;DENIED-1;Forbidden part;3;10",
+                "header_row": "0",
+                "col_brand": "0",
+                "col_sku": "1",
+                "col_name": "2",
+                "col_qty": "3",
+                "col_cost": "4",
+            },
+        )
+
+        self.assertEqual(preview.status_code, 403)
+        self.assertEqual(apply.status_code, 403)
+        self.assertEqual(Product.objects.count(), product_before)
+        self.assertEqual(Receipt.objects.count(), receipt_before)
+        self.assertEqual(StockMovement.objects.count(), movement_before)
+        self.assertFalse(Product.objects.filter(sku="DENIED-1").exists())

@@ -8,7 +8,7 @@ from django.views.decorators.http import require_POST
 
 from . import crosses, enrich
 from .apisync import SyncError
-from .models import PartInfo, PartOe, Product, SupplierItem, norm_sku
+from .models import (CatalogPart, CatalogPartNumber, CatalogSource, PartFitment, PartInfo, PartOe, Product, SupplierItem, VehicleMake, VehicleModel, norm_sku)
 from .transit import MAX_FILE, TableError, read_table
 from .views import staff_only
 
@@ -97,6 +97,9 @@ def parts_import(request):
             if kind == "oe":
                 n_oe = _import_oe(rows)
                 messages.success(request, f"Імпортовано зв'язків «деталь ↔ OE»: {n_oe}")
+            elif kind == "fitment":
+                n_fit = _import_fitments(rows)
+                messages.success(request, f"Імпортовано зв'язків застосовності авто ↔ деталь: {n_fit}")
             else:
                 n_inf = _import_desc(rows)
                 messages.success(request, f"Оновлено описів: {n_inf}")
@@ -104,7 +107,8 @@ def parts_import(request):
             messages.error(request, str(e))
         return redirect("parts_import")
     return render(request, "core/parts_import.html", {"n_oe": PartOe.objects.count(), "n_info": PartInfo.objects.exclude(description="").count(),
-                                                      "n_parts": PartOe.objects.values("brand", "sku_norm").distinct().count()})
+                                                      "n_parts": PartOe.objects.values("brand", "sku_norm").distinct().count(),
+                                                      "n_fitments": PartFitment.objects.count()})
 
 
 def _import_oe(rows):
@@ -120,6 +124,58 @@ def _import_oe(rows):
     before = PartOe.objects.count()
     PartOe.objects.bulk_create(new, ignore_conflicts=True, batch_size=500)
     return PartOe.objects.count() - before
+
+
+
+@transaction.atomic
+def _import_fitments(rows):
+    """Колонки: Марка авто; Модель; Бренд деталі; Артикул; Рік від; Рік до; Код двигуна; Перевірено."""
+    imported = 0
+    source, _ = CatalogSource.objects.get_or_create(
+        name="Імпорт застосовності з файлу",
+        defaults={"license_name": "За ліцензією джерела файлу",
+                  "notes": "Власний імпорт користувача. Перевірте право на комерційне використання даних."},
+    )
+    for row in rows:
+        row = row + [""] * (8 - len(row))
+        make_name, model_name = row[0].strip(), row[1].strip()
+        brand, sku = row[2].strip().upper()[:60], row[3].strip()[:80]
+        if not (make_name and model_name and brand and sku):
+            continue
+        make = VehicleMake.objects.filter(name__iexact=make_name, kind__in=["car", "van", "truck"]).first()
+        if not make:
+            continue
+        vehicle_model = VehicleModel.objects.filter(make=make, name__iexact=model_name).first()
+        if not vehicle_model:
+            continue
+        def year_value(value):
+            value = value.strip()
+            if not value:
+                return None
+            if not value.isdigit() or not 1886 <= int(value) <= 2200:
+                raise TableError(f"Некоректний рік у рядку: {value}")
+            return int(value)
+        year_from, year_to = year_value(row[4]), year_value(row[5])
+        if year_from and year_to and year_from > year_to:
+            raise TableError(f"Початковий рік більший за кінцевий: {year_from}–{year_to}")
+        number = norm_sku(sku)
+        part, _ = CatalogPart.objects.get_or_create(name=sku)
+        part_number, _ = CatalogPartNumber.objects.get_or_create(
+            brand_norm=brand.casefold(), sku_norm=number,
+            defaults={"part": part, "brand": brand, "sku": sku, "source": source},
+        )
+        verified = row[7].strip().lower() in ("1", "true", "yes", "так", "підтверджено")
+        fitment, created = PartFitment.objects.get_or_create(
+            part_number=part_number, vehicle_model=vehicle_model, source=source,
+            year_from=year_from, year_to=year_to, engine_code=row[6].strip()[:80],
+            defaults={"verified": verified},
+        )
+        if created:
+            imported += 1
+        elif verified and not fitment.verified:
+            fitment.verified = True
+            fitment.save(update_fields=["verified"])
+    return imported
 
 
 def _import_desc(rows):

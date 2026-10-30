@@ -1,5 +1,5 @@
 {% extends "core/base.html" %}{% block content %}{% include "core/report_nav.html" %}<h2>Місячний звіт — {{ first|date:"m.Y" }}</h2>
 <form class="filter"><input type="month" name="month" value="{{ first|date:'Y-m' }}"><button class="btn">Показати</button></form>
-<div class="kpi"><div class="card">Сума<b>{{ total|floatformat:2 }} ₴</b></div><div class="card">Середньоденна<b>{{ avg|floatformat:2 }} ₴</b></div><div class="card">Чеків<b>{{ count }}</b></div>
+<div class="kpi"><div class="card">Чистий дохід<b>{{ total|floatformat:2 }} ₴</b>Продажі: {{ gross_total|floatformat:2 }} ₴<br>Повернення: −{{ returns_total|floatformat:2 }} ₴</div><div class="card">Середньоденна<b>{{ avg|floatformat:2 }} ₴</b></div><div class="card">Чеків<b>{{ count }}</b></div>
 <div class="card">Минулий місяць<b>{{ prev_total|floatformat:2 }} ₴</b>Зміна: {{ diff|floatformat:2 }} ₴ {% if pct is not None %}({{ pct|floatformat:1 }}%){% endif %}</div></div>
 <table><tr><th>Дата<th class="n">Чеків<th class="n">Сума</tr>{% for r in days %}<tr><td>{{ r.day|date:"d.m.Y" }}<td class="n">{{ r.n }}<td class="n">{{ r.s|floatformat:2 }}</tr>{% endfor %}</table>{% endblock %}

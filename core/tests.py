@@ -318,6 +318,26 @@ class HardeningTest(DesignerTest):
         SaleItem.objects.create(sale=sale, product=self.p, quantity=1, original_price=30, price=30)
         self.assertEqual(self.cs.get(f"/print/receipt/?ids={sale.pk}&template={bad.pk}").status_code, 400)
 
+    def test_purchase_rejects_invalid_line_without_partial_post_or_orphan_supplier(self):
+        from core.models import Purchase as PurchaseModel
+        product = Product.objects.create(name="Фільтр", sku="F-1", cost_price=Decimal("10"), current_stock=5)
+        supplier = Supplier.objects.create(name="Постачальник")
+        purchase_count = PurchaseModel.objects.count()
+        movement_count = StockMovement.objects.count()
+        response = self.adm.post("/purchases/new/", {
+            "new_supplier": "Не має створитися",
+            "product": [str(product.pk), str(product.pk)],
+            "qty": ["2", "1"],
+            "cost": ["10", "-1"],
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "закупівельна ціна")
+        self.assertEqual(PurchaseModel.objects.count(), purchase_count)
+        self.assertEqual(Supplier.objects.filter(name="Не має створитися").count(), 0)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+        product.refresh_from_db()
+        self.assertEqual(product.current_stock, Decimal("5"))
+
     def test_bad_json_and_empty_purchase(self):
         self.cs.post("/shift/", {"action": "open"})
         for url in ("/pos/checkout/", "/pos/hold/", "/pos/change/", "/pos/customer/new/"):
@@ -337,6 +357,33 @@ class V4Test(TestCase):
         self.adm, self.cs = self.client, self.client_class()
         self.adm.login(username="a", password="x"); self.cs.login(username="c", password="x")
         self.PT = PrintTemplate
+
+    def test_purchase_list_search_supplier_and_filtered_totals(self):
+        from decimal import Decimal
+        from core.models import Product, Purchase, Supplier
+        from core.services import create_purchase
+
+        supplier_a = Supplier.objects.create(name="Фільтри Захід")
+        supplier_b = Supplier.objects.create(name="АвтоСвіт")
+        product = Product.objects.create(name="Масляний фільтр", sku="OF-22", cost_price=Decimal("12.00"))
+        create_purchase(self.admin, supplier_a, [(product, Decimal("2"), Decimal("12.00"))])
+        create_purchase(self.admin, supplier_b, [(product, Decimal("1"), Decimal("12.00"))])
+
+        response = self.adm.get("/purchases/?q=Фільтри")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Фільтри Захід")
+        self.assertContains(response, "Знайдено накладних: <strong>1</strong>")
+        self.assertContains(response, "24.00 ₴")
+        self.assertContains(response, 'value="Фільтри"')
+
+        response = self.adm.get(f"/purchases/?supplier={supplier_b.pk}")
+        self.assertContains(response, "АвтоСвіт")
+        self.assertContains(response, "12.00 ₴")
+        self.assertContains(response, f'value="{supplier_b.pk}" selected')
+
+        response = self.adm.get("/purchases/?q=немає-такого")
+        self.assertContains(response, "Накладних за вибраними умовами не знайдено")
+        self.assertContains(response, "Знайдено накладних: <strong>0</strong>")
 
     # ---- legacy templates -> designer
     def test_legacy_conversion(self):

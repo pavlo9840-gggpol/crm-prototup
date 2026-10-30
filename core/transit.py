@@ -327,8 +327,21 @@ def crossrefs(request):
                 messages.error(request, str(e))
         return redirect("crossrefs")
     q = norm_sku(request.GET.get("q", ""))
-    qs = CrossRef.objects.filter(Q(a__startswith=q) | Q(b__startswith=q)) if q else CrossRef.objects.all()
-    return render(request, "core/crossrefs.html", {"pairs": qs.order_by("-pk")[:100], "total": CrossRef.objects.count()})
+    qs = CrossRef.objects.filter(Q(a__contains=q) | Q(b__contains=q)) if q else CrossRef.objects.all()
+    pairs = []
+    for pair in qs.order_by("-pk")[:100]:
+        a_products = list(Product.objects.filter(sku_norm=pair.a, is_active=True)[:3])
+        b_products = list(Product.objects.filter(sku_norm=pair.b, is_active=True)[:3])
+        a_offers = list(SupplierItem.objects.filter(sku_norm=pair.a, available=True).select_related("supplier").order_by("cost")[:3])
+        b_offers = list(SupplierItem.objects.filter(sku_norm=pair.b, available=True).select_related("supplier").order_by("cost")[:3])
+        pairs.append({
+            "obj": pair, "a_products": a_products, "b_products": b_products,
+            "a_offers": a_offers, "b_offers": b_offers,
+            "a_stock": sum((p.current_stock for p in a_products), Decimal("0")),
+            "b_stock": sum((p.current_stock for p in b_products), Decimal("0")),
+            "source_label": {"manual": "Підтверджено вручну", "api": "API постачальника", "import": "Імпорт"}.get(pair.source, pair.source),
+        })
+    return render(request, "core/crossrefs.html", {"pairs": pairs, "total": CrossRef.objects.count(), "query": request.GET.get("q", "")})
 
 
 # ============================================================== пошук на касі
@@ -473,7 +486,11 @@ def order_action(request, pk, action):
             raise StockError("Невідома дія")
     except (StockError, ValueError) as e:
         messages.error(request, str(e))
-    return redirect(request.POST.get("next") or "orders")
+    next_url = (request.POST.get("next") or "").strip()
+    # Дозволяємо лише відносні внутрішні URL, не зовнішні адреси.
+    if next_url.startswith("/") and not next_url.startswith("//"):
+        return redirect(next_url)
+    return redirect("orders")
 
 
 # ============================================================== історія продажів менеджерів
