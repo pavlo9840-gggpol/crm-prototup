@@ -127,6 +127,7 @@ def _import_oe(rows):
 
 
 
+@transaction.atomic
 def _import_fitments(rows):
     """Колонки: Марка авто; Модель; Бренд деталі; Артикул; Рік від; Рік до; Код двигуна; Перевірено."""
     imported = 0
