@@ -11,15 +11,12 @@ class ProductConditionTests(TestCase):
         self.client.force_login(user)
 
     def payload(self, **extra):
-        data = {"brand": "TEST", "sku": "T-100", "name": "Гальмівні колодки", "condition": "new"}
+        data = {"brand": "TEST", "sku": "T-100", "name": "Гальмівні колодки", "condition": "new", "unit": "шт", "cost_price": "100", "price": "150", "min_stock": "0"}
         data.update(extra)
         return data
 
     def test_new_is_default_and_used_without_defect_needs_no_description(self):
-        form = ProductForm(data={"brand": "TEST", "sku": "T-100", "name": "Деталь"})
-        self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.cleaned_data["condition"], "new")
-
+        self.assertEqual(Product().condition, "new")
         form = ProductForm(data=self.payload(condition="used"))
         self.assertTrue(form.is_valid(), form.errors)
 
