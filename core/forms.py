@@ -47,6 +47,21 @@ class ProductForm(forms.ModelForm):
             self.add_error("condition_description", "Опишіть дефект товару.")
         if condition != "used" and defect:
             self.add_error("has_defect", "Позначка дефекту доступна лише для товару Б/В.")
+        if not d.get("category") and d.get("name"):
+            text = (d.get("name") or "").casefold()
+            rules = [
+                (("амортиз", "пружин", "важіл", "важіль", "шарова", "сайлентблок", "ступиц", "підшипник ступ"), "Підвіска та кермування"),
+                (("колодк", "диск гальм", "супорт", "гальм", "тормоз"), "Гальмівна система"),
+                (("фільтр", "масл", "свіч", "ремінь грм", "ланцюг грм", "порш", "клапан", "прокладк", "двигун"), "Двигун"),
+                (("зчеплен", "коробк передач", "кпп", "маховик", "шрус", "привод"), "Трансмісія"),
+                (("генератор", "стартер", "датчик", "ламп", "фара", "електр", "котушк"), "Електрика"),
+                (("радіатор", "термостат", "помпа", "охолодж", "патруб"), "Охолодження"),
+                (("бампер", "крило", "капот", "двер", "дзеркал", "кузов"), "Кузов"),
+                (("сидін", "обшив", "ручк двер", "панель", "салон"), "Салон"),
+            ]
+            category_name = next((name for words, name in rules if any(word in text for word in words)), "")
+            if category_name:
+                d["category"] = Category.objects.filter(name__iexact=category_name, parent__isnull=True).first()
         brand, sku = d.get("brand"), d.get("sku")
         if brand and sku:
             dup = Product.objects.filter(sku_norm=norm_sku(sku), brand__iexact=brand)
