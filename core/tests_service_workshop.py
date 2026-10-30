@@ -33,7 +33,7 @@ class ServiceWorkshopTests(TestCase):
         )
         response = self.client.post(reverse("service_appointment_new"), {
             "customer": self.customer.pk, "car": self.car.pk,
-            "scheduled_at": (start + timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M"),
+            "scheduled_at": timezone.localtime(start + timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M"),
             "duration_minutes": 60, "complaint": "Друга перевірка", "assigned_to": "",
         })
         self.assertEqual(response.status_code, 200)
@@ -51,7 +51,7 @@ class ServiceWorkshopTests(TestCase):
         )
         response = self.client.post(reverse("service_appointment_new"), {
             "customer": other_customer.pk, "car": other_car.pk,
-            "scheduled_at": (start + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M"),
+            "scheduled_at": timezone.localtime(start + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M"),
             "duration_minutes": 60, "complaint": "Інший автомобіль", "assigned_to": mechanic.pk,
         })
         self.assertEqual(response.status_code, 200)
