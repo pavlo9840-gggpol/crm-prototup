@@ -3,14 +3,14 @@
 .products-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 .products-filter{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.products-filter input,.products-filter select{min-height:38px}
 .product-results{display:grid;gap:10px}
-.product-row{display:grid;grid-template-columns:112px minmax(220px,1fr) 130px 130px 100px 70px;gap:14px;align-items:center;background:#fff;border:1px solid #e4eaf3;border-radius:10px;padding:12px 14px;box-shadow:0 3px 12px rgba(26,65,110,.07);border-left:5px solid #cbd5e1}
+.product-row{display:grid;grid-template-columns:100px minmax(210px,1.3fr) minmax(170px,1fr) 115px 100px 75px;gap:14px;align-items:center;background:#fff;border:1px solid #e4eaf3;border-radius:10px;padding:12px 14px;box-shadow:0 3px 12px rgba(26,65,110,.07);border-left:5px solid #cbd5e1}
 .product-row.condition-used{border-left-color:#d97706;background:#fffdf7}.product-row.condition-refurbished{border-left-color:#2563eb}.product-row.condition-incomplete{border-left-color:#dc2626;background:#fffafa}
 .product-photo{width:100px;height:86px;object-fit:contain;border:1px solid #edf0f5;border-radius:7px;background:#fff;cursor:zoom-in}
 .product-photo-empty{width:100px;height:86px;border-radius:7px;background:#f2f5f9;display:flex;align-items:center;justify-content:center;color:#98a2b3;font-size:12px}
 .product-name{font-weight:700;color:#263447;margin-bottom:5px}.product-meta{font-size:12px;color:#667085;display:flex;gap:8px;flex-wrap:wrap}.product-meta a{color:var(--pri)}
 .condition-tag{display:inline-block;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#eef2f7;color:#344054}
 .condition-tag.used{background:#fff0cc;color:#925b00}.condition-tag.refurbished{background:#dbeafe;color:#1d4ed8}.condition-tag.incomplete,.defect-tag{background:#fee2e2;color:#b42318}
-.product-price{text-align:right;font-weight:700;white-space:nowrap}.product-stock{text-align:center;font-weight:700}.product-actions{text-align:right}
+.product-price{text-align:right;font-weight:700;white-space:nowrap}.supplier-offers{font-size:12px;display:grid;gap:4px}.supplier-offer{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #eef1f5;padding:2px 0}.supplier-offer strong{white-space:nowrap}.supplier-empty{font-size:12px;color:#98a2b3}.product-stock{text-align:center;font-weight:700}.product-actions{text-align:right}
 .product-note{font-size:12px;color:#9a3412;margin-top:4px}
 @media(max-width:850px){.product-row{grid-template-columns:82px minmax(0,1fr) 90px;gap:9px}.product-photo,.product-photo-empty{width:76px;height:72px}.product-price,.product-stock{text-align:left}.product-actions{grid-column:2/4;text-align:left}}
 </style>
@@ -31,6 +31,7 @@
 <div><div class="product-name">{{ p.name }}</div><div class="product-meta"><b>{{ p.brand|default:"Без бренду" }}</b><span>Артикул: {{ p.sku }}</span><span>{{ p.category|default:"Без категорії" }}</span></div>
 <div style="margin-top:6px"><span class="condition-tag {{ p.condition }}">{{ p.get_condition_display }}</span>{% if p.has_defect %} <span class="condition-tag defect-tag">Дефект</span>{% endif %}{% if not p.is_active %} <span class="condition-tag">Неактивний</span>{% endif %}</div>
 {% if p.condition_description %}<div class="product-note">{{ p.condition_description|truncatechars:150 }}</div>{% endif %}</div>
+<div class="supplier-offers">{% for offer in p.supplier_items.all %}{% if offer.available and forloop.counter <= 3 %}<div class="supplier-offer"><span>{{ offer.supplier.name|truncatechars:20 }}</span><strong>{{ offer.cost|floatformat:2 }} ₴</strong></div>{% endif %}{% empty %}<span class="supplier-empty">Немає пропозицій</span>{% endfor %}</div>
 <div class="product-price">{{ p.price|floatformat:2 }} ₴<div class="product-meta">Закупівля {{ p.cost_price|floatformat:2 }} ₴</div></div>
 <div class="product-stock">{{ p.current_stock|floatformat:"-3" }} {{ p.unit }}{% if p.is_low %}<div class="product-note">Малий залишок</div>{% endif %}</div>
 <div class="product-actions"><a class="btn sm" href="{% url 'product_edit' p.pk %}">Редагувати</a></div>
