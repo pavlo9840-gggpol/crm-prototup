@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404, render
 
 from . import fitment, pricing
 from .crosses import name_profile
-from .models import CustomerCar, PartInfo, Product, SupplierItem
+from .models import (CatalogPartNumber, CustomerCar, PartFitment, PartInfo, Product, SupplierItem, norm_sku)
 
 
 @login_required
@@ -22,7 +22,7 @@ def car_parts(request):
     instock = bool(request.GET.get("instock"))
     toks = fitment.car_tokens(make, model)
     ctx = {"car": car, "make": make, "model": model, "year": year or "", "q": request.GET.get("q", ""), "instock": instock,
-           "searched": bool(toks), "groups": [], "total": 0, "known": PartInfo.objects.exclude(cars="").count(), "customer": customer}
+           "searched": bool(toks), "groups": [], "total": 0, "known": PartInfo.objects.exclude(cars="").count() + PartFitment.objects.count(), "customer": customer}
     if not toks:
         return render(request, "core/car_parts.html", ctx)
     cond = Q()
@@ -32,6 +32,15 @@ def car_parts(request):
     for pi in PartInfo.objects.filter(cond)[:4000]:
         if any(fitment.line_matches(ln, toks, year) for ln in pi.cars_lc.splitlines()):
             keys.add((pi.brand, pi.sku_norm))
+    structured = PartFitment.objects.select_related(
+        "part_number__part", "part_number__source", "vehicle_model__make", "source"
+    ).filter(vehicle_model__make__name__icontains=make, vehicle_model__name__icontains=model)
+    if year:
+        structured = structured.filter(Q(year_from__isnull=True) | Q(year_from__lte=year)).filter(
+            Q(year_to__isnull=True) | Q(year_to__gte=year)
+        )
+    for fit in structured[:8000]:
+        keys.add((fit.part_number.brand.upper(), fit.part_number.sku_norm))
     norms = {n for _, n in keys}
     own = {}
     for p in Product.objects.filter(sku_norm__in=norms, is_active=True).select_related("category"):
@@ -41,6 +50,10 @@ def car_parts(request):
         offers[(o.brand, o.sku_norm)] = o                         # останній у циклі = найдешевший
     rs = pricing.RuleSet()
     groups, labels = {}, {}
+    structured_evidence = {}
+    for fit in structured[:8000]:
+        key = (fit.part_number.brand.upper(), fit.part_number.sku_norm)
+        structured_evidence.setdefault(key, []).append(fit)
     for key in keys:
         p, o = own.get(key), offers.get(key)
         if not p and not o:
@@ -58,8 +71,13 @@ def car_parts(request):
         if o:
             price_for_you = pricing.list_price(o.cost, o.brand, (p.category_id if p else None), customer, rs)[0]
         labels.setdefault(cat, typ.capitalize() if typ else ((p.category.name if p and p.category_id else "Інше")))
+        evidence = structured_evidence.get(key, [])
+        sources = sorted({x.source.name for x in evidence})
+        years = sorted({str(x.year_from or "—") + "–" + str(x.year_to or "—") for x in evidence})
         groups.setdefault(cat, []).append({"brand": key[0], "sku": (p.sku if p else o.sku), "sn": key[1], "name": name, "stock": stock,
-                                           "price": p.price if p else None, "offer": o, "offer_price": price_for_you})
+                                           "price": p.price if p else None, "offer": o, "offer_price": price_for_you,
+                                           "fitment_source": ", ".join(sources), "fitment_verified": any(x.verified for x in evidence),
+                                           "fitment_years": ", ".join(years)})
     out = []
     for cat in sorted(groups, key=lambda c: labels[c]):
         rows = sorted(groups[cat], key=lambda r: (not r["stock"] > 0, r["offer_price"] if r["offer_price"] is not None else (r["price"] or 10 ** 9)))
