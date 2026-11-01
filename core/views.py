@@ -556,7 +556,7 @@ def pos_checkout(request):
     try:
         lines, pay, customer, held, car = _parse_cart(request)
         merged = services.merge_lines(lines)
-        total_kop = sum(cashlib.to_kop(q * pr) for _, q, pr, _x in merged)
+        total_kop = cashlib.to_kop(sum((q * pr for _, q, pr, _x in merged), D0))
         pm, card, received, counts = _payment_inputs(_jb(request))
         res = cashlib.compute_payment(total_kop, pm, card, received, counts,
                                       cashlib.clean(shift.drawer) if shift else None)
