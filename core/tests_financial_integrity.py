@@ -135,6 +135,36 @@ class FinancialIntegrityTests(TestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.current_stock, Decimal("9.000"))
 
+    def test_pos_checkout_rounds_the_combined_total_once_for_card_payments(self):
+        second = Product.objects.create(
+            name="Air filter", sku="AF-ROUND-01", price=Decimal("10.01"),
+            cost_price=Decimal("5.00"), current_stock=Decimal("1.000"),
+        )
+        self.product.price = Decimal("10.01")
+        self.product.current_stock = Decimal("1.000")
+        self.product.save(update_fields=["price", "current_stock"])
+        Shift.objects.create(cashier=self.user, opening_cash=Decimal("0.00"), drawer={})
+        self.client.login(username="cashier", password="secret")
+
+        response = self.client.post(
+            "/pos/checkout/",
+            json.dumps({
+                "items": [
+                    {"id": self.product.pk, "qty": "0.333"},
+                    {"id": second.pk, "qty": "0.333"},
+                ],
+                "payment": "card",
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json().get("ok"), response.json())
+        sale = Sale.objects.get(pk=response.json()["id"])
+        self.assertEqual(sale.total, Decimal("6.67"))
+        self.assertEqual(sale.card_amount, sale.total)
+        self.assertEqual(sale.cash_amount, Decimal("0.00"))
+
     def test_cash_drawer_rejects_operation_with_wrong_direction(self):
         shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("0.00"), drawer={})
         self.client.login(username="cashier", password="secret")
