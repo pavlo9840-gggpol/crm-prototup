@@ -62,6 +62,25 @@ class ReceivingTest(TestCase):
     def refresh(self, *items):
         return [SaleItem.objects.get(pk=i.pk) for i in items]
 
+    def test_invoice_parser_rejects_invalid_or_negative_purchase_cost(self):
+        from core.receiving import parse_lines
+
+        lines, bad = parse_lines([
+            {"brand": "BILSTEIN", "sku": "GOOD-1", "qty": "1", "cost": "125,50"},
+            {"brand": "BILSTEIN", "sku": "BAD-1", "qty": "1", "cost": "not-a-price"},
+            {"brand": "BILSTEIN", "sku": "NEG-1", "qty": "1", "cost": "-25"},
+            {"brand": "BILSTEIN", "sku": "ZERO-1", "qty": "1", "cost": "0"},
+            {"brand": "BILSTEIN", "sku": "EMPTY-1", "qty": "1", "cost": ""},
+        ])
+
+        self.assertEqual([line["sku"] for line in lines], ["GOOD-1", "ZERO-1", "EMPTY-1"])
+        self.assertEqual(lines[0]["cost"], D("125.50"))
+        self.assertEqual(lines[1]["cost"], D("0.00"))
+        self.assertEqual(lines[2]["cost"], D("0.00"))
+        self.assertEqual(len(bad), 2)
+        self.assertIn("некоректна закупівельна ціна", bad[0][2])
+        self.assertIn("не може бути від'ємною", bad[1][2])
+
     # ---------------- головний сценарій
     def test_full_invoice_matches_orders_fifo_and_stocks_the_rest(self):
         a = self.order(self.anna, self.bil, 2, self.c1)
