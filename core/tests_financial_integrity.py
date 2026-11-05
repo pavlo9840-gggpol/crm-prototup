@@ -152,6 +152,41 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(shift.drawer, {})
         self.assertEqual(CashOperation.objects.get(shift=shift).amount, Decimal("-10.00"))
 
+    def test_pending_return_can_be_settled_to_card_once(self):
+        from core.services import settle_return
+        sale = Sale.objects.create(number="CH-PENDING-RETURN", status=Sale.DONE, cashier=self.user,
+                                   total=Decimal("20.00"))
+        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("1.000"),
+                                       original_price=Decimal("20.00"), price=Decimal("20.00"),
+                                       cost_price=Decimal("12.00"))
+        ret = create_return(self.admin, sale, {item.pk: Decimal("1.000")})
+        self.assertEqual(ret.refund_method, "pending")
+
+        settled = settle_return(self.admin, ret, "card")
+
+        self.assertEqual(settled.refund_method, "card")
+        self.assertEqual(settled.card_amount, Decimal("20.00"))
+        with self.assertRaises(StockError):
+            settle_return(self.admin, ret, "card")
+        self.assertEqual(CashOperation.objects.count(), 0)
+
+    def test_pending_return_cash_settlement_decrements_active_drawer(self):
+        from core.services import settle_return
+        sale = Sale.objects.create(number="CH-PENDING-CASH", status=Sale.DONE, cashier=self.user,
+                                   total=Decimal("10.00"))
+        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("0.500"),
+                                       original_price=Decimal("20.00"), price=Decimal("20.00"),
+                                       cost_price=Decimal("12.00"))
+        ret = create_return(self.admin, sale, {item.pk: Decimal("0.500")})
+        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("10.00"), drawer={"1000": 1})
+
+        settled = settle_return(self.admin, ret, "cash", shift=shift)
+
+        shift.refresh_from_db()
+        self.assertEqual(settled.cash_amount, Decimal("10.00"))
+        self.assertEqual(shift.drawer, {})
+        self.assertEqual(CashOperation.objects.get(shift=shift).amount, Decimal("-10.00"))
+
     def test_return_rejects_unknown_mode_without_creating_records_or_changing_stock(self):
         sale = Sale.objects.create(
             number="CH-INVALID-MODE",
