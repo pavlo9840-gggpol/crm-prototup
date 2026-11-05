@@ -265,6 +265,62 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
     return ret
 
 
+
+@transaction.atomic
+def settle_return(user, sale_return, refund_method, refund_cash_amount=None, shift=None):
+    """Settle a previously recorded return that is still awaiting payment."""
+    if refund_method not in {"cash", "card", "mixed"}:
+        raise StockError("Оберіть спосіб виплати: готівка, картка або змішано")
+    ret = SaleReturn.objects.select_for_update().filter(pk=sale_return.pk).first()
+    if ret is None:
+        raise StockError("Повернення не знайдено")
+    if ret.refund_method != "pending":
+        raise StockError("Це повернення вже має зафіксований спосіб виплати")
+
+    cash_amount = D0
+    card_amount = D0
+    if refund_method == "cash":
+        cash_amount = ret.total
+    elif refund_method == "card":
+        card_amount = ret.total
+    else:
+        try:
+            cash_amount = Decimal(str(refund_cash_amount)).quantize(Decimal("0.01"))
+        except Exception:
+            raise StockError("Вкажіть коректну суму повернення готівкою")
+        card_amount = ret.total - cash_amount
+        if cash_amount <= 0 or card_amount <= 0:
+            raise StockError("Для змішаної виплати обидві суми мають бути більшими за нуль")
+
+    locked_shift = None
+    if cash_amount > 0:
+        if shift is None:
+            raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
+        locked_shift = Shift.objects.select_for_update().filter(
+            pk=shift.pk, closed_at__isnull=True
+        ).first()
+        if locked_shift is None:
+            raise StockError("Касова зміна вже закрита. Відкрийте нову зміну")
+        drawer = cashlib.clean(locked_shift.drawer)
+        payout = cashlib.make_change(cashlib.to_kop(cash_amount), drawer)
+        if payout is None:
+            raise StockError("У касі недостатньо купюр/монет для точної суми повернення")
+        locked_shift.drawer = cashlib.store(cashlib.add(drawer, payout, -1))
+        locked_shift.save(update_fields=["drawer"])
+        CashOperation.objects.create(
+            shift=locked_shift, user=user, kind="out", amount=-cash_amount,
+            detail={str(denom): -count for denom, count in payout.items()},
+            note=f"Виплата повернення {ret.number}",
+        )
+
+    ret.refund_method = refund_method
+    ret.cash_amount = cash_amount
+    ret.card_amount = card_amount
+    ret.shift = locked_shift
+    ret.save(update_fields=["refund_method", "cash_amount", "card_amount", "shift"])
+    return ret
+
+
 @transaction.atomic
 def create_purchase(user, supplier, lines, update_cost=True):
     if not lines:
