@@ -6,20 +6,19 @@ class ProductForm(forms.ModelForm):
     """Картка товару для автозапчастин: однозначно товар визначають БРЕНД + АРТИКУЛ."""
     initial_stock = forms.DecimalField(label="Початковий залишок", required=False, min_value=0,
                                        max_digits=12, decimal_places=3)
-    field_order = ["brand", "sku", "name", "category", "unit", "cost_price", "price", "initial_stock", "min_stock",
-                   "barcode", "photo", "is_favorite", "allow_price_change", "is_active", "notes"]
+    field_order = ["brand", "sku", "name", "category", "unit", "condition", "has_defect", "condition_description", "cost_price", "price", "initial_stock", "min_stock", "barcode", "photo", "photo_url", "is_favorite", "allow_price_change", "is_active", "notes"]
 
     class Meta:
         model = Product
-        fields = ["brand", "sku", "name", "category", "unit", "cost_price", "price", "min_stock", "barcode", "photo",
-                  "is_favorite", "allow_price_change", "auto_price", "is_active", "notes"]
+        fields = ["brand", "sku", "name", "category", "unit", "condition", "has_defect", "condition_description", "cost_price", "price", "min_stock", "barcode", "photo", "photo_url", "is_favorite", "allow_price_change", "auto_price", "is_active", "notes"]
         labels = {"sku": "Артикул (номер запчастини)", "barcode": "Штрих-код (необов'язково)"}
         help_texts = {"brand": "Оберіть зі списку або введіть нового виробника. Бренд і артикул разом однозначно "
                                "визначають товар: однаковий артикул у різних брендів — це різні товари.",
                       "barcode": "Для запчастин зазвичай не потрібен: товар шукають за артикулом."}
         widgets = {"brand": forms.TextInput(attrs={"list": "brand-list", "autocomplete": "off",
                                                     "placeholder": "напр. BILSTEIN"}),
-                   "notes": forms.Textarea(attrs={"rows": 2})}
+                   "notes": forms.Textarea(attrs={"rows": 2}), "condition_description": forms.Textarea(attrs={"rows": 3}),
+                   "photo_url": forms.URLInput(attrs={"placeholder": "https://example.com/photo.jpg"})}
 
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
@@ -33,8 +32,36 @@ class ProductForm(forms.ModelForm):
     def clean_sku(self):
         return self.cleaned_data["sku"].strip()
 
+    def clean_photo_url(self):
+        value = (self.cleaned_data.get("photo_url") or "").strip()
+        if value and not value.lower().startswith("https://"):
+            raise forms.ValidationError("Для зовнішнього фото використовуйте безпечне посилання HTTPS.")
+        return value
+
     def clean(self):
         d = super().clean()
+        condition, defect, description = d.get("condition"), d.get("has_defect"), (d.get("condition_description") or "").strip()
+        if condition == "incomplete" and not description:
+            self.add_error("condition_description", "Опишіть, яких деталей не вистачає.")
+        if condition == "used" and defect and not description:
+            self.add_error("condition_description", "Опишіть дефект товару.")
+        if condition != "used" and defect:
+            self.add_error("has_defect", "Позначка дефекту доступна лише для товару Б/В.")
+        if not d.get("category") and d.get("name"):
+            text = (d.get("name") or "").casefold()
+            rules = [
+                (("амортиз", "пружин", "важіл", "важіль", "шарова", "сайлентблок", "ступиц", "підшипник ступ"), "Підвіска та кермування"),
+                (("колодк", "диск гальм", "супорт", "гальм", "тормоз"), "Гальмівна система"),
+                (("фільтр", "масл", "свіч", "ремінь грм", "ланцюг грм", "порш", "клапан", "прокладк", "двигун"), "Двигун"),
+                (("зчеплен", "коробк передач", "кпп", "маховик", "шрус", "привод"), "Трансмісія"),
+                (("генератор", "стартер", "датчик", "ламп", "фара", "електр", "котушк"), "Електрика"),
+                (("радіатор", "термостат", "помпа", "охолодж", "патруб"), "Охолодження"),
+                (("бампер", "крило", "капот", "двер", "дзеркал", "кузов"), "Кузов"),
+                (("сидін", "обшив", "ручк двер", "панель", "салон"), "Салон"),
+            ]
+            category_name = next((name for words, name in rules if any(word in text for word in words)), "")
+            if category_name:
+                d["category"] = Category.objects.filter(name__iexact=category_name, parent__isnull=True).first()
         brand, sku = d.get("brand"), d.get("sku")
         if brand and sku:
             dup = Product.objects.filter(sku_norm=norm_sku(sku), brand__iexact=brand)

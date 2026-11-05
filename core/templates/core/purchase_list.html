@@ -1,7 +1,9 @@
 {% extends "core/base.html" %}{% block content %}<h2>Накладні надходження</h2>
 <form class="filter">З <input type="date" name="from" value="{{ request.GET.from }}"> до <input type="date" name="to" value="{{ request.GET.to }}">
-<select name="supplier"><option value="">Усі постачальники</option>{% for s in suppliers %}<option value="{{ s.pk }}">{{ s }}</option>{% endfor %}</select>
+<select name="supplier"><option value="">Усі постачальники</option>{% for s in suppliers %}<option value="{{ s.pk }}"{% if selected_supplier == s.pk|stringformat:"s" %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+<input type="search" name="q" value="{{ q }}" placeholder="№ накладної або постачальник" aria-label="Пошук накладної або постачальника">
 <button class="btn">Фільтр</button> <a class="btn green" href="{% url 'purchase_new' %}">+ Нова накладна</a></form>
+<p>Знайдено накладних: <strong>{{ summary_count }}</strong> · Сума за фільтром: <strong>{{ summary_total|floatformat:2 }} ₴</strong>{% if summary_count > 300 %} · У таблиці показано перші 300{% endif %}</p>
 {% include "core/_gpbar.html" %}
 <table><tr><th><input type="checkbox" id="selall"><th>№<th>Дата<th>Постачальник<th class="n">Сума<th>Статус</tr>
-{% for p in purchases %}<tr><td><input type="checkbox" name="ids" value="{{ p.pk }}" form="gp"><td><a href="{% url 'purchase_detail' p.pk %}">{{ p.number }}</a><td>{{ p.created_at|date:"d.m.Y H:i" }}<td>{{ p.supplier }}<td class="n">{{ p.total }} ₴<td>{{ p.status }}</tr>{% endfor %}</table>{% endblock %}
+{% for p in purchases %}<tr><td><input type="checkbox" name="ids" value="{{ p.pk }}" form="gp"><td><a href="{% url 'purchase_detail' p.pk %}">{{ p.number }}</a><td>{{ p.created_at|date:"d.m.Y H:i" }}<td>{{ p.supplier }}<td class="n">{{ p.total }} ₴<td>{{ p.status }}</tr>{% empty %}<tr><td colspan="6">Накладних за вибраними умовами не знайдено.</td></tr>{% endfor %}</table>{% endblock %}

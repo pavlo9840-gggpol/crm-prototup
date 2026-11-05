@@ -3,7 +3,7 @@ import re
 import uuid
 
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -11,11 +11,12 @@ from . import currency, receiving
 from .models import CompanySettings, Currency, Receipt, Supplier
 from .services import StockError
 from .transit import MAX_FILE, TableError, _tmp_dir, _tmp_path, guess_columns, read_table
+from .views import staff_only
 
 FIELDS = [("sku", "Артикул *"), ("brand", "Бренд"), ("qty", "Кількість *"), ("cost", "Ціна закупівлі"), ("name", "Назва")]
 
 
-@login_required
+@staff_only
 def receive_home(request):
     qs = Receipt.objects.select_related("supplier", "user", "purchase")
     if not request.user.is_staff:
@@ -71,7 +72,7 @@ def _cols(request, rows, hdr, fresh):
     return headers, cols, ncol
 
 
-@login_required
+@staff_only
 @require_POST
 def receive_preview(request):
     try:
@@ -98,11 +99,13 @@ def receive_preview(request):
         "can_apply": bool(pl["totals"]["matched"] or pl["totals"]["stock_lines"])})
 
 
-@login_required
+@staff_only
 @require_POST
+@transaction.atomic
 def receive_apply(request):
     try:
-        sup = get_object_or_404(Supplier, pk=request.POST.get("supplier") or 0)
+        # Серіалізуємо приймання по постачальнику, щоб два паралельні запити не пройшли перевірку одночасно.
+        sup = get_object_or_404(Supplier.objects.select_for_update(), pk=request.POST.get("supplier") or 0)
         token, fname, rows = _read(request)
         hdr = max(0, int(request.POST.get("header_row") or 0))
         cols = {k: int(request.POST[f"col_{k}"]) for k, _ in FIELDS if request.POST.get(f"col_{k}", "") != ""}
@@ -111,7 +114,15 @@ def receive_apply(request):
             raise ValueError("Кількість днів відліку: від 1 до 365")
         _code, rate = _inv_rate(request, sup)
         lines, _bad = receiving.parse_lines(_records(request, rows, hdr, cols), rate)
-        rec = receiving.execute(request.user, sup, request.POST.get("number", ""), days, lines)
+        # Захист від повторного оприбуткування тієї самої накладної новим завантаженням.
+        # Порожній номер дозволяємо, оскільки частина постачальників його не надає.
+        number = (request.POST.get("number") or "").strip()[:60]
+        if number and Receipt.objects.filter(supplier=sup, number=number).exists():
+            raise StockError(
+                f"Накладну «{number}» від постачальника «{sup.name}» уже прийнято. "
+                "Перевірте журнал приймань, щоб не оприбуткувати товар повторно."
+            )
+        rec = receiving.execute(request.user, sup, number, days, lines)
     except (TableError, ValueError, StockError, currency.RateError) as e:
         messages.error(request, str(e))
         return redirect("receive_home")

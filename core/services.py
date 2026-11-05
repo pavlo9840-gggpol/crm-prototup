@@ -4,7 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from django.utils import timezone
 from . import cash as cashlib
-from .models import (Shift, Customer, Product, PurchaseItem, Sale, SaleItem, SaleReturn,
+from .models import (Shift, CashOperation, Customer, Product, PurchaseItem, Sale, SaleItem, SaleReturn,
                      SaleReturnItem, StockMovement, Purchase, PriceHistory, MarkupTier,
                      CompanySettings, norm_sku)
 
@@ -13,6 +13,14 @@ D0 = Decimal("0")
 
 class StockError(Exception):
     pass
+
+
+def _lock_products(product_ids):
+    """Lock multiple stock rows in primary-key order to avoid cross-operation deadlocks."""
+    ids = sorted(set(product_ids))
+    if not ids:
+        return {}
+    return {p.pk: p for p in Product.objects.select_for_update().filter(pk__in=ids).order_by("pk")}
 
 
 def add_movement(product, change, mtype, doc="", user=None, note=""):
@@ -117,12 +125,25 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
     lines = merge_lines(lines)
     if not lines:
         raise StockError("Чек порожній")
+    if held is not None:
+        held = Sale.objects.select_for_update().filter(pk=held.pk).first()
+        if held is None or held.status != Sale.HELD:
+            raise StockError("Цю чернетку вже проведено або видалено. Створіть новий чек.")
+        if held.cashier_id != user.pk and not user.is_staff:
+            raise StockError("Немає доступу до цієї чернетки")
+    if shift is not None:
+        shift = Shift.objects.select_for_update().filter(pk=shift.pk, closed_at__isnull=True).first()
+        if shift is None and not user.is_staff:
+            raise StockError("Зміну вже закрито. Відкрийте нову зміну.")
     need = {}
     for p, q, _pr, x in lines:
         if not x:                                   # товар постачальника склад не перевіряє
             need[p.pk] = need.get(p.pk, D0) + q
+    # A cart can contain several stock products. Acquire every row lock in
+    # the same order used by purchases and adjustments, regardless of cart order.
+    locked_products = _lock_products(need)
     for pk, q in need.items():
-        fresh = Product.objects.select_for_update().get(pk=pk)
+        fresh = locked_products[pk]
         if fresh.current_stock < q:
             raise StockError(f"Товару {fresh.name} недостатньо, поточний залишок {fresh.current_stock.normalize():f}")
     sale = held or Sale(cashier=user)
@@ -151,14 +172,40 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
 
 
 @transaction.atomic
-def create_return(user, sale, qty_map, mode="auto", mtype="customer_return"):
-    """mode: auto — на склад, окрім позицій постачальника, що ще не видані клієнту (їх просто скасовано);
-    stock — завжди на склад; nostock — склад не чіпати."""
+def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
+                  refund_method="pending", refund_cash_amount=None, shift=None):
+    """Create a stock return and optionally settle its refund.
+
+    Internal transit returns stay pending by default: they reverse the sale
+    value but do not pretend that money was physically paid out.
+    """
+    if mode not in {"auto", "stock", "nostock"}:
+        raise StockError("Невідомий режим повернення")
+    if refund_method not in {"pending", "cash", "card", "mixed"}:
+        raise StockError("Невідомий спосіб повернення коштів")
+
+    sale = Sale.objects.select_for_update().filter(pk=sale.pk, status=Sale.DONE).first()
+    if sale is None:
+        raise StockError("Повернення можливе лише для проведеного продажу")
+
+    # Lock the shift before touching product rows. Checkout uses the same
+    # shift -> product lock order, which prevents a return/checkout deadlock.
+    locked_shift = None
+    if refund_method in {"cash", "mixed"}:
+        if shift is None:
+            raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
+        locked_shift = Shift.objects.select_for_update().filter(
+            pk=shift.pk, closed_at__isnull=True
+        ).first()
+        if locked_shift is None:
+            raise StockError("Касова зміна вже закрита. Відкрийте нову зміну")
+
+    total = D0
     ret = SaleReturn.objects.create(sale=sale, user=user)
     ret.number = f"PV-{ret.pk:06d}"
     ret.save(update_fields=["number"])
-    total = D0
-    for item in sale.items.select_for_update():
+
+    for item in sale.items.select_for_update().order_by("pk"):
         q = qty_map.get(item.pk, D0)
         if q <= 0:
             continue
@@ -174,11 +221,103 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return"):
         if pending and item.returned_qty >= item.quantity:
             item.fulfil_status = SaleItem.CANCELLED
             item.save(update_fields=["fulfil_status"])
+
     if total <= 0:
         raise StockError("Не вибрано жодного товару для повернення")
+
+    cash_amount = D0
+    card_amount = D0
+    if refund_method == "cash":
+        cash_amount = total
+    elif refund_method == "card":
+        card_amount = total
+    elif refund_method == "mixed":
+        try:
+            cash_amount = Decimal(str(refund_cash_amount)).quantize(Decimal("0.01"))
+        except Exception:
+            raise StockError("Вкажіть коректну суму повернення готівкою")
+        card_amount = total - cash_amount
+        if cash_amount <= 0 or card_amount <= 0:
+            raise StockError("Для змішаного повернення обидві суми мають бути більшими за нуль")
+
+    if cash_amount > 0:
+        if locked_shift is None:
+            raise StockError("Для повернення готівки потрібна відкрита касова зміна")
+        drawer = cashlib.clean(locked_shift.drawer)
+        payout = cashlib.make_change(cashlib.to_kop(cash_amount), drawer)
+        if payout is None:
+            raise StockError("У касі недостатньо купюр/монет для точної суми повернення. Оберіть повернення на картку або змініть суму")
+        locked_shift.drawer = cashlib.store(cashlib.add(drawer, payout, -1))
+        locked_shift.save(update_fields=["drawer"])
+        CashOperation.objects.create(
+            shift=locked_shift, user=user, kind="out", amount=-cash_amount,
+            detail={str(denom): -count for denom, count in payout.items()},
+            note=f"Повернення {ret.number}",
+        )
+
     ret.total = total
-    ret.save(update_fields=["total"])
+    ret.refund_method = refund_method
+    ret.cash_amount = cash_amount
+    ret.card_amount = card_amount
+    ret.shift = locked_shift
+    ret.save(update_fields=["total", "refund_method", "cash_amount", "card_amount", "shift"])
     _customer_delta(sale.customer, -total, 0)
+    return ret
+
+
+
+@transaction.atomic
+def settle_return(user, sale_return, refund_method, refund_cash_amount=None, shift=None):
+    """Settle a previously recorded return that is still awaiting payment."""
+    if refund_method not in {"cash", "card", "mixed"}:
+        raise StockError("Оберіть спосіб виплати: готівка, картка або змішано")
+    ret = SaleReturn.objects.select_for_update().filter(pk=sale_return.pk).first()
+    if ret is None:
+        raise StockError("Повернення не знайдено")
+    if ret.refund_method != "pending":
+        raise StockError("Це повернення вже має зафіксований спосіб виплати")
+
+    cash_amount = D0
+    card_amount = D0
+    if refund_method == "cash":
+        cash_amount = ret.total
+    elif refund_method == "card":
+        card_amount = ret.total
+    else:
+        try:
+            cash_amount = Decimal(str(refund_cash_amount)).quantize(Decimal("0.01"))
+        except Exception:
+            raise StockError("Вкажіть коректну суму повернення готівкою")
+        card_amount = ret.total - cash_amount
+        if cash_amount <= 0 or card_amount <= 0:
+            raise StockError("Для змішаної виплати обидві суми мають бути більшими за нуль")
+
+    locked_shift = None
+    if cash_amount > 0:
+        if shift is None:
+            raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
+        locked_shift = Shift.objects.select_for_update().filter(
+            pk=shift.pk, closed_at__isnull=True
+        ).first()
+        if locked_shift is None:
+            raise StockError("Касова зміна вже закрита. Відкрийте нову зміну")
+        drawer = cashlib.clean(locked_shift.drawer)
+        payout = cashlib.make_change(cashlib.to_kop(cash_amount), drawer)
+        if payout is None:
+            raise StockError("У касі недостатньо купюр/монет для точної суми повернення")
+        locked_shift.drawer = cashlib.store(cashlib.add(drawer, payout, -1))
+        locked_shift.save(update_fields=["drawer"])
+        CashOperation.objects.create(
+            shift=locked_shift, user=user, kind="out", amount=-cash_amount,
+            detail={str(denom): -count for denom, count in payout.items()},
+            note=f"Виплата повернення {ret.number}",
+        )
+
+    ret.refund_method = refund_method
+    ret.cash_amount = cash_amount
+    ret.card_amount = card_amount
+    ret.shift = locked_shift
+    ret.save(update_fields=["refund_method", "cash_amount", "card_amount", "shift"])
     return ret
 
 
@@ -186,18 +325,33 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return"):
 def create_purchase(user, supplier, lines, update_cost=True):
     if not lines:
         raise StockError("Додайте хоча б один товар")
+    # Validate every line before creating the document or touching stock.
+    # Forms normally enforce this, but the service is also a business-rule boundary.
+    for p, q, cost in lines:
+        if q is None or q <= D0:
+            raise StockError(f"{p.name}: кількість має бути більшою за нуль")
+        if cost is None or cost < D0:
+            raise StockError(f"{p.name}: закупівельна ціна не може бути від'ємною")
+    # Lock all affected stock rows before changing any of them. Sorting makes
+    # two purchases with the same products acquire locks in a consistent order.
+    _lock_products(p.pk for p, _q, _cost in lines)
     pur = Purchase.objects.create(supplier=supplier, user=user)
     _num(pur, "NK")
     total = D0
-    for p, q, cost in lines:
+    for product, q, cost in lines:
+        # Use the locked, fresh product row for both stock and cost updates. The
+        # caller may have supplied a stale Product instance, and one purchase can
+        # contain the same product more than once.
+        movement = add_movement(product, q, "purchase", pur.number, user)
+        p = movement.product
         PurchaseItem.objects.create(purchase=pur, product=p, quantity=q, cost_price=cost)
         total += q * cost
-        add_movement(p, q, "purchase", pur.number, user)
         if update_cost and p.cost_price != cost:
             PriceHistory.objects.create(product=p, field="cost_price", old_value=p.cost_price,
                                         new_value=cost, changed_by=user)
-            Product.objects.filter(pk=p.pk).update(cost_price=cost)
-        if p.auto_price:                                  # автоціна: нова закупівля → ціна за правилами
+            p.cost_price = cost
+            p.save(update_fields=["cost_price"])
+        if p.auto_price:                                  # автоціна має рахуватись від актуальної закупівельної
             from . import pricing
             pricing.reprice_product(p, user)
     pur.total = total
@@ -265,6 +419,9 @@ def mark_issued(user, item):
 
 
 def _unclaimed(user, item, mode):
+    # Keep lock order consistent with create_return(): sale first, then its items.
+    # Locking the item first here could deadlock against a simultaneous return.
+    Sale.objects.select_for_update().get(pk=item.sale_id)
     item = SaleItem.objects.select_for_update().select_related("sale").get(pk=item.pk)
     _check(user, item, (SaleItem.ARRIVED,))
     before = Product.objects.select_for_update().get(pk=item.product_id).current_stock

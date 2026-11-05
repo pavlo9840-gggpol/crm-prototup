@@ -33,7 +33,15 @@ def parse_lines(records, rate=None):
             bad.append((n, sku or "?", "порожній артикул або кількість"))
             continue
         brand = " ".join((r.get("brand") or "").split()).upper()[:60]
-        cost = num(r.get("cost")) or D0
+        raw_cost = (r.get("cost") or "").strip()
+        parsed_cost = num(raw_cost) if raw_cost else D0
+        if parsed_cost is None:
+            bad.append((n, sku, "некоректна закупівельна ціна"))
+            continue
+        if parsed_cost < D0:
+            bad.append((n, sku, "закупівельна ціна не може бути від'ємною"))
+            continue
+        cost = parsed_cost
         key = (brand, sn)
         if key in merged:
             m = merged[key]
