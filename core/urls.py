@@ -89,6 +89,7 @@ urlpatterns = [
     path("sales/", v.sale_list, name="sale_list"),
     path("sales/<int:pk>/", v.sale_detail, name="sale_detail"),
     path("sales/<int:pk>/return/", v.sale_return, name="sale_return"),
+    path("sales/<int:pk>/returns/<int:return_pk>/settle/", v.sale_return_settle, name="sale_return_settle"),
     path("inventory/", v.inventory, name="inventory"),
     path("inventory/adjust/", v.inventory_adjust, name="inventory_adjust"),
     path("inventory/movements/", v.inventory_movements, name="inventory_movements"),
