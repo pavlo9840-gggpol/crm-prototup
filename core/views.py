@@ -639,6 +639,7 @@ def sale_detail(request, pk):
 
 @staff_only
 @require_POST
+@transaction.atomic
 def sale_return(request, pk):
     sale = get_object_or_404(Sale, pk=pk, status=Sale.DONE)
     qty_map = {}
@@ -647,8 +648,17 @@ def sale_return(request, pk):
         if q and q > 0:
             qty_map[item.pk] = q
     try:
-        ret = services.create_return(request.user, sale, qty_map)
-        messages.success(request, f"Повернення {ret.number} на суму {ret.total} ₴ проведено")
+        ret = services.create_return(
+            request.user, sale, qty_map,
+            refund_method=request.POST.get("refund_method", "card"),
+            refund_cash_amount=dec(request.POST.get("refund_cash_amount"), None),
+            shift=current_shift(request.user),
+        )
+        messages.success(
+            request,
+            f"Повернення {ret.number} на суму {ret.total} ₴ проведено. "
+            f"Готівка: {ret.cash_amount} ₴, картка: {ret.card_amount} ₴",
+        )
     except StockError as e:
         messages.error(request, str(e))
     return redirect("sale_detail", pk=pk)
