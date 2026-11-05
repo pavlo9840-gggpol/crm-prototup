@@ -20,5 +20,13 @@ document.getElementById("refund-method").addEventListener("change", function () 
 </script>
 {% endif %}</form>
 {% if returns %}<h3>Повернення</h3><ul>{% for r in returns %}<li>{{ r.number }} — {{ r.created_at|date:"d.m.Y H:i" }} — {{ r.total }} ₴
-({{ r.get_refund_method_display }}; готівка {{ r.cash_amount }} ₴, картка {{ r.card_amount }} ₴)</li>{% endfor %}</ul>{% endif %}
+({{ r.get_refund_method_display }}; готівка {{ r.cash_amount }} ₴, картка {{ r.card_amount }} ₴)
+{% if r.refund_method == "pending" and user.is_staff %}
+<form method="post" action="{% url 'sale_return_settle' sale.pk r.pk %}" style="display:inline-flex;gap:6px;align-items:center">
+{% csrf_token %}
+<select name="refund_method"><option value="card">На картку</option><option value="cash">Готівкою з каси</option><option value="mixed">Змішано</option></select>
+<input type="number" name="refund_cash_amount" min="0.01" step="0.01" placeholder="Готівка для змішаної виплати" style="width:190px">
+<button class="btn">Зафіксувати виплату</button>
+</form>
+{% endif %}</li>{% endfor %}</ul>{% endif %}
 <p><a class="btn" target="_blank" href="{% url 'print_docs' 'receipt' %}?ids={{ sale.pk }}">🖨 Друк чека</a> {% if user.is_staff %}<a class="btn gray" target="_blank" href="{% url 'print_docs' 'sale_invoice' %}?ids={{ sale.pk }}">Накладна</a>{% endif %} <a class="btn green" href="{% url 'pos' %}">Нова покупка</a></p>{% endblock %}
