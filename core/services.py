@@ -172,22 +172,27 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
 
 
 @transaction.atomic
-def create_return(user, sale, qty_map, mode="auto", mtype="customer_return"):
-    """mode: auto — на склад, окрім позицій постачальника, що ще не видані клієнту (їх просто скасовано);
-    stock — завжди на склад; nostock — склад не чіпати.
+def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
+                  refund_method="pending", refund_cash_amount=None, shift=None):
+    """Create a stock return and optionally settle its refund.
 
-    Lock the parent sale first so simultaneous return requests cannot both pass
-    the same returnable-quantity check.
+    Internal transit returns stay pending by default: they reverse the sale
+    value but do not pretend that money was physically paid out.
     """
     if mode not in {"auto", "stock", "nostock"}:
         raise StockError("Невідомий режим повернення")
+    if refund_method not in {"pending", "cash", "card", "mixed"}:
+        raise StockError("Невідомий спосіб повернення коштів")
+
     sale = Sale.objects.select_for_update().filter(pk=sale.pk, status=Sale.DONE).first()
     if sale is None:
         raise StockError("Повернення можливе лише для проведеного продажу")
+
+    total = D0
     ret = SaleReturn.objects.create(sale=sale, user=user)
     ret.number = f"PV-{ret.pk:06d}"
     ret.save(update_fields=["number"])
-    total = D0
+
     for item in sale.items.select_for_update().order_by("pk"):
         q = qty_map.get(item.pk, D0)
         if q <= 0:
@@ -204,10 +209,52 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return"):
         if pending and item.returned_qty >= item.quantity:
             item.fulfil_status = SaleItem.CANCELLED
             item.save(update_fields=["fulfil_status"])
+
     if total <= 0:
         raise StockError("Не вибрано жодного товару для повернення")
+
+    cash_amount = D0
+    card_amount = D0
+    locked_shift = None
+    if refund_method == "cash":
+        cash_amount = total
+    elif refund_method == "card":
+        card_amount = total
+    elif refund_method == "mixed":
+        try:
+            cash_amount = Decimal(str(refund_cash_amount)).quantize(Decimal("0.01"))
+        except Exception:
+            raise StockError("Вкажіть коректну суму повернення готівкою")
+        card_amount = total - cash_amount
+        if cash_amount <= 0 or card_amount <= 0:
+            raise StockError("Для змішаного повернення обидві суми мають бути більшими за нуль")
+
+    if cash_amount > 0:
+        if shift is None:
+            raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
+        locked_shift = Shift.objects.select_for_update().filter(
+            pk=shift.pk, closed_at__isnull=True
+        ).first()
+        if locked_shift is None:
+            raise StockError("Касова зміна вже закрита. Відкрийте нову зміну")
+        drawer = cashlib.clean(locked_shift.drawer)
+        payout = cashlib.make_change(cashlib.to_kop(cash_amount), drawer)
+        if payout is None:
+            raise StockError("У касі недостатньо купюр/монет для точної суми повернення. Оберіть повернення на картку або змініть суму")
+        locked_shift.drawer = cashlib.store(cashlib.add(drawer, payout, -1))
+        locked_shift.save(update_fields=["drawer"])
+        CashOperation.objects.create(
+            shift=locked_shift, user=user, kind="out", amount=-cash_amount,
+            detail={str(denom): -count for denom, count in payout.items()},
+            note=f"Повернення {ret.number}",
+        )
+
     ret.total = total
-    ret.save(update_fields=["total"])
+    ret.refund_method = refund_method
+    ret.cash_amount = cash_amount
+    ret.card_amount = card_amount
+    ret.shift = locked_shift
+    ret.save(update_fields=["total", "refund_method", "cash_amount", "card_amount", "shift"])
     _customer_delta(sale.customer, -total, 0)
     return ret
 
