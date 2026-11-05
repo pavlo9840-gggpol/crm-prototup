@@ -664,6 +664,29 @@ def sale_return(request, pk):
     return redirect("sale_detail", pk=pk)
 
 
+
+@staff_only
+@require_POST
+@transaction.atomic
+def sale_return_settle(request, pk, return_pk):
+    ret = get_object_or_404(SaleReturn, pk=return_pk, sale_id=pk)
+    try:
+        settled = services.settle_return(
+            request.user, ret,
+            refund_method=request.POST.get("refund_method", ""),
+            refund_cash_amount=dec(request.POST.get("refund_cash_amount"), None),
+            shift=current_shift(request.user),
+        )
+        messages.success(
+            request,
+            f"Виплату за повернення {settled.number} зафіксовано: "
+            f"готівка {settled.cash_amount} ₴, картка {settled.card_amount} ₴",
+        )
+    except StockError as e:
+        messages.error(request, str(e))
+    return redirect("sale_detail", pk=pk)
+
+
 # ---------- Inventory ----------
 @staff_only
 def inventory(request):
