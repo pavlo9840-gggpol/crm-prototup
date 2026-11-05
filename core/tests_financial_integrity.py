@@ -78,6 +78,80 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(item.returned_qty, Decimal("2.000"))
         self.assertEqual(SaleReturn.objects.filter(sale=sale).count(), 1)
 
+    def test_cash_return_updates_drawer_and_records_cash_operation(self):
+        sale = Sale.objects.create(number="CH-CASH-RETURN", status=Sale.DONE, cashier=self.user,
+                                   total=Decimal("20.00"))
+        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("1.000"),
+                                       original_price=Decimal("20.00"), price=Decimal("20.00"),
+                                       cost_price=Decimal("12.00"))
+        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("40.00"), drawer={"2000": 2})
+
+        ret = create_return(self.admin, sale, {item.pk: Decimal("1.000")},
+                            refund_method="cash", shift=shift)
+
+        shift.refresh_from_db()
+        self.assertEqual(ret.refund_method, "cash")
+        self.assertEqual(ret.cash_amount, Decimal("20.00"))
+        self.assertEqual(ret.card_amount, Decimal("0.00"))
+        self.assertEqual(ret.shift_id, shift.pk)
+        self.assertEqual(shift.drawer, {"2000": 1})
+        op = CashOperation.objects.get(shift=shift)
+        self.assertEqual(op.kind, "out")
+        self.assertEqual(op.amount, Decimal("-20.00"))
+        self.assertEqual(op.detail, {"2000": -1})
+
+    def test_card_return_does_not_require_or_change_cash_shift(self):
+        sale = Sale.objects.create(number="CH-CARD-RETURN", status=Sale.DONE, cashier=self.user,
+                                   total=Decimal("20.00"))
+        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("1.000"),
+                                       original_price=Decimal("20.00"), price=Decimal("20.00"),
+                                       cost_price=Decimal("12.00"))
+
+        ret = create_return(self.admin, sale, {item.pk: Decimal("1.000")}, refund_method="card")
+
+        self.assertEqual(ret.card_amount, Decimal("20.00"))
+        self.assertEqual(ret.cash_amount, Decimal("0.00"))
+        self.assertIsNone(ret.shift_id)
+        self.assertEqual(CashOperation.objects.count(), 0)
+
+    def test_cash_return_without_exact_drawer_funds_rolls_back_stock_and_return(self):
+        sale = Sale.objects.create(number="CH-NO-CASH", status=Sale.DONE, cashier=self.user,
+                                   total=Decimal("20.00"))
+        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("1.000"),
+                                       original_price=Decimal("20.00"), price=Decimal("20.00"),
+                                       cost_price=Decimal("12.00"))
+        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("100.00"), drawer={"10000": 1})
+
+        with self.assertRaises(StockError):
+            create_return(self.admin, sale, {item.pk: Decimal("1.000")},
+                          refund_method="cash", shift=shift)
+
+        self.product.refresh_from_db()
+        item.refresh_from_db()
+        shift.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("10.000"))
+        self.assertEqual(item.returned_qty, Decimal("0.000"))
+        self.assertEqual(shift.drawer, {"10000": 1})
+        self.assertEqual(SaleReturn.objects.filter(sale=sale).count(), 0)
+        self.assertEqual(CashOperation.objects.count(), 0)
+
+    def test_mixed_return_splits_cash_and_card_exactly(self):
+        sale = Sale.objects.create(number="CH-MIX-RETURN", status=Sale.DONE, cashier=self.user,
+                                   total=Decimal("20.00"))
+        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("1.000"),
+                                       original_price=Decimal("20.00"), price=Decimal("20.00"),
+                                       cost_price=Decimal("12.00"))
+        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("10.00"), drawer={"1000": 1})
+
+        ret = create_return(self.admin, sale, {item.pk: Decimal("1.000")},
+                            refund_method="mixed", refund_cash_amount=Decimal("10.00"), shift=shift)
+
+        self.assertEqual(ret.cash_amount, Decimal("10.00"))
+        self.assertEqual(ret.card_amount, Decimal("10.00"))
+        shift.refresh_from_db()
+        self.assertEqual(shift.drawer, {})
+        self.assertEqual(CashOperation.objects.get(shift=shift).amount, Decimal("-10.00"))
+
     def test_return_rejects_unknown_mode_without_creating_records_or_changing_stock(self):
         sale = Sale.objects.create(
             number="CH-INVALID-MODE",
