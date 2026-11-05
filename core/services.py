@@ -188,6 +188,18 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
     if sale is None:
         raise StockError("Повернення можливе лише для проведеного продажу")
 
+    # Lock the shift before touching product rows. Checkout uses the same
+    # shift -> product lock order, which prevents a return/checkout deadlock.
+    locked_shift = None
+    if refund_method in {"cash", "mixed"}:
+        if shift is None:
+            raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
+        locked_shift = Shift.objects.select_for_update().filter(
+            pk=shift.pk, closed_at__isnull=True
+        ).first()
+        if locked_shift is None:
+            raise StockError("Касова зміна вже закрита. Відкрийте нову зміну")
+
     total = D0
     ret = SaleReturn.objects.create(sale=sale, user=user)
     ret.number = f"PV-{ret.pk:06d}"
@@ -215,7 +227,6 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
 
     cash_amount = D0
     card_amount = D0
-    locked_shift = None
     if refund_method == "cash":
         cash_amount = total
     elif refund_method == "card":
@@ -230,13 +241,8 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
             raise StockError("Для змішаного повернення обидві суми мають бути більшими за нуль")
 
     if cash_amount > 0:
-        if shift is None:
-            raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
-        locked_shift = Shift.objects.select_for_update().filter(
-            pk=shift.pk, closed_at__isnull=True
-        ).first()
         if locked_shift is None:
-            raise StockError("Касова зміна вже закрита. Відкрийте нову зміну")
+            raise StockError("Для повернення готівки потрібна відкрита касова зміна")
         drawer = cashlib.clean(locked_shift.drawer)
         payout = cashlib.make_change(cashlib.to_kop(cash_amount), drawer)
         if payout is None:
