@@ -244,11 +244,20 @@ class SaleItem(models.Model):
 
 
 class SaleReturn(models.Model):
+    REFUND_METHODS = [
+        ("pending", "Очікує виплати"), ("cash", "Готівка"),
+        ("card", "Картка"), ("mixed", "Змішана"),
+    ]
     number = models.CharField(max_length=20, blank=True)
     sale = models.ForeignKey(Sale, on_delete=models.PROTECT, related_name="returns")
     created_at = models.DateTimeField(auto_now_add=True)
     user = models.ForeignKey(USER, on_delete=models.PROTECT)
     total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    refund_method = models.CharField(max_length=10, choices=REFUND_METHODS, default="pending")
+    cash_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    card_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    shift = models.ForeignKey("Shift", null=True, blank=True, on_delete=models.SET_NULL,
+                              related_name="sale_returns")
 
 
 class SaleReturnItem(models.Model):
