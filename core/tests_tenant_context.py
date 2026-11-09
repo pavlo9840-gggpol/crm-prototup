@@ -110,8 +110,11 @@ class CompanyContextTests(TestCase):
                                            status=Sale.DONE, number="FOREIGN-CH", total=500)
         foreign_product = Product.objects.create(company=self.other_company, name="Чужа помпа", sku="FOREIGN-PUMP",
                                                   current_stock=10, price=500)
-        SaleItem.objects.create(company=self.other_company, sale=foreign_sale, product=foreign_product,
-                                quantity=1, original_price=500, price=500)
+        foreign_item = SaleItem.objects.create(company=self.other_company, sale=foreign_sale, product=foreign_product,
+                                               quantity=1, original_price=500, price=500)
+        from core.services import StockError, create_return
+        with self.assertRaises(StockError):
+            create_return(self.user, foreign_sale, {foreign_item.pk: 1}, company=self.company)
 
         self.client.force_login(self.user)
         self.assertEqual(self.client.get("/pos/search/?q=FOREIGN-PUMP").json()["results"], [])
