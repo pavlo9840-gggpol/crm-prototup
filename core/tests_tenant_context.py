@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
-from core.models import Company, CompanyMembership, Product
+from core.models import Company, CompanyMembership, CompanySettings, Product
 from core.tenant_context import CompanyContextMiddleware, company_queryset
 
 
@@ -60,3 +60,13 @@ class CompanyContextTests(TestCase):
         self.assertIsNone(request.company)
         selected = self.request_for(self.user, {"active_company_id": self.other_company.pk})
         self.assertEqual(selected.company, self.other_company)
+
+    def test_company_settings_are_separate_per_workspace(self):
+        own_settings = CompanySettings.get(self.company)
+        other_settings = CompanySettings.get(self.other_company)
+        own_settings.name = "Налаштування магазину А"
+        own_settings.save(update_fields=["name"])
+
+        self.assertEqual(CompanySettings.get(self.company).name, "Налаштування магазину А")
+        self.assertEqual(CompanySettings.get(self.other_company).name, self.other_company.name)
+        self.assertNotEqual(own_settings.pk, other_settings.pk)
