@@ -13,8 +13,10 @@ from . import receive_views as rv
 from . import views as v
 from . import shipping_views as sh
 from . import service_views as svc
+from . import tenant_views as tenant
 
 urlpatterns = [
+    path("workspace/select/", tenant.select_company, name="select_company"),
     path("login/", auth.LoginView.as_view(template_name="core/login.html"), name="login"),
     path("service/", svc.service_home, name="service_home"),
     path("service/reports/", svc.service_reports, name="service_reports"),
