@@ -15,17 +15,20 @@ class StockError(Exception):
     pass
 
 
-def _lock_products(product_ids):
+def _lock_products(product_ids, company=None):
     """Lock multiple stock rows in primary-key order to avoid cross-operation deadlocks."""
     ids = sorted(set(product_ids))
     if not ids:
         return {}
-    return {p.pk: p for p in Product.objects.select_for_update().filter(pk__in=ids).order_by("pk")}
+    qs = Product.objects.select_for_update().filter(pk__in=ids)
+    if company is not None:
+        qs = qs.filter(company=company)
+    return {p.pk: p for p in qs.order_by("pk")}
 
 
 def add_movement(product, change, mtype, doc="", user=None, note=""):
     """The ONLY place that changes Product.current_stock."""
-    p = Product.objects.select_for_update().get(pk=product.pk)
+    p = Product.objects.select_for_update().get(pk=product.pk, company_id=product.company_id)
     p.current_stock += Decimal(change)
     p.save(update_fields=["current_stock"])
     return StockMovement.objects.create(company=p.company, product=p, movement_type=mtype, quantity_change=change,
@@ -37,9 +40,9 @@ def _num(obj, prefix):
     obj.save(update_fields=["number"])
 
 
-def _customer_delta(customer, amount, count):
+def _customer_delta(customer, amount, count, company=None):
     if customer:
-        c = Customer.objects.select_for_update().get(pk=customer.pk)
+        c = Customer.objects.select_for_update().get(pk=customer.pk, **({"company": company} if company is not None else {}))
         c.total_spent += amount
         c.purchases_count = max(0, c.purchases_count + count)
         c.save(update_fields=["total_spent", "purchases_count"])
@@ -50,15 +53,18 @@ def markup_price(cost, pct):
     return (Decimal(cost) * (Decimal(100) + Decimal(pct)) / Decimal(100)).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
 
-def tier_for(customer):
+def tier_for(customer, company=None):
     """Націнка клієнта; якщо не задана — типова; якщо немає й такої — 0 %."""
     if customer and customer.markup_tier_id:
         return customer.markup_tier
-    return MarkupTier.objects.filter(is_default=True).first()
+    qs = MarkupTier.objects.filter(is_default=True)
+    if company is not None:
+        qs = qs.filter(company=company)
+    return qs.first()
 
 
-def tier_pct(customer):
-    t = tier_for(customer)
+def tier_pct(customer, company=None):
+    t = tier_for(customer, company=company)
     return t.percent if t else D0
 
 
@@ -68,11 +74,11 @@ def ensure_product(si):
     у каталозі каси вона з'являється лише коли товар справді оприбутковано."""
     if si.product_id:
         return si.product
-    p = (Product.objects.filter(sku_norm=si.sku_norm, brand__iexact=si.brand).first()
-         or Product.objects.filter(sku_norm=si.sku_norm, brand="").first())
+    p = (Product.objects.filter(company=si.company, sku_norm=si.sku_norm, brand__iexact=si.brand).first()
+         or Product.objects.filter(company=si.company, sku_norm=si.sku_norm, brand="").first())
     if not p:
-        p = Product.objects.create(name=si.name or si.sku, sku=si.sku, brand=si.brand, cost_price=si.cost,
-                                   price=markup_price(si.cost, tier_pct(None)), from_supplier=True)
+        p = Product.objects.create(company=si.company, name=si.name or si.sku, sku=si.sku, brand=si.brand, cost_price=si.cost,
+                                   price=markup_price(si.cost, tier_pct(None, company=si.company)), from_supplier=True)
     si.product = p
     si.save(update_fields=["product"])
     return p
@@ -97,17 +103,26 @@ def _make_item(sale, p, q, pr, x, done):
     if x:
         si = x["si"]
         return SaleItem.objects.create(
-            sale=sale, product=p, quantity=q, original_price=x["list"], price=pr, cost_price=si.cost,
+            company=sale.company, sale=sale, product=p, quantity=q, original_price=x["list"], price=pr, cost_price=si.cost,
             source=SaleItem.SUPPLIER, supplier=si.supplier, supplier_item=si,
             fulfil_status=SaleItem.ORDERED if done else "",
             markup_pct=((pr / si.cost - 1) * 100).quantize(Decimal("0.01")) if si.cost else None)
-    return SaleItem.objects.create(sale=sale, product=p, quantity=q, original_price=p.price,
+    return SaleItem.objects.create(company=sale.company, sale=sale, product=p, quantity=q, original_price=p.price,
                                    price=pr, cost_price=p.cost_price, earned_at=timezone.now() if done else None)
 
 
 @transaction.atomic
-def save_held(user, lines, payment, customer, shift, held=None, car=None):
-    sale = held or Sale(cashier=user, status=Sale.HELD)
+def save_held(user, lines, payment, customer, shift, held=None, car=None, company=None):
+    company = company or (shift.company if shift else (lines[0][0].company if lines else None))
+    if company is None or any(p.company_id != company.pk for p, *_ in lines):
+        raise StockError("Товари належать іншому магазину або магазин не вибрано")
+    if customer and customer.company_id != company.pk:
+        raise StockError("Клієнт належить іншому магазину")
+    if shift and shift.company_id != company.pk:
+        raise StockError("Касова зміна належить іншому магазину")
+    if held and held.company_id != company.pk:
+        raise StockError("Чернетка належить іншому магазину")
+    sale = held or Sale(company=company, cashier=user, status=Sale.HELD)
     sale.shift, sale.customer, sale.payment_method = shift, customer, payment
     sale.car = car if customer else None
     sale.total = sum((q * pr for _, q, pr, _x in lines), D0)
@@ -121,18 +136,27 @@ def save_held(user, lines, payment, customer, shift, held=None, car=None):
 
 
 @transaction.atomic
-def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, car=None):
+def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, car=None, company=None):
     lines = merge_lines(lines)
+    company = company or (shift.company if shift else (lines[0][0].company if lines else None))
+    if company is None or any(p.company_id != company.pk for p, *_ in lines):
+        raise StockError("Товари належать іншому магазину або магазин не вибрано")
+    if customer and customer.company_id != company.pk:
+        raise StockError("Клієнт належить іншому магазину")
+    if shift and shift.company_id != company.pk:
+        raise StockError("Касова зміна належить іншому магазину")
+    if any(x and (x["si"].company_id != company.pk or x["si"].supplier.company_id != company.pk) for *_a, x in lines):
+        raise StockError("Позиція постачальника належить іншому магазину")
     if not lines:
         raise StockError("Чек порожній")
     if held is not None:
-        held = Sale.objects.select_for_update().filter(pk=held.pk).first()
+        held = Sale.objects.select_for_update().filter(pk=held.pk, company=company).first()
         if held is None or held.status != Sale.HELD:
             raise StockError("Цю чернетку вже проведено або видалено. Створіть новий чек.")
         if held.cashier_id != user.pk and not user.is_staff:
             raise StockError("Немає доступу до цієї чернетки")
     if shift is not None:
-        shift = Shift.objects.select_for_update().filter(pk=shift.pk, closed_at__isnull=True).first()
+        shift = Shift.objects.select_for_update().filter(pk=shift.pk, company=company, closed_at__isnull=True).first()
         if shift is None and not user.is_staff:
             raise StockError("Зміну вже закрито. Відкрийте нову зміну.")
     need = {}
@@ -141,12 +165,12 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
             need[p.pk] = need.get(p.pk, D0) + q
     # A cart can contain several stock products. Acquire every row lock in
     # the same order used by purchases and adjustments, regardless of cart order.
-    locked_products = _lock_products(need)
+    locked_products = _lock_products(need, company=company)
     for pk, q in need.items():
         fresh = locked_products[pk]
         if fresh.current_stock < q:
             raise StockError(f"Товару {fresh.name} недостатньо, поточний залишок {fresh.current_stock.normalize():f}")
-    sale = held or Sale(cashier=user)
+    sale = held or Sale(company=company, cashier=user)
     sale.status = Sale.DONE
     sale.shift, sale.customer, sale.payment_method = shift, customer, payment
     sale.car = car if customer else None
@@ -167,24 +191,27 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
         _make_item(sale, p, q, pr, x, done=True)
         if not x:
             add_movement(p, -q, "sale", sale.number, user)
-    _customer_delta(customer, sale.total, 1)
+    _customer_delta(customer, sale.total, 1, company=company)
     return sale
 
 
 @transaction.atomic
 def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
-                  refund_method="pending", refund_cash_amount=None, shift=None):
+                  refund_method="pending", refund_cash_amount=None, shift=None, company=None):
     """Create a stock return and optionally settle its refund.
 
     Internal transit returns stay pending by default: they reverse the sale
     value but do not pretend that money was physically paid out.
     """
+    company = company or sale.company
+    if company is None or sale.company_id != company.pk:
+        raise StockError("Продаж належить іншому магазину")
     if mode not in {"auto", "stock", "nostock"}:
         raise StockError("Невідомий режим повернення")
     if refund_method not in {"pending", "cash", "card", "mixed"}:
         raise StockError("Невідомий спосіб повернення коштів")
 
-    sale = Sale.objects.select_for_update().filter(pk=sale.pk, status=Sale.DONE).first()
+    sale = Sale.objects.select_for_update().filter(pk=sale.pk, company=company, status=Sale.DONE).first()
     if sale is None:
         raise StockError("Повернення можливе лише для проведеного продажу")
 
@@ -195,13 +222,13 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
         if shift is None:
             raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
         locked_shift = Shift.objects.select_for_update().filter(
-            pk=shift.pk, closed_at__isnull=True
+            pk=shift.pk, company=company, closed_at__isnull=True
         ).first()
         if locked_shift is None:
             raise StockError("Касова зміна вже закрита. Відкрийте нову зміну")
 
     total = D0
-    ret = SaleReturn.objects.create(sale=sale, user=user)
+    ret = SaleReturn.objects.create(company=company, sale=sale, user=user)
     ret.number = f"PV-{ret.pk:06d}"
     ret.save(update_fields=["number"])
 
@@ -250,7 +277,7 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
         locked_shift.drawer = cashlib.store(cashlib.add(drawer, payout, -1))
         locked_shift.save(update_fields=["drawer"])
         CashOperation.objects.create(
-            shift=locked_shift, user=user, kind="out", amount=-cash_amount,
+            company=company, shift=locked_shift, user=user, kind="out", amount=-cash_amount,
             detail={str(denom): -count for denom, count in payout.items()},
             note=f"Повернення {ret.number}",
         )
@@ -261,17 +288,20 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
     ret.card_amount = card_amount
     ret.shift = locked_shift
     ret.save(update_fields=["total", "refund_method", "cash_amount", "card_amount", "shift"])
-    _customer_delta(sale.customer, -total, 0)
+    _customer_delta(sale.customer, -total, 0, company=company)
     return ret
 
 
 
 @transaction.atomic
-def settle_return(user, sale_return, refund_method, refund_cash_amount=None, shift=None):
+def settle_return(user, sale_return, refund_method, refund_cash_amount=None, shift=None, company=None):
     """Settle a previously recorded return that is still awaiting payment."""
     if refund_method not in {"cash", "card", "mixed"}:
         raise StockError("Оберіть спосіб виплати: готівка, картка або змішано")
-    ret = SaleReturn.objects.select_for_update().filter(pk=sale_return.pk).first()
+    company = company or sale_return.company
+    if company is None or sale_return.company_id != company.pk:
+        raise StockError("Повернення належить іншому магазину")
+    ret = SaleReturn.objects.select_for_update().filter(pk=sale_return.pk, company=company).first()
     if ret is None:
         raise StockError("Повернення не знайдено")
     if ret.refund_method != "pending":
@@ -297,7 +327,7 @@ def settle_return(user, sale_return, refund_method, refund_cash_amount=None, shi
         if shift is None:
             raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
         locked_shift = Shift.objects.select_for_update().filter(
-            pk=shift.pk, closed_at__isnull=True
+            pk=shift.pk, company=company, closed_at__isnull=True
         ).first()
         if locked_shift is None:
             raise StockError("Касова зміна вже закрита. Відкрийте нову зміну")
@@ -308,7 +338,7 @@ def settle_return(user, sale_return, refund_method, refund_cash_amount=None, shi
         locked_shift.drawer = cashlib.store(cashlib.add(drawer, payout, -1))
         locked_shift.save(update_fields=["drawer"])
         CashOperation.objects.create(
-            shift=locked_shift, user=user, kind="out", amount=-cash_amount,
+            company=company, shift=locked_shift, user=user, kind="out", amount=-cash_amount,
             detail={str(denom): -count for denom, count in payout.items()},
             note=f"Виплата повернення {ret.number}",
         )
@@ -322,7 +352,10 @@ def settle_return(user, sale_return, refund_method, refund_cash_amount=None, shi
 
 
 @transaction.atomic
-def create_purchase(user, supplier, lines, update_cost=True):
+def create_purchase(user, supplier, lines, update_cost=True, company=None):
+    company = company or supplier.company
+    if company is None or supplier.company_id != company.pk or any(p.company_id != company.pk for p, *_ in lines):
+        raise StockError("Постачальник або товар належить іншому магазину")
     if not lines:
         raise StockError("Додайте хоча б один товар")
     # Validate every line before creating the document or touching stock.
@@ -334,8 +367,8 @@ def create_purchase(user, supplier, lines, update_cost=True):
             raise StockError(f"{p.name}: закупівельна ціна не може бути від'ємною")
     # Lock all affected stock rows before changing any of them. Sorting makes
     # two purchases with the same products acquire locks in a consistent order.
-    _lock_products(p.pk for p, _q, _cost in lines)
-    pur = Purchase.objects.create(supplier=supplier, user=user)
+    _lock_products((p.pk for p, _q, _cost in lines), company=company)
+    pur = Purchase.objects.create(company=company, supplier=supplier, user=user)
     _num(pur, "NK")
     total = D0
     for product, q, cost in lines:
@@ -347,7 +380,7 @@ def create_purchase(user, supplier, lines, update_cost=True):
         PurchaseItem.objects.create(purchase=pur, product=p, quantity=q, cost_price=cost)
         total += q * cost
         if update_cost and p.cost_price != cost:
-            PriceHistory.objects.create(product=p, field="cost_price", old_value=p.cost_price,
+            PriceHistory.objects.create(company=company, product=p, field="cost_price", old_value=p.cost_price,
                                         new_value=cost, changed_by=user)
             p.cost_price = cost
             p.save(update_fields=["cost_price"])
@@ -360,11 +393,15 @@ def create_purchase(user, supplier, lines, update_cost=True):
 
 
 @transaction.atomic
-def apply_adjustment(user, adj_form):
+def apply_adjustment(user, adj_form, company=None):
     adj = adj_form.save(commit=False)
+    company = company or getattr(adj.product, "company", None)
+    if company is None or adj.product.company_id != company.pk:
+        raise StockError("Товар належить іншому магазину")
+    adj.company = company
     adj.user = user
     sign = 1 if adj.kind == "surplus" else -1
-    p = Product.objects.select_for_update().get(pk=adj.product.pk)
+    p = Product.objects.select_for_update().get(pk=adj.product.pk, company=company)
     if sign < 0 and p.current_stock < adj.quantity:
         raise StockError(f"Недостатньо залишку ({p.current_stock.normalize():f})")
     adj.save()
@@ -390,9 +427,9 @@ def _check(user, item, allowed, receiving=False):
 @transaction.atomic
 def mark_arrived(user, item, days=None, ref="", receiving=False):
     """Товар прийшов від постачальника: запускаємо відлік на забір (за замовчуванням 14 днів)."""
-    item = SaleItem.objects.select_for_update().select_related("sale").get(pk=item.pk)
+    item = SaleItem.objects.select_for_update().select_related("sale").get(pk=item.pk, company=item.sale.company)
     _check(user, item, (SaleItem.ORDERED, SaleItem.ARRIVED), receiving)
-    days = int(days) if days not in (None, "") else CompanySettings.get().pickup_days
+    days = int(days) if days not in (None, "") else CompanySettings.get(item.sale.company).pickup_days
     if days < 1 or days > 365:
         raise StockError("Кількість днів відліку: від 1 до 365")
     item.fulfil_status = SaleItem.ARRIVED
