@@ -566,14 +566,15 @@ def manager_sales(request):
                         "постачальник" if r.source == SaleItem.SUPPLIER else "склад", r.sale.car.title if r.sale.car_id else ""])
         return resp
     mypay = None
-    if not request.user.is_staff:                      # менеджер бачить свою комісію за вибраний період
+    if not is_manager:                              # касир бачить лише власну комісію за вибраний період
         from . import payroll
-        pr_rows, _ = payroll.compute(d1, d2, only_user=request.user)
+        pr_rows, _ = payroll.compute(d1, d2, only_user=request.user, company=request.company)
         mypay = pr_rows[0] if pr_rows and pr_rows[0]["plan"] else None
     return render(request, "core/manager_sales.html", {
         "mypay": mypay, "rows": rows, "summary": summary, "rev": rev, "cst": cst, "mg": rev - cst,
         "pct": ((rev - cst) / rev * 100) if rev else D0, "d1": d1, "d2": d2, "mgr": mgr, "cq": cq, "src": src,
-        "managers": User.objects.filter(is_active=True).order_by("username") if request.user.is_staff else []})
+        "managers": User.objects.filter(company_memberships__company=request.company, company_memberships__is_active=True,
+                                                    is_active=True).distinct().order_by("username") if is_manager else []})
 
 
 # ============================================================== API постачальника
