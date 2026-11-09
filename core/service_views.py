@@ -13,6 +13,8 @@ from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine, 
 from .models import Product, Shift, CashOperation
 from . import cash as cashlib
 from .services import StockError, add_movement
+from .tenant_context import company_queryset, company_required
+from .views import tenant_staff_only
 
 
 def staff(view):
@@ -25,32 +27,34 @@ def staff(view):
     return wrapped
 
 
-@staff
+@tenant_staff_only
+@company_required
 def service_home(request):
-    appointments = ServiceAppointment.objects.select_related("customer", "car", "assigned_to").order_by("scheduled_at")[:80]
-    orders = ServiceOrder.objects.select_related("customer", "car", "mechanic").order_by("-created_at")[:30]
+    appointments = company_queryset(ServiceAppointment.objects.select_related("customer", "car", "assigned_to").order_by("scheduled_at"), request)[:80]
+    orders = company_queryset(ServiceOrder.objects.select_related("customer", "car", "mechanic").order_by("-created_at"), request)[:30]
     return render(request, "core/service_home.html", {"appointments": appointments, "orders": orders})
 
 
-@staff
+@tenant_staff_only
+@company_required
 def service_reports(request):
     """Operational and financial overview for the current calendar month."""
     today = timezone.localdate()
     month_start = today.replace(day=1)
-    month_orders = ServiceOrder.objects.filter(created_at__date__gte=month_start, created_at__date__lte=today)
-    month_payments = ServicePayment.objects.filter(created_at__date__gte=month_start, created_at__date__lte=today)
+    month_orders = ServiceOrder.objects.filter(company=request.company, created_at__date__gte=month_start, created_at__date__lte=today)
+    month_payments = ServicePayment.objects.filter(company=request.company, created_at__date__gte=month_start, created_at__date__lte=today)
     line_total = ExpressionWrapper(
         F("quantity") * F("unit_price"),
         output_field=DecimalField(max_digits=14, decimal_places=2),
     )
     month_lines = ServiceOrderLine.objects.filter(
-        order__created_at__date__gte=month_start, order__created_at__date__lte=today
+        company=request.company, order__company=request.company, order__created_at__date__gte=month_start, order__created_at__date__lte=today
     )
     labor_total = month_lines.filter(kind=ServiceOrderLine.LABOR).aggregate(total=Sum(line_total))["total"] or Decimal("0")
     parts_total = month_lines.filter(kind=ServiceOrderLine.PART).aggregate(total=Sum(line_total))["total"] or Decimal("0")
     collected = month_payments.aggregate(total=Sum("amount"))["total"] or Decimal("0")
     outstanding = sum(
-        (order.balance_due for order in ServiceOrder.objects.exclude(status__in=["cancelled", "delivered"]).prefetch_related("lines")),
+        (order.balance_due for order in ServiceOrder.objects.filter(company=request.company).exclude(status__in=["cancelled", "delivered"]).prefetch_related("lines")),
         Decimal("0"),
     )
     return render(request, "core/service_reports.html", {
@@ -58,19 +62,21 @@ def service_reports(request):
         "labor_total": labor_total, "parts_total": parts_total, "service_total": labor_total + parts_total,
         "collected": collected, "outstanding": outstanding,
         "status_counts": [
-            (label, ServiceOrder.objects.filter(status=code).count())
+            (label, ServiceOrder.objects.filter(company=request.company, status=code).count())
             for code, label in ServiceOrder.STATUS if code != "cancelled"
         ],
         "recent_payments": month_payments.select_related("order", "received_by").order_by("-created_at")[:30],
     })
 
 
-@staff
+@tenant_staff_only
+@company_required
 def service_appointment_new(request):
-    form = ServiceAppointmentForm(request.POST or None)
+    form = ServiceAppointmentForm(request.POST or None, company=request.company)
     if request.method == "POST" and form.is_valid():
         obj = form.save(commit=False)
         obj.created_by = request.user
+        obj.company = request.company
         try:
             obj.full_clean()
             # Appointments are exclusive for the same vehicle and, when
@@ -81,7 +87,7 @@ def service_appointment_new(request):
             # end; duration is variable, so a fixed look-back window can miss
             # a long appointment that began earlier.
             candidates = ServiceAppointment.objects.select_for_update().filter(
-                status__in=["booked", "arrived"],
+                company=request.company, status__in=["booked", "arrived"],
                 scheduled_at__lt=window_end,
             )
             conflict = None
@@ -107,17 +113,19 @@ def service_appointment_new(request):
     return render(request, "core/service_appointment_form.html", {"form": form})
 
 
-@staff
+@tenant_staff_only
+@company_required
 def service_order_new(request):
-    form = ServiceOrderForm(request.POST or None)
+    form = ServiceOrderForm(request.POST or None, company=request.company)
     if request.method == "POST" and form.is_valid():
         obj = form.save(commit=False)
         obj.created_by = request.user
+        obj.company = request.company
         try:
             obj.full_clean()
             obj.save()
             if obj.appointment_id:
-                ServiceAppointment.objects.filter(pk=obj.appointment_id).update(status="converted")
+                ServiceAppointment.objects.filter(company=request.company, pk=obj.appointment_id).update(status="converted")
         except Exception as exc:
             form.add_error(None, str(exc))
         else:
@@ -126,10 +134,11 @@ def service_order_new(request):
     return render(request, "core/service_order_form.html", {"form": form})
 
 
-@staff
+@tenant_staff_only
+@company_required
 def service_order_detail(request, pk):
-    order = get_object_or_404(ServiceOrder.objects.select_related("customer", "car", "mechanic"), pk=pk)
-    line_form = ServiceOrderLineForm(request.POST or None)
+    order = get_object_or_404(company_queryset(ServiceOrder.objects.select_related("customer", "car", "mechanic"), request), pk=pk)
+    line_form = ServiceOrderLineForm(request.POST or None, company=request.company)
     editable = order.status in {"draft", "diagnosis", "approval"}
     if request.method == "POST" and "add_line" in request.POST and not editable:
         messages.error(request, "Позиції можна змінювати лише до погодження наряду.")
@@ -137,6 +146,7 @@ def service_order_detail(request, pk):
     if request.method == "POST" and "add_line" in request.POST and line_form.is_valid():
         line = line_form.save(commit=False)
         line.order = order
+        line.company = request.company
         if line.kind == ServiceOrderLine.PART:
             if not line.product_id:
                 line_form.add_error("product", "Для запчастини виберіть товар зі складу.")
@@ -157,7 +167,7 @@ def service_order_detail(request, pk):
             else:
                 messages.success(request, "Позицію додано до наряду.")
                 return redirect("service_order_detail", pk=order.pk)
-    history = ServiceOrder.objects.filter(car=order.car).exclude(pk=order.pk).prefetch_related("lines").order_by("-created_at")[:20]
+    history = ServiceOrder.objects.filter(company=request.company, car=order.car).exclude(pk=order.pk).prefetch_related("lines").order_by("-created_at")[:20]
     transitions = {
         "draft": {"diagnosis", "cancelled"},
         "diagnosis": {"approval", "cancelled"},
@@ -176,11 +186,12 @@ def service_order_detail(request, pk):
     })
 
 
-@staff
+@tenant_staff_only
+@company_required
 @require_POST
 @transaction.atomic
 def service_order_payment(request, pk):
-    order = get_object_or_404(ServiceOrder.objects.select_for_update(), pk=pk)
+    order = get_object_or_404(ServiceOrder.objects.select_for_update().filter(company=request.company), pk=pk)
     if order.status == "cancelled":
         messages.error(request, "Не можна приймати оплату за скасованим нарядом.")
         return redirect("service_order_detail", pk=pk)
@@ -217,7 +228,7 @@ def service_order_payment(request, pk):
 
     shift = None
     if method == "cash":
-        shift = Shift.objects.select_for_update().filter(cashier=request.user, closed_at__isnull=True).first()
+        shift = Shift.objects.select_for_update().filter(company=request.company, cashier=request.user, closed_at__isnull=True).first()
         if shift is None:
             messages.error(request, "Для готівкової оплати відкрийте касову зміну.")
             return redirect("service_order_detail", pk=pk)
@@ -227,10 +238,11 @@ def service_order_payment(request, pk):
         shift.drawer = cashlib.store(cashlib.add(drawer, incoming))
         shift.save(update_fields=["drawer"])
         CashOperation.objects.create(
-            shift=shift, user=request.user, kind="in", amount=amount,
+            company=request.company, shift=shift, user=request.user, kind="in", amount=amount,
             note=("Оплата СТО: наряд #" + str(order.pk))[:200],
             detail={str(k): v for k, v in incoming.items()},
         )
+    payment.company = request.company
     payment.shift = shift
     payment.save()
 
@@ -241,11 +253,12 @@ def service_order_payment(request, pk):
     return redirect("service_order_detail", pk=pk)
 
 
-@staff
+@tenant_staff_only
+@company_required
 @require_POST
 def service_order_issue_parts(request, pk):
     """Списати запчастини з наряду атомарно, не допускаючи повторного списання."""
-    order = get_object_or_404(ServiceOrder, pk=pk)
+    order = get_object_or_404(ServiceOrder.objects.filter(company=request.company), pk=pk)
     if order.status not in {"approved", "in_progress", "waiting_parts"}:
         messages.error(request, "Видавати запчастини можна лише після погодження наряду.")
         return redirect("service_order_detail", pk=pk)
@@ -253,7 +266,7 @@ def service_order_issue_parts(request, pk):
         with transaction.atomic():
             lines = list(
                 ServiceOrderLine.objects.select_for_update()
-                .filter(order=order, kind=ServiceOrderLine.PART, issued=False)
+                .filter(company=request.company, order=order, kind=ServiceOrderLine.PART, issued=False)
                 .select_related("product").order_by("product_id", "pk")
             )
             if not lines:
@@ -262,8 +275,10 @@ def service_order_issue_parts(request, pk):
             for line in lines:
                 totals[line.product_id] = totals.get(line.product_id, Decimal("0")) + line.quantity
             locked = {
-                p.pk: p for p in Product.objects.select_for_update().filter(pk__in=sorted(totals)).order_by("pk")
+                p.pk: p for p in Product.objects.select_for_update().filter(company=request.company, pk__in=sorted(totals)).order_by("pk")
             }
+            if set(locked) != set(totals):
+                raise StockError("Одна із запчастин не належить цьому магазину")
             for product_id, qty in totals.items():
                 product = locked[product_id]
                 if product.current_stock < qty:
@@ -284,7 +299,8 @@ def service_order_issue_parts(request, pk):
     return redirect("service_order_detail", pk=pk)
 
 
-@staff
+@tenant_staff_only
+@company_required
 @require_POST
 def service_order_status(request, pk):
     allowed = {s[0] for s in ServiceOrder.STATUS}
