@@ -1,10 +1,12 @@
 from datetime import timedelta
+import json
 
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
-from core.models import Category, Company, CompanyMembership, CompanySettings, Product, StockMovement, Supplier, SupplierItem
+from core.models import (Category, Company, CompanyMembership, CompanySettings, Product, StockMovement,
+                         Supplier, SupplierItem, Customer, Sale, Shift, SaleItem)
 from core.tenant_context import CompanyContextMiddleware, company_queryset
 
 
@@ -99,6 +101,38 @@ class CompanyContextTests(TestCase):
         self.assertEqual(membership.role, "owner")
         self.assertEqual(self.client.session["active_company_id"], company.pk)
         self.assertTrue(company.has_access)
+
+    def test_pos_sales_and_cash_records_cannot_cross_company_boundaries(self):
+        own_customer = Customer.objects.create(company=self.company, name="Клієнт А", phone="380111111")
+        foreign_customer = Customer.objects.create(company=self.other_company, name="Клієнт Б", phone="380222222")
+        foreign_shift = Shift.objects.create(company=self.other_company, cashier=self.other_user)
+        foreign_sale = Sale.objects.create(company=self.other_company, cashier=self.other_user, shift=foreign_shift,
+                                           status=Sale.DONE, number="FOREIGN-CH", total=500)
+        foreign_product = Product.objects.create(company=self.other_company, name="Чужа помпа", sku="FOREIGN-PUMP",
+                                                  current_stock=10, price=500)
+        SaleItem.objects.create(company=self.other_company, sale=foreign_sale, product=foreign_product,
+                                quantity=1, original_price=500, price=500)
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get("/pos/search/?q=FOREIGN-PUMP").json()["results"], [])
+        self.assertEqual(self.client.get("/pos/customer/?q=Клієнт Б").json()["results"], [])
+        self.assertEqual(self.client.get(f"/sales/{foreign_sale.pk}/").status_code, 404)
+        sales = self.client.get("/sales/")
+        self.assertNotContains(sales, "FOREIGN-CH")
+
+        self.client.post("/shift/", {"action": "open", "cash": "0"})
+        response = self.client.post(
+            "/pos/checkout/",
+            data=json.dumps({"items": [{"id": foreign_product.pk, "qty": "1"}],
+                             "payment": "card", "card": "500"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Sale.objects.filter(company=self.company, status=Sale.DONE).exists())
+
+        own_sale = Sale.objects.create(company=self.company, cashier=self.user, status=Sale.DONE,
+                                       number="OWN-CH", total=10, customer=own_customer)
+        self.assertEqual(self.client.get(f"/sales/{own_sale.pk}/").status_code, 200)
 
     def test_product_catalog_and_detail_are_isolated_between_workspaces(self):
         self.client.force_login(self.user)
