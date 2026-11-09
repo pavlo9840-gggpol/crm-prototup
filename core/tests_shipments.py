@@ -53,7 +53,7 @@ class ShipmentWorkflowTests(TestCase):
         from unittest.mock import patch
         self.client.force_login(self.staff)
         shipment = Shipment.objects.create(
-            recipient_name="Олена Коваль", recipient_phone="0501112233",
+            company=self.company, recipient_name="Олена Коваль", recipient_phone="0501112233",
             recipient_city_ref="CITY-REF", recipient_warehouse_ref="WAREHOUSE-REF",
             created_by=self.staff,
         )
