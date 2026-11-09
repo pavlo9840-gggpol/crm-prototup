@@ -70,3 +70,20 @@ class CompanyContextTests(TestCase):
         self.assertEqual(CompanySettings.get(self.company).name, "Налаштування магазину А")
         self.assertEqual(CompanySettings.get(self.other_company).name, self.other_company.name)
         self.assertNotEqual(own_settings.pk, other_settings.pk)
+
+    def test_company_switch_requires_membership_and_sets_session(self):
+        CompanyMembership.objects.create(company=self.other_company, user=self.user, role="manager")
+        self.client.force_login(self.user)
+
+        response = self.client.post("/workspace/select/", {"company_id": self.other_company.pk})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session["active_company_id"], self.other_company.pk)
+
+    def test_company_switch_rejects_non_member(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post("/workspace/select/", {"company_id": self.other_company.pk})
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn("active_company_id", self.client.session)
