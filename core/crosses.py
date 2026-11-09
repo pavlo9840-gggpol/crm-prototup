@@ -27,8 +27,6 @@ def pair(a, b):
 def rejected(qn, company=None):
     out = set()
     qs = CrossReject.objects.filter(Q(a=qn) | Q(b=qn))
-    if company is not None:
-        qs = qs.filter(company=company)
     for a, b in qs.values_list("a", "b"):
         out.add(b if a == qn else a)
     return out
