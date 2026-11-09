@@ -16,7 +16,8 @@ from . import designer, docs
 from .builtin_templates import BUILTINS
 from . import legacy
 from .models import DocTemplate, PrintTemplate, StockAdjustment
-from .views import staff_only
+from .views import tenant_staff_only
+from .tenant_context import company_queryset, company_required
 
 
 # ---------------------------------------------------------------- helpers
@@ -104,10 +105,11 @@ def output(request, pages, fmt, name, extra=None):
 
 # ---------------------------------------------------------------- printing
 @login_required
+@company_required
 def print_docs(request, doc_type):
     if doc_type not in docs.DOC_TYPES:
         raise Http404
-    if doc_type != "receipt" and not request.user.is_staff:
+    if doc_type != "receipt" and getattr(getattr(request, "company_membership", None), "role", "") not in ("owner", "admin", "manager"):
         raise PermissionDenied
     ctxs = docs.load(doc_type, request)
     tpl = pick_template(doc_type, request.GET.get("template"))
@@ -145,14 +147,16 @@ def sale_print(request, pk):
     return redirect(f"/print/{kind}/?{urlencode(q)}")
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def purchase_print(request, pk):
     return redirect(f"/print/purchase/?ids={pk}")
 
 
 @staff_only
 def adjustment_list(request):
-    qs = StockAdjustment.objects.select_related("product", "user").order_by("-created_at")[:300]
+    qs = company_queryset(StockAdjustment.objects.select_related("product", "user").order_by("-created_at"), request)[:300]
     return render(request, "core/adjustment_list.html", {"adjustments": qs, **print_bar("writeoff")})
 
 
