@@ -382,7 +382,7 @@ def pos(request):
     rid = request.GET.get("resume")
     if rid:
         held = get_object_or_404(company_queryset(Sale.objects.all(), request), pk=rid, status=Sale.HELD)
-        if held.cashier_id != request.user.id and not request.user.is_staff:
+        if held.cashier_id != request.user.id and not _can_manage_company(request):
             raise PermissionDenied
         init["resume_id"] = held.pk
         init["payment"] = held.payment_method
@@ -407,7 +407,7 @@ def pos(request):
     init["cats"] = [{"id": c.pk, "name": c.name} for c in cats.values() if not c.parent_id]
     init["denoms"] = [{"k": d, "l": cashlib.label(d)} for d in cashlib.DENOMS]
     init["drawer"] = float(cashlib.to_dec(cashlib.total(shift.drawer))) if shift else None
-    cs = CompanySettings.get(getattr(request, "company", None))
+    cs = CompanySettings.get(request.company)
     init["auto_print"], init["auto_print_format"] = cs.auto_print, cs.auto_print_format
     return render(request, "core/pos.html", {"init": init, "shift": shift})
 
@@ -579,7 +579,7 @@ def car_add(request, pk):
     else:
         CustomerCar.objects.create(company=request.company, customer=cust, **f)
         messages.success(request, "Авто додано")
-    return redirect("customer_detail", pk=pk) if request.user.is_staff else redirect("pos")
+    return redirect("customer_detail", pk=pk) if _can_manage_company(request) else redirect("pos")
 
 
 @login_required
@@ -655,7 +655,7 @@ def pos_hold(request):
 @company_required
 def held_list(request):
     qs = company_queryset(Sale.objects.filter(status=Sale.HELD).select_related("customer"), request)
-    if not request.user.is_staff:
+    if not _can_manage_company(request):
         qs = qs.filter(cashier=request.user)
     return render(request, "core/held_list.html", {"sales": qs})
 
@@ -685,7 +685,7 @@ def sale_list(request):
         qs = qs.filter(created_at__date__lte=d2)
     if request.GET.get("payment"):
         qs = qs.filter(payment_method=request.GET["payment"])
-    if request.user.is_staff and request.GET.get("cashier"):
+    if _can_manage_company(request) and request.GET.get("cashier"):
         qs = qs.filter(cashier_id=request.GET["cashier"])
     from django.contrib.auth import get_user_model
     from .designer_views import print_bar
@@ -698,7 +698,7 @@ def sale_list(request):
 @company_required
 def sale_detail(request, pk):
     sale = get_object_or_404(company_queryset(Sale.objects.select_related("cashier", "customer"), request), pk=pk)
-    if not request.user.is_staff and sale.cashier_id != request.user.id:
+    if not _can_manage_company(request) and sale.cashier_id != request.user.id:
         raise PermissionDenied
     return render(request, "core/sale_detail.html", {"sale": sale, "items": sale.items.select_related("product"),
                                                      "returns": sale.returns.all()})
@@ -779,7 +779,9 @@ def inventory(request):
                                                    "q": q, "cat": cat, "st": st})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def inventory_adjust(request):
     form = AdjustForm(request.POST or None)
     form.fields["product"].queryset = company_queryset(Product.objects.filter(is_active=True), request)
@@ -793,7 +795,9 @@ def inventory_adjust(request):
     return render(request, "core/form.html", {"form": form, "title": "Коригування запасів", "back": "inventory"})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def inventory_movements(request):
     qs = company_queryset(StockMovement.objects.select_related("product", "user"), request)
     q = request.GET.get("q", "").strip()
@@ -824,7 +828,9 @@ def inventory_movements(request):
 
 
 # ---------- Customers ----------
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def customer_list(request):
     qs = company_queryset(Customer.objects.annotate(last=Max("sales__created_at", filter=Q(sales__status="done"))), request)
     q = request.GET.get("q", "").strip()
@@ -840,7 +846,9 @@ def customer_edit(request, pk=None):
     return simple_form(request, CustomerForm, "Клієнт", "customer_list", pk, Customer)
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def customer_detail(request, pk):
     c = get_object_or_404(company_queryset(Customer.objects.all(), request), pk=pk)
     sales = c.sales.filter(company=request.company, status="done").prefetch_related("items__product")
@@ -856,7 +864,9 @@ def _items(d1, d2, company):
                                    sale__created_at__date__range=(d1, d2))
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def report_daily(request):
     d = get_date(request, "date", timezone.localdate())
     sales = done_sales(request.company).filter(created_at__date=d)
@@ -880,7 +890,9 @@ def report_daily(request):
         "pending_returns": pending_returns, "items": items})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def report_monthly(request):
     today = timezone.localdate()
     try:
@@ -918,7 +930,9 @@ def report_monthly(request):
         "pending_returns": pending_returns})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def report_top(request):
     today = timezone.localdate()
     d1, d2 = get_date(request, "from", today.replace(day=1)), get_date(request, "to", today)
@@ -929,7 +943,9 @@ def report_top(request):
                                                     "by_sum": base.order_by("-s")[:n], "by_qty": base.order_by("-q")[:n]})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def report_profit(request):
     today = timezone.localdate()
     d1, d2 = get_date(request, "from", today.replace(day=1)), get_date(request, "to", today)
@@ -951,7 +967,9 @@ def report_profit(request):
                                                        "cost": cost, "margin": rev - cost})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def report_stock(request):
     value = company_queryset(Product.objects.all(), request).aggregate(v=Sum(ExpressionWrapper(F("current_stock") * F("cost_price"), output_field=DEC)))["v"] or D0
     summary = company_queryset(StockMovement.objects.all(), request).values("movement_type").annotate(s=Sum("quantity_change"), n=Count("id"))
@@ -1062,19 +1080,23 @@ def drawer_view(request):
                                                 "ops": shift.cash_ops.filter(company=request.company)[:20]})
 
 # ---------- Settings ----------
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def settings_home(request):
     return redirect("designer_home")
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def company_settings(request):
     from django.forms import modelformset_factory
     AccFS = modelformset_factory(BankAccount, fields=["bank_name", "iban", "mfo", "holder", "currency", "note", "is_default"],
                                  extra=1, can_delete=True)
-    company = getattr(request, "company", None)
+    company = request.company
     obj = CompanySettings.get(company)
-    account_qs = BankAccount.objects.filter(company=company) if company else BankAccount.objects.all()
+    account_qs = BankAccount.objects.filter(company=company)
     form = CompanyForm(request.POST or None, request.FILES or None, instance=obj)
     fs = AccFS(request.POST or None, queryset=account_qs)
     if request.method == "POST" and form.is_valid() and fs.is_valid():
