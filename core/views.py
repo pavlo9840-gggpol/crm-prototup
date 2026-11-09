@@ -94,8 +94,9 @@ def current_shift(user, company=None):
 # ---------- Dashboard ----------
 @login_required
 @company_required
-@tenant_staff_only
 def dashboard(request):
+    if not _can_manage_company(request):
+        return redirect("pos")
     today = timezone.localdate()
     today_sales = done_sales(request.company).filter(created_at__date=today)
     month_sales = done_sales(request.company).filter(created_at__year=today.year, created_at__month=today.month)
@@ -375,7 +376,7 @@ def purchase_detail(request, pk):
 @company_required
 def pos(request):
     shift = current_shift(request.user, request.company)
-    if not shift:
+    if not shift and not request.user.is_staff:
         messages.info(request, "Спочатку відкрийте зміну")
         return redirect("shift")
     init = {"cart": [], "customer": None, "resume_id": None}
