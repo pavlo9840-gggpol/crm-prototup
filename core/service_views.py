@@ -30,13 +30,36 @@ def workshop_staff(view):
 
 
 @workshop_staff
+def workshop_cashier(view):
+    @login_required
+    @company_required
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        membership = getattr(request, "company_membership", None)
+        if membership is None or membership.role not in ("owner", "admin", "manager", "cashier"):
+            raise PermissionDenied
+        return view(request, *args, **kwargs)
+    return wrapped
+
+
+def _require_assigned_mechanic(request, order):
+    membership = getattr(request, "company_membership", None)
+    if membership and membership.role == "mechanic" and order.mechanic_id != request.user.pk:
+        raise Http404
+
+
 def service_home(request):
-    appointments = company_queryset(ServiceAppointment.objects.select_related("customer", "car", "assigned_to").order_by("scheduled_at"), request)[:80]
-    orders = company_queryset(ServiceOrder.objects.select_related("customer", "car", "mechanic").order_by("-created_at"), request)[:30]
+    appointments = company_queryset(ServiceAppointment.objects.select_related("customer", "car", "assigned_to").order_by("scheduled_at"), request)
+    orders = company_queryset(ServiceOrder.objects.select_related("customer", "car", "mechanic").order_by("-created_at"), request)
+    if getattr(request.company_membership, "role", "") == "mechanic":
+        appointments = appointments.filter(assigned_to=request.user)
+        orders = orders.filter(mechanic=request.user)
+    appointments, orders = appointments[:80], orders[:30]
     return render(request, "core/service_home.html", {"appointments": appointments, "orders": orders})
 
 
-@workshop_staff
+@tenant_staff_only
+@company_required
 def service_reports(request):
     """Operational and financial overview for the current calendar month."""
     today = timezone.localdate()
@@ -300,6 +323,7 @@ def service_order_issue_parts(request, pk):
 def service_order_status(request, pk):
     allowed = {s[0] for s in ServiceOrder.STATUS}
     order = get_object_or_404(ServiceOrder.objects.filter(company=request.company), pk=pk)
+    _require_assigned_mechanic(request, order)
     target = request.POST.get("status", "")
     transitions = {
         "draft": {"diagnosis", "cancelled"},
