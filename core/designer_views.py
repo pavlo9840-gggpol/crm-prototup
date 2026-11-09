@@ -309,6 +309,9 @@ def designer_delete(request, pk):
 @require_POST
 def designer_default(request, pk):
     t = get_object_or_404(PrintTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
+    if t.company_id != request.company.pk or t.is_builtin:
+        messages.error(request, "Спочатку створіть копію в цьому магазині, щоб зробити її типовою.")
+        return redirect("designer_select", doc_type=t.doc_type)
     PrintTemplate.objects.filter(company=request.company, doc_type=t.doc_type).update(is_default=False)
     t.is_default = True
     t.save(update_fields=["is_default"])
