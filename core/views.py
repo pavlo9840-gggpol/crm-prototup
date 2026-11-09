@@ -250,6 +250,8 @@ def simple_form(request, model_form, title, back, pk=None, model=None):
         record = form.save(commit=False)
         record.company = request.company
         record.save()
+        if model is MarkupTier and record.is_default:
+            MarkupTier.objects.filter(company=request.company).exclude(pk=record.pk).update(is_default=False)
         form.save_m2m()
         messages.success(request, "Збережено")
         return redirect(back)
