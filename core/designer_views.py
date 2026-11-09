@@ -154,14 +154,18 @@ def purchase_print(request, pk):
     return redirect(f"/print/purchase/?ids={pk}")
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def adjustment_list(request):
     qs = company_queryset(StockAdjustment.objects.select_related("product", "user").order_by("-created_at"), request)[:300]
     return render(request, "core/adjustment_list.html", {"adjustments": qs, **print_bar("writeoff")})
 
 
 # ---------------------------------------------------------------- designer pages
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def designer_home(request):
     ensure_builtin()
     cards = []
@@ -175,7 +179,9 @@ def designer_home(request):
     return render(request, "core/designer_home.html", {"cards": cards, "legacy": old})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def designer_select(request):
     doc_type = request.GET.get("type", "")
     if doc_type not in docs.DOC_TYPES:
@@ -186,7 +192,9 @@ def designer_select(request):
         "default_id": d.pk if d else None})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def designer_edit(request, pk):
     t = get_object_or_404(PrintTemplate, pk=pk)
     res, err = _sanitize_or_400(t.layout, t.doc_type)
@@ -208,7 +216,9 @@ def designer_edit(request, pk):
     return render(request, "core/designer_edit.html", {"t": t, "init": init, "label": spec["label"]})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def designer_save(request, pk):
     t = get_object_or_404(PrintTemplate, pk=pk)
@@ -226,7 +236,9 @@ def designer_save(request, pk):
     return JsonResponse({"ok": True, "warnings": res[1], "layout": res[0]})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def designer_save_as(request, pk):
     src = get_object_or_404(PrintTemplate, pk=pk)
@@ -241,7 +253,9 @@ def designer_save_as(request, pk):
     return JsonResponse({"ok": True, "url": f"/designer/edit/{n.pk}/", "warnings": res[1]})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def designer_new(request, doc_type):
     if doc_type not in docs.DOC_TYPES:
@@ -252,7 +266,9 @@ def designer_new(request, doc_type):
     return redirect("designer_edit", pk=n.pk)
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def designer_copy(request, pk):
     src = get_object_or_404(PrintTemplate, pk=pk)
@@ -262,7 +278,9 @@ def designer_copy(request, pk):
     return redirect("designer_edit", pk=n.pk)
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def designer_delete(request, pk):
     t = get_object_or_404(PrintTemplate, pk=pk)
@@ -274,7 +292,9 @@ def designer_delete(request, pk):
     return redirect(f"/designer/select/?type={dt}")
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def designer_default(request, pk):
     t = get_object_or_404(PrintTemplate, pk=pk)
@@ -290,7 +310,9 @@ def envelope(t):
             "doc_type": t.doc_type, "name": t.name, "layout": t.layout}
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def designer_export(request, pk):
     t = get_object_or_404(PrintTemplate, pk=pk)
     r = HttpResponse(json.dumps(envelope(t), ensure_ascii=False, indent=1), content_type="application/json; charset=utf-8")
@@ -317,7 +339,9 @@ def _import_one(data, make_default):
     return t, warns
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def designer_import(request):
     f = request.FILES.get("file")
@@ -356,7 +380,9 @@ def designer_import(request):
     return redirect(f"/designer/select/?type={last.doc_type}")
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def designer_export_all(request):
     """Backup of all custom templates (one JSON per template inside a ZIP)."""
     buf = io.BytesIO()
@@ -368,7 +394,9 @@ def designer_export_all(request):
     return r
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def designer_preview(request, pk):
     t = get_object_or_404(PrintTemplate, pk=pk)
     layout = t.layout
@@ -392,7 +420,9 @@ def font_view(request, style):
 
 
 # ---------------------------------------------------------------- legacy (v2 HTML) templates
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def legacy_convert(request, pk):
     o = get_object_or_404(DocTemplate, pk=pk)
@@ -411,7 +441,9 @@ def legacy_convert(request, pk):
     return redirect("designer_edit", pk=t.pk)
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def legacy_delete(request, pk=None):
     qs = DocTemplate.objects.all() if pk is None else DocTemplate.objects.filter(pk=pk)
