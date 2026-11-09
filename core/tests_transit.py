@@ -35,7 +35,7 @@ class TransitTest(TestCase):
         self.mgr_user = U.objects.create_user("anna", password="x")
         self.mgr2 = U.objects.create_user("petro", password="x")
         self.company = create_test_company(admin_user, "Transit test shop",
-                                           [(self.mgr_user, "manager"), (self.mgr2, "manager")])
+                                           [(self.mgr_user, "cashier"), (self.mgr2, "cashier")])
         self.adm, self.mgr, self.mgr2c = self.client, self.client_class(), self.client_class()
         self.adm.login(username="admin", password="x")
         self.mgr.login(username="anna", password="x")
