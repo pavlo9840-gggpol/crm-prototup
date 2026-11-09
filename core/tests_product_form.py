@@ -16,6 +16,7 @@ class ProductFormUxTest(TestCase):
         U.objects.create_user("cash", password="x")
         self.company = Company.objects.create(name="Магазин тестів", slug="product-form-shop", status="active", owner=admin)
         CompanyMembership.objects.create(company=self.company, user=admin, role="owner")
+        CompanyMembership.objects.create(company=self.company, user=cash, role="cashier")
         self.adm, self.cash = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.cash.login(username="cash", password="x")
