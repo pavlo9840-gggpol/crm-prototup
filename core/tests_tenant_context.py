@@ -94,7 +94,7 @@ class CompanyContextTests(TestCase):
         response = self.client.post("/workspace/new/", {"name": "Новий магазин"})
 
         self.assertEqual(response.status_code, 302)
-        company = Company.objects.get(slug="novyi-mahazyn")
+        company = Company.objects.get(name="Новий магазин")
         membership = CompanyMembership.objects.get(company=company, user=self.other_user)
         self.assertEqual(membership.role, "owner")
         self.assertEqual(self.client.session["active_company_id"], company.pk)
