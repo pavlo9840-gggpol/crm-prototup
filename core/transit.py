@@ -258,7 +258,7 @@ def apply_parsed(sup, parsed, user, fname):
             orig = cost if foreign else None                    # ціна у валюті постачальника
             cost = currency.to_uah(orig, rate) if foreign else cost
             if it is None:
-                new.append(SupplierItem(supplier=sup, brand=brand, sku=sku, sku_norm=sn, name=name, cost=cost, price_orig=orig,
+                new.append(SupplierItem(company=sup.company, supplier=sup, brand=brand, sku=sku, sku_norm=sn, name=name, cost=cost, price_orig=orig,
                                         qty_avail=q, available=avail, ext_id=ext, name_lc=(name or "").lower()))
                 continue
             seen.add(it.pk)
@@ -273,13 +273,13 @@ def apply_parsed(sup, parsed, user, fname):
         SupplierItem.objects.bulk_create(new, batch_size=500)
         SupplierItem.objects.bulk_update(upd, ["cost", "price_orig", "qty_avail", "available", "name", "sku", "updated_at", "ext_id", "name_lc"], batch_size=200)
         if changes:                                       # журнал змін цін + автоціна для товарів на складі
-            SupplierPriceChange.objects.bulk_create([SupplierPriceChange(item=i, old_cost=o, new_cost=n) for i, o, n in changes], batch_size=500)
+            SupplierPriceChange.objects.bulk_create([SupplierPriceChange(company=i.company, item=i, old_cost=o, new_cost=n) for i, o, n in changes], batch_size=500)
             from . import pricing
             pricing.reprice_after_supplier_change({(i.brand.upper(), i.sku_norm) for i, _, _ in changes}, user)
         gone = [i.pk for i in existing.values() if i.available and i.pk not in seen]
         for n in range(0, len(gone), 500):
             SupplierItem.objects.filter(pk__in=gone[n:n + 500]).update(available=False, qty_avail=Decimal(0))
-        PriceImport.objects.create(supplier=sup, user=user, file_name=fname[:200], n_new=len(new),
+        PriceImport.objects.create(company=sup.company, supplier=sup, user=user, file_name=fname[:200], n_new=len(new),
                                    n_updated=len(upd), n_gone=len(gone))
     return len(new), len(upd), len(gone)
 
