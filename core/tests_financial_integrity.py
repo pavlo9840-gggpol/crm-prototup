@@ -10,6 +10,7 @@ from django.db import connection
 
 from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement
 from core.services import StockError, _lock_products, create_purchase, create_return, save_held
+from core.tests_tenant_helpers import create_test_company
 
 
 class FinancialIntegrityTests(TestCase):
@@ -17,7 +18,8 @@ class FinancialIntegrityTests(TestCase):
         User = get_user_model()
         self.user = User.objects.create_user(username="cashier", password="secret")
         self.admin = User.objects.create_superuser(username="admin", email="", password="secret")
-        self.product = Product.objects.create(
+        self.company = create_test_company(self.admin, "Financial integrity shop", [(self.user, "cashier")])
+        self.product = Product.objects.create(company=self.company, 
             name="Oil filter",
             sku="OF-001",
             price=Decimal("20.00"),
@@ -26,7 +28,7 @@ class FinancialIntegrityTests(TestCase):
         )
 
     def test_multi_product_stock_locks_are_acquired_in_primary_key_order(self):
-        other = Product.objects.create(
+        other = Product.objects.create(company=self.company, 
             name="Air filter", sku="AF-002", price=Decimal("30.00"),
             cost_price=Decimal("18.00"), current_stock=Decimal("5.000"),
         )
@@ -43,13 +45,13 @@ class FinancialIntegrityTests(TestCase):
         self.assertLess(lock_query.index("ORDER BY"), len(lock_query))
 
     def test_second_return_cannot_exceed_remaining_quantity(self):
-        sale = Sale.objects.create(
+        sale = Sale.objects.create(company=self.company, 
             number="CH-000001",
             status=Sale.DONE,
             cashier=self.user,
             total=Decimal("60.00"),
         )
-        item = SaleItem.objects.create(
+        item = SaleItem.objects.create(company=self.company, 
             sale=sale,
             product=self.product,
             quantity=Decimal("3.000"),
@@ -79,12 +81,12 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(SaleReturn.objects.filter(sale=sale).count(), 1)
 
     def test_cash_return_updates_drawer_and_records_cash_operation(self):
-        sale = Sale.objects.create(number="CH-CASH-RETURN", status=Sale.DONE, cashier=self.user,
+        sale = Sale.objects.create(company=self.company, number="CH-CASH-RETURN", status=Sale.DONE, cashier=self.user,
                                    total=Decimal("20.00"))
-        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("1.000"),
+        item = SaleItem.objects.create(company=self.company, sale=sale, product=self.product, quantity=Decimal("1.000"),
                                        original_price=Decimal("20.00"), price=Decimal("20.00"),
                                        cost_price=Decimal("12.00"))
-        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("40.00"), drawer={"2000": 2})
+        shift = Shift.objects.create(company=self.company, cashier=self.user, opening_cash=Decimal("40.00"), drawer={"2000": 2})
 
         ret = create_return(self.admin, sale, {item.pk: Decimal("1.000")},
                             refund_method="cash", shift=shift)
@@ -101,9 +103,9 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(op.detail, {"2000": -1})
 
     def test_card_return_does_not_require_or_change_cash_shift(self):
-        sale = Sale.objects.create(number="CH-CARD-RETURN", status=Sale.DONE, cashier=self.user,
+        sale = Sale.objects.create(company=self.company, number="CH-CARD-RETURN", status=Sale.DONE, cashier=self.user,
                                    total=Decimal("20.00"))
-        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("1.000"),
+        item = SaleItem.objects.create(company=self.company, sale=sale, product=self.product, quantity=Decimal("1.000"),
                                        original_price=Decimal("20.00"), price=Decimal("20.00"),
                                        cost_price=Decimal("12.00"))
 
@@ -115,12 +117,12 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(CashOperation.objects.count(), 0)
 
     def test_cash_return_without_exact_drawer_funds_rolls_back_stock_and_return(self):
-        sale = Sale.objects.create(number="CH-NO-CASH", status=Sale.DONE, cashier=self.user,
+        sale = Sale.objects.create(company=self.company, number="CH-NO-CASH", status=Sale.DONE, cashier=self.user,
                                    total=Decimal("20.00"))
-        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("1.000"),
+        item = SaleItem.objects.create(company=self.company, sale=sale, product=self.product, quantity=Decimal("1.000"),
                                        original_price=Decimal("20.00"), price=Decimal("20.00"),
                                        cost_price=Decimal("12.00"))
-        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("100.00"), drawer={"10000": 1})
+        shift = Shift.objects.create(company=self.company, cashier=self.user, opening_cash=Decimal("100.00"), drawer={"10000": 1})
 
         with self.assertRaises(StockError):
             create_return(self.admin, sale, {item.pk: Decimal("1.000")},
@@ -136,12 +138,12 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(CashOperation.objects.count(), 0)
 
     def test_mixed_return_splits_cash_and_card_exactly(self):
-        sale = Sale.objects.create(number="CH-MIX-RETURN", status=Sale.DONE, cashier=self.user,
+        sale = Sale.objects.create(company=self.company, number="CH-MIX-RETURN", status=Sale.DONE, cashier=self.user,
                                    total=Decimal("20.00"))
-        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("1.000"),
+        item = SaleItem.objects.create(company=self.company, sale=sale, product=self.product, quantity=Decimal("1.000"),
                                        original_price=Decimal("20.00"), price=Decimal("20.00"),
                                        cost_price=Decimal("12.00"))
-        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("10.00"), drawer={"1000": 1})
+        shift = Shift.objects.create(company=self.company, cashier=self.user, opening_cash=Decimal("10.00"), drawer={"1000": 1})
 
         ret = create_return(self.admin, sale, {item.pk: Decimal("1.000")},
                             refund_method="mixed", refund_cash_amount=Decimal("10.00"), shift=shift)
@@ -154,9 +156,9 @@ class FinancialIntegrityTests(TestCase):
 
     def test_pending_return_can_be_settled_to_card_once(self):
         from core.services import settle_return
-        sale = Sale.objects.create(number="CH-PENDING-RETURN", status=Sale.DONE, cashier=self.user,
+        sale = Sale.objects.create(company=self.company, number="CH-PENDING-RETURN", status=Sale.DONE, cashier=self.user,
                                    total=Decimal("20.00"))
-        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("1.000"),
+        item = SaleItem.objects.create(company=self.company, sale=sale, product=self.product, quantity=Decimal("1.000"),
                                        original_price=Decimal("20.00"), price=Decimal("20.00"),
                                        cost_price=Decimal("12.00"))
         ret = create_return(self.admin, sale, {item.pk: Decimal("1.000")})
@@ -172,13 +174,13 @@ class FinancialIntegrityTests(TestCase):
 
     def test_pending_return_cash_settlement_decrements_active_drawer(self):
         from core.services import settle_return
-        sale = Sale.objects.create(number="CH-PENDING-CASH", status=Sale.DONE, cashier=self.user,
+        sale = Sale.objects.create(company=self.company, number="CH-PENDING-CASH", status=Sale.DONE, cashier=self.user,
                                    total=Decimal("10.00"))
-        item = SaleItem.objects.create(sale=sale, product=self.product, quantity=Decimal("0.500"),
+        item = SaleItem.objects.create(company=self.company, sale=sale, product=self.product, quantity=Decimal("0.500"),
                                        original_price=Decimal("20.00"), price=Decimal("20.00"),
                                        cost_price=Decimal("12.00"))
         ret = create_return(self.admin, sale, {item.pk: Decimal("0.500")})
-        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("10.00"), drawer={"1000": 1})
+        shift = Shift.objects.create(company=self.company, cashier=self.user, opening_cash=Decimal("10.00"), drawer={"1000": 1})
 
         settled = settle_return(self.admin, ret, "cash", shift=shift)
 
@@ -188,13 +190,13 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(CashOperation.objects.get(shift=shift).amount, Decimal("-10.00"))
 
     def test_return_rejects_unknown_mode_without_creating_records_or_changing_stock(self):
-        sale = Sale.objects.create(
+        sale = Sale.objects.create(company=self.company, 
             number="CH-INVALID-MODE",
             status=Sale.DONE,
             cashier=self.user,
             total=Decimal("20.00"),
         )
-        item = SaleItem.objects.create(
+        item = SaleItem.objects.create(company=self.company, 
             sale=sale,
             product=self.product,
             quantity=Decimal("1.000"),
@@ -212,7 +214,7 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
 
     def test_reusing_a_completed_held_sale_does_not_create_second_sale(self):
-        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("0.00"), drawer={})
+        shift = Shift.objects.create(company=self.company, cashier=self.user, opening_cash=Decimal("0.00"), drawer={})
         held = save_held(
             self.user,
             [(self.product, Decimal("1.000"), Decimal("20.00"), None)],
@@ -245,14 +247,14 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(self.product.current_stock, Decimal("9.000"))
 
     def test_pos_checkout_rounds_the_combined_total_once_for_card_payments(self):
-        second = Product.objects.create(
+        second = Product.objects.create(company=self.company, 
             name="Air filter", sku="AF-ROUND-01", price=Decimal("10.01"),
             cost_price=Decimal("5.00"), current_stock=Decimal("1.000"),
         )
         self.product.price = Decimal("10.01")
         self.product.current_stock = Decimal("1.000")
         self.product.save(update_fields=["price", "current_stock"])
-        Shift.objects.create(cashier=self.user, opening_cash=Decimal("0.00"), drawer={})
+        Shift.objects.create(company=self.company, cashier=self.user, opening_cash=Decimal("0.00"), drawer={})
         self.client.login(username="cashier", password="secret")
 
         response = self.client.post(
@@ -275,7 +277,7 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(sale.cash_amount, Decimal("0.00"))
 
     def test_cash_drawer_rejects_operation_with_wrong_direction(self):
-        shift = Shift.objects.create(cashier=self.user, opening_cash=Decimal("0.00"), drawer={})
+        shift = Shift.objects.create(company=self.company, cashier=self.user, opening_cash=Decimal("0.00"), drawer={})
         self.client.login(username="cashier", password="secret")
 
         response = self.client.post("/drawer/", {"kind": "out", "c_1000": "1"})
@@ -287,13 +289,13 @@ class FinancialIntegrityTests(TestCase):
 
     def test_profit_report_excludes_unfulfilled_supplier_orders_and_nets_returns(self):
         self.client.login(username="admin", password="secret")
-        pending_sale = Sale.objects.create(
+        pending_sale = Sale.objects.create(company=self.company, 
             number="CH-000101",
             status=Sale.DONE,
             cashier=self.user,
             total=Decimal("40.00"),
         )
-        SaleItem.objects.create(
+        SaleItem.objects.create(company=self.company, 
             sale=pending_sale,
             product=self.product,
             quantity=Decimal("2.000"),
@@ -305,13 +307,13 @@ class FinancialIntegrityTests(TestCase):
             earned_at=None,
         )
 
-        issued_sale = Sale.objects.create(
+        issued_sale = Sale.objects.create(company=self.company, 
             number="CH-000102",
             status=Sale.DONE,
             cashier=self.user,
             total=Decimal("40.00"),
         )
-        SaleItem.objects.create(
+        SaleItem.objects.create(company=self.company, 
             sale=issued_sale,
             product=self.product,
             quantity=Decimal("2.000"),
@@ -333,11 +335,11 @@ class FinancialIntegrityTests(TestCase):
 
     def test_profit_report_uses_handover_date_not_sale_creation_date(self):
         self.client.force_login(self.admin)
-        sale = Sale.objects.create(
+        sale = Sale.objects.create(company=self.company, 
             number="CH-HANDOVER-DATE", status=Sale.DONE, cashier=self.user,
             total=Decimal("20.00"),
         )
-        item = SaleItem.objects.create(
+        item = SaleItem.objects.create(company=self.company, 
             sale=sale, product=self.product, quantity=Decimal("1.000"),
             original_price=Decimal("20.00"), price=Decimal("20.00"),
             cost_price=Decimal("12.00"), earned_at=timezone.now(),
@@ -369,11 +371,11 @@ class FinancialIntegrityTests(TestCase):
 
     def test_daily_and_monthly_net_revenue_subtracts_returns_in_return_period(self):
         self.client.force_login(self.admin)
-        sale = Sale.objects.create(
+        sale = Sale.objects.create(company=self.company, 
             number="CH-REPORT-RETURN", status=Sale.DONE, cashier=self.user,
             total=Decimal("40.00"),
         )
-        item = SaleItem.objects.create(
+        item = SaleItem.objects.create(company=self.company, 
             sale=sale, product=self.product, quantity=Decimal("2.000"),
             original_price=Decimal("20.00"), price=Decimal("20.00"),
             cost_price=Decimal("12.00"), earned_at=timezone.now(),
@@ -393,7 +395,7 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(monthly.context["total"], Decimal("20.00"))
 
     def test_purchase_rejects_invalid_lines_without_creating_document_or_stock_movements(self):
-        supplier = Supplier.objects.create(name="Test supplier")
+        supplier = Supplier.objects.create(company=self.company, name="Test supplier")
         for quantity, cost in [
             (Decimal("0.000"), Decimal("12.00")),
             (Decimal("-1.000"), Decimal("12.00")),
@@ -408,7 +410,7 @@ class FinancialIntegrityTests(TestCase):
                 self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
 
     def test_purchase_updates_stock_cost_history_and_movement_balances(self):
-        supplier = Supplier.objects.create(name="Purchase lifecycle supplier")
+        supplier = Supplier.objects.create(company=self.company, name="Purchase lifecycle supplier")
         purchase = create_purchase(
             self.admin,
             supplier,
@@ -437,7 +439,7 @@ class FinancialIntegrityTests(TestCase):
         )
 
     def test_purchase_can_preserve_manual_cost_when_update_cost_is_disabled(self):
-        supplier = Supplier.objects.create(name="Fixed cost supplier")
+        supplier = Supplier.objects.create(company=self.company, name="Fixed cost supplier")
         purchase = create_purchase(
             self.admin, supplier, [(self.product, Decimal("1.000"), Decimal("14.00"))],
             update_cost=False,
@@ -451,11 +453,11 @@ class FinancialIntegrityTests(TestCase):
     def test_supplier_return_for_unclaimed_order_does_not_change_stock(self):
         from core.models import SaleItem
         from core.services import return_to_supplier
-        sale = Sale.objects.create(
+        sale = Sale.objects.create(company=self.company, 
             number="CH-UNCLAIMED-1", status=Sale.DONE, cashier=self.user,
             total=Decimal("20.00"),
         )
-        item = SaleItem.objects.create(
+        item = SaleItem.objects.create(company=self.company, 
             sale=sale, product=self.product, quantity=Decimal("1.000"),
             original_price=Decimal("20.00"), price=Decimal("20.00"),
             cost_price=Decimal("12.00"), source=SaleItem.SUPPLIER,
