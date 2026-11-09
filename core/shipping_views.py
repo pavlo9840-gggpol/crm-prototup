@@ -10,6 +10,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .models import Customer, Sale, Shipment
+from .tenant_context import company_queryset, company_required
+from .views import tenant_staff_only
 from .novaposhta import NovaPoshtaError, create_ttn, track_ttn
 
 
@@ -19,11 +21,12 @@ def _staff(request):
 
 
 @login_required
+@company_required
+@tenant_staff_only
 def shipment_list(request):
-    _staff(request)
     q = (request.GET.get("q") or "").strip()[:120]
     status = (request.GET.get("status") or "").strip()
-    rows = Shipment.objects.select_related("customer", "sale", "created_by")
+    rows = company_queryset(Shipment.objects.select_related("customer", "sale", "created_by"), request)
     if q:
         rows = rows.filter(
             Q(ttn__icontains=q) | Q(recipient_name__icontains=q) |
@@ -38,10 +41,11 @@ def shipment_list(request):
 
 
 @login_required
+@company_required
+@tenant_staff_only
 def shipment_new(request):
-    _staff(request)
-    customers = Customer.objects.all()
-    sales = Sale.objects.order_by("-created_at")[:300]
+    customers = company_queryset(Customer.objects.all(), request)
+    sales = company_queryset(Sale.objects.all(), request).order_by("-created_at")[:300]
     if request.method == "POST":
         name = (request.POST.get("recipient_name") or "").strip()
         phone = (request.POST.get("recipient_phone") or "").strip()
@@ -58,10 +62,10 @@ def shipment_new(request):
         except (InvalidOperation, ValueError):
             messages.error(request, "Перевірте вагу, оголошену вартість, післяплату та кількість місць.")
             return render(request, "core/shipment_form.html", {"customers": customers, "sales": sales, "data": request.POST})
-        customer = Customer.objects.filter(pk=request.POST.get("customer")).first() if request.POST.get("customer") else None
-        sale = Sale.objects.filter(pk=request.POST.get("sale")).first() if request.POST.get("sale") else None
+        customer = company_queryset(Customer.objects.all(), request).filter(pk=request.POST.get("customer")).first() if request.POST.get("customer") else None
+        sale = company_queryset(Sale.objects.all(), request).filter(pk=request.POST.get("sale")).first() if request.POST.get("sale") else None
         shipment = Shipment.objects.create(
-            customer=customer, sale=sale, recipient_name=name, recipient_phone=phone,
+            company=request.company, customer=customer, sale=sale, recipient_name=name, recipient_phone=phone,
             recipient_city=(request.POST.get("recipient_city") or "").strip()[:150],
             recipient_city_ref=(request.POST.get("recipient_city_ref") or "").strip()[:80],
             recipient_warehouse=(request.POST.get("recipient_warehouse") or "").strip()[:250],
@@ -76,10 +80,11 @@ def shipment_new(request):
 
 
 @login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def shipment_create_ttn(request, pk):
-    _staff(request)
-    shipment = get_object_or_404(Shipment, pk=pk)
+    shipment = get_object_or_404(Shipment.objects.filter(company=request.company), pk=pk)
     if shipment.ttn:
         messages.info(request, f"Для цього відправлення вже є ТТН {shipment.ttn}.")
         return redirect("shipment_list")
@@ -98,10 +103,11 @@ def shipment_create_ttn(request, pk):
 
 
 @login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def shipment_track(request, pk):
-    _staff(request)
-    shipment = get_object_or_404(Shipment, pk=pk)
+    shipment = get_object_or_404(Shipment.objects.filter(company=request.company), pk=pk)
     if not shipment.ttn:
         messages.error(request, "Спочатку створіть ТТН або внесіть номер накладної.")
         return redirect("shipment_list")
