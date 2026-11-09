@@ -67,7 +67,9 @@ def compute_price(cost, pct, rule=None):
 def base_pct(customer, rule, default_pct=None, company=None):
     from . import services
     if customer is not None and customer.markup_tier_id:
-        return customer.markup_tier.percent
+        tier = customer.markup_tier
+        if company is None or tier.company_id == company.pk:
+            return tier.percent
     if rule is not None and rule.markup_pct is not None:
         return rule.markup_pct
     company = company or (customer.company if customer is not None else None)
