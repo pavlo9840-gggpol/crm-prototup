@@ -21,7 +21,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem)
+                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
