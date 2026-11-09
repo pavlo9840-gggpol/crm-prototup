@@ -42,10 +42,14 @@ class PayPlanForm(forms.ModelForm):
 
     def clean(self):
         d = super().clean()
-        if "user" in d and d["user"] is None:                     # типовий план може бути лише один
+        if "user" in d and d["user"] is None:                     # типовий план може бути лише один у магазині
             dup = PayPlan.objects.filter(company=self.company, user__isnull=True).exclude(pk=self.instance.pk)
             if dup.exists():
                 self.add_error("user", "Типовий план уже існує: змініть його або оберіть конкретного менеджера")
+        elif d.get("user") and self.company is not None:
+            dup = PayPlan.objects.filter(company=self.company, user=d["user"]).exclude(pk=self.instance.pk)
+            if dup.exists():
+                self.add_error("user", "Для цього працівника вже є план оплати в цьому магазині")
         return d
 
 
