@@ -2,15 +2,17 @@ import json
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from core.models import Product, Supplier, Sale, StockMovement
+from core.models import Company, CompanyMembership, Product, Supplier, Sale, StockMovement
 
 
 class AcceptanceTest(TestCase):
     def test_flow(self):
         U = get_user_model()
-        U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
-        p = Product.objects.create(name="Кола", sku="K1", barcode="123", price=30, cost_price=20, min_stock=150)
-        sup = Supplier.objects.create(name="S")
+        admin = U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
+        company = Company.objects.create(name="Acceptance shop", slug="acceptance-shop", status="active", owner=admin)
+        CompanyMembership.objects.create(company=company, user=admin, role="owner")
+        p = Product.objects.create(company=company, name="Кола", sku="K1", barcode="123", price=30, cost_price=20, min_stock=150)
+        sup = Supplier.objects.create(company=company, name="S")
         adm, cash = self.client, self.client_class()
         adm.login(username="a", password="x"); cash.login(username="c", password="x")
         adm.post("/purchases/new/", {"supplier": sup.pk, "product": [p.pk], "qty": ["100"], "cost": ["20"]})
