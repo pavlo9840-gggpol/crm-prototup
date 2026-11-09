@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from core.models import Category, MarkupTier, PartInfo, PartOe, PriceHistory, Product, Supplier, SupplierItem
+from core.models import Category, Company, CompanyMembership, MarkupTier, PartInfo, PartOe, PriceHistory, Product, Supplier, SupplierItem
 
 D = Decimal
 
@@ -12,15 +12,17 @@ D = Decimal
 class ProductFormUxTest(TestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
+        admin = U.objects.create_superuser("admin", "", "x")
         U.objects.create_user("cash", password="x")
+        self.company = Company.objects.create(name="Магазин тестів", slug="product-form-shop", status="active", owner=admin)
+        CompanyMembership.objects.create(company=self.company, user=admin, role="owner")
         self.adm, self.cash = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.cash.login(username="cash", password="x")
-        MarkupTier.objects.create(name="Роздріб", percent=30, is_default=True)
-        MarkupTier.objects.create(name="СТО", percent=15)
-        self.sup = Supplier.objects.create(name="Busmarket")
-        SupplierItem.objects.create(supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000,
+        MarkupTier.objects.create(company=self.company, name="Роздріб", percent=30, is_default=True)
+        MarkupTier.objects.create(company=self.company, name="СТО", percent=15)
+        self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
+        SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000,
                                     qty_avail=4, name="Амортизатор задній Trafic")
         SupplierItem.objects.create(supplier=self.sup, brand="BILSTEIN", sku="OLD-1", sku_norm="OLD1", cost=5, available=False)
 
@@ -37,7 +39,7 @@ class ProductFormUxTest(TestCase):
         self.assertEqual(self.cash.get("/products/new/").status_code, 403)
 
     def test_prefill_from_query_and_from_part_card(self):
-        c = Category.objects.create(name="Підвіска")
+        c = Category.objects.create(company=self.company, name="Підвіска")
         html = self.adm.get("/products/new/", {"brand": "BILSTEIN", "sku": "19-152615", "name": "Амортизатор",
                                                "cost_price": "1000.00", "category": c.pk}).content.decode()
         self.assertIn('value="BILSTEIN"', html)
@@ -76,9 +78,9 @@ class ProductFormUxTest(TestCase):
         self.assertContains(self.adm.get(f"/products/{p.pk}/edit/"), "Історія зміни цін")
 
     def test_lookup_offers_duplicate_other_brands_and_info(self):
-        PartOe.objects.create(brand="BILSTEIN", sku_norm="19152615", oe_norm="1K0411105AB", oe_raw="1K0 411 105 AB", source="api")
+        PartOe.objects.create(company=self.company, brand="BILSTEIN", sku_norm="19152615", oe_norm="1K0411105AB", oe_raw="1K0 411 105 AB", source="api")
         PartOe.objects.create(brand="SACHS", sku_norm="315849", oe_norm="1K0411105AB", oe_raw="1K0411105AB", source="api")
-        PartInfo.objects.create(brand="BILSTEIN", sku_norm="19152615", description="Газомасляний амортизатор", source="api")
+        PartInfo.objects.create(company=self.company, brand="BILSTEIN", sku_norm="19152615", description="Газомасляний амортизатор", source="api")
         d = self.adm.get("/products/lookup/", {"b": "bilstein", "s": "19 152 615"}).json()
         self.assertIsNone(d["dup"])
         o = d["offers"][0]
@@ -92,7 +94,7 @@ class ProductFormUxTest(TestCase):
         # дубль на складі та той самий артикул в іншого бренду
         self.adm.post("/products/new/", self.FORM)
         p = Product.objects.get()
-        Product.objects.create(name="Той самий номер, інший виробник", sku="19152615", brand="MEYLE", price=1)
+        Product.objects.create(company=self.company, name="Той самий номер, інший виробник", sku="19152615", brand="MEYLE", price=1)
         d = self.adm.get("/products/lookup/", {"b": "BILSTEIN", "s": "19152615"}).json()
         self.assertEqual((d["dup"]["name"], d["dup"]["stock"]), ("Амортизатор задній", 2.0))
         self.assertEqual([x["brand"] for x in d["others"]], ["MEYLE"])
