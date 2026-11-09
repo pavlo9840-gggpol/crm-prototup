@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from core.models import (CrossRef, Customer, MarkupTier, Product, Sale, SaleItem, StockMovement, Supplier,
                          SupplierItem, norm_sku)
+from core.tests_tenant_helpers import create_test_company
 
 D = Decimal
 
@@ -30,18 +31,20 @@ def xlsx_bytes(rows):
 class TransitTest(TestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
+        admin_user = U.objects.create_superuser("admin", "", "x")
         self.mgr_user = U.objects.create_user("anna", password="x")
         self.mgr2 = U.objects.create_user("petro", password="x")
+        self.company = create_test_company(admin_user, "Transit test shop",
+                                           [(self.mgr_user, "manager"), (self.mgr2, "manager")])
         self.adm, self.mgr, self.mgr2c = self.client, self.client_class(), self.client_class()
         self.adm.login(username="admin", password="x")
         self.mgr.login(username="anna", password="x")
         self.mgr2c.login(username="petro", password="x")
         for c in (self.mgr, self.mgr2c):
             c.post("/shift/", {"action": "open", "cash": "0"})
-        self.sup = Supplier.objects.create(name="Busmarket")
-        MarkupTier.objects.create(name="Роздріб", percent=30, is_default=True)
-        self.sto = MarkupTier.objects.create(name="СТО", percent=15)
+        self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
+        MarkupTier.objects.create(company=self.company, name="Роздріб", percent=30, is_default=True)
+        self.sto = MarkupTier.objects.create(company=self.company, name="СТО", percent=15)
 
     # ---------- допоміжне
     def import_price(self, rows, sup=None, header=1):
@@ -89,9 +92,9 @@ class TransitTest(TestCase):
 
     def test_lookup_analogs_and_stock_visibility(self):
         self.import_price(self.PRICE)
-        own = Product.objects.create(name="Амортизатор SACHS Trafic", sku="SACHS-77", brand="SACHS", price=900,
+        own = Product.objects.create(company=self.company, name="Амортизатор SACHS Trafic", sku="SACHS-77", brand="SACHS", price=900,
                                      cost_price=700, current_stock=3)
-        empty = Product.objects.create(name="Інший аналог без залишку", sku="NOSTOCK-1", price=1, current_stock=0)
+        empty = Product.objects.create(company=self.company, name="Інший аналог без залишку", sku="NOSTOCK-1", price=1, current_stock=0)
         self.adm.post("/crossrefs/", {"act": "add", "a": "19-152615", "b": "sachs 77"})
         self.adm.post("/crossrefs/", {"act": "add", "a": "SACHS-77", "b": "NOSTOCK-1"})
         d = self.mgr.get("/pos/lookup/?q=19152615").json()
@@ -108,7 +111,7 @@ class TransitTest(TestCase):
     def test_sale_from_supplier_skips_warehouse_and_margin(self):
         self.import_price(self.PRICE)
         si = SupplierItem.objects.get(sku="19-152615")
-        sto_client = Customer.objects.create(name="СТО Вікторія", phone="1", markup_tier=self.sto)
+        sto_client = Customer.objects.create(company=self.company, name="СТО Вікторія", phone="1", markup_tier=self.sto)
         # ціна за націнкою клієнта (+15%) і ручна
         self.assertEqual(self.mgr.get("/pos/customer/?q=Вікторія").json()["results"][0]["pct"], 15.0)
         sale = self.checkout(self.mgr, [{"si": si.pk, "qty": 2, "price": 1150}], sto_client.pk)
@@ -149,7 +152,7 @@ class TransitTest(TestCase):
     def test_arrival_countdown_issue_stock_and_supplier_return(self):
         self.import_price(self.PRICE)
         si = SupplierItem.objects.get(sku="19-152615")
-        c = Customer.objects.create(name="Іван", phone="2")
+        c = Customer.objects.create(company=self.company, name="Іван", phone="2")
         sale = self.checkout(self.mgr, [{"si": si.pk, "qty": 2, "price": 1300}, {"si": si.pk, "qty": 1, "price": 1300}], c.pk)
         it = sale.items.get()                                                             # однакові позиції злилися
         self.assertEqual(it.quantity, 3)
@@ -216,8 +219,8 @@ class TransitTest(TestCase):
     def test_manager_history_and_margin(self):
         self.import_price(self.PRICE)
         si = SupplierItem.objects.get(sku="19-152615")
-        own = Product.objects.create(name="Свічка", sku="SV1", price=100, cost_price=60, current_stock=10)
-        c = Customer.objects.create(name="Олег", phone="555")
+        own = Product.objects.create(company=self.company, name="Свічка", sku="SV1", price=100, cost_price=60, current_stock=10)
+        c = Customer.objects.create(company=self.company, name="Олег", phone="555")
         self.checkout(self.mgr, [{"si": si.pk, "qty": 2, "price": 1300}, {"id": own.pk, "qty": 5}], c.pk)
         self.checkout(self.mgr2c, [{"id": own.pk, "qty": 1}])
         r = self.mgr.get("/my-sales/")
