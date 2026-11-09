@@ -24,10 +24,10 @@ class ProductFormUxTest(TestCase):
         self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
         SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000,
                                     qty_avail=4, name="Амортизатор задній Trafic")
-        SupplierItem.objects.create(supplier=self.sup, brand="BILSTEIN", sku="OLD-1", sku_norm="OLD1", cost=5, available=False)
+        SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="BILSTEIN", sku="OLD-1", sku_norm="OLD1", cost=5, available=False)
 
     FORM = {"brand": "bilstein", "sku": "19-152615", "name": "Амортизатор задній", "unit": "шт", "cost_price": "1000",
-            "price": "1300", "min_stock": "0", "initial_stock": "2", "is_active": "on"}
+            "price": "1300", "min_stock": "0", "initial_stock": "2", "condition": "new", "is_active": "on"}
 
     def test_page_structure_and_numbers_are_js_safe(self):
         html = self.adm.get("/products/new/").content.decode()
@@ -55,7 +55,7 @@ class ProductFormUxTest(TestCase):
         self.assertNotContains(self.adm.get("/part/?b=BILSTEIN&s=19152615"), "➕ На склад")
 
     def test_save_and_add_another_keeps_brand_category_unit(self):
-        c = Category.objects.create(name="Підвіска")
+        c = Category.objects.create(company=self.company, name="Підвіска")
         r = self.adm.post("/products/new/", dict(self.FORM, category=c.pk, again="1"))
         self.assertEqual(r.status_code, 302)
         self.assertEqual(Product.objects.get().current_stock, 2)
@@ -79,7 +79,7 @@ class ProductFormUxTest(TestCase):
 
     def test_lookup_offers_duplicate_other_brands_and_info(self):
         PartOe.objects.create(company=self.company, brand="BILSTEIN", sku_norm="19152615", oe_norm="1K0411105AB", oe_raw="1K0 411 105 AB", source="api")
-        PartOe.objects.create(brand="SACHS", sku_norm="315849", oe_norm="1K0411105AB", oe_raw="1K0411105AB", source="api")
+        PartOe.objects.create(company=self.company, brand="SACHS", sku_norm="315849", oe_norm="1K0411105AB", oe_raw="1K0411105AB", source="api")
         PartInfo.objects.create(company=self.company, brand="BILSTEIN", sku_norm="19152615", description="Газомасляний амортизатор", source="api")
         d = self.adm.get("/products/lookup/", {"b": "bilstein", "s": "19 152 615"}).json()
         self.assertIsNone(d["dup"])
@@ -106,7 +106,8 @@ class ProductFormUxTest(TestCase):
 
     def test_new_navigation_groups_and_pages_render(self):
         html = self.adm.get("/").content.decode()
-        self.assertIn("Постачальники та каталог", html)
+        self.assertIn("Постачальники та ціни", html)
+        self.assertIn("Каталог автозапчастин", html)
         self.assertIn("burger", html)
         for u in ("/products/", "/supplier-prices/", "/crossrefs/", "/customers/new/", "/orders/", "/my-sales/", "/pos/"):
             self.assertEqual(self.adm.get(u).status_code, 200, u)
