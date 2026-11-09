@@ -56,7 +56,9 @@ def markup_price(cost, pct):
 def tier_for(customer, company=None):
     """Націнка клієнта; якщо не задана — типова; якщо немає й такої — 0 %."""
     if customer and customer.markup_tier_id:
-        return customer.markup_tier
+        tier = customer.markup_tier
+        if company is None or tier.company_id == company.pk:
+            return tier
     qs = MarkupTier.objects.filter(is_default=True)
     if company is not None:
         qs = qs.filter(company=company)
