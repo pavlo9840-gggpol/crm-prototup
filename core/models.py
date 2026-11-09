@@ -912,3 +912,75 @@ class Shipment(models.Model):
 
 
 from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine, ServicePayment  # noqa: E402,F401
+
+
+# ====================================================== SaaS tenant identity
+class Company(models.Model):
+    """A customer workspace. Business records are attached to this boundary in later migrations."""
+    PLANS = [
+        ("start", "START"), ("business", "BUSINESS"),
+        ("pro", "PRO"), ("network", "NETWORK"),
+    ]
+    STATUSES = [
+        ("trial", "Пробний період"), ("active", "Активна"),
+        ("suspended", "Призупинена"), ("cancelled", "Скасована"),
+    ]
+
+    name = models.CharField("Назва магазину", max_length=150)
+    slug = models.SlugField("Ідентифікатор", max_length=180, unique=True)
+    owner = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="owned_companies")
+    plan = models.CharField(max_length=20, choices=PLANS, default="start", db_index=True)
+    status = models.CharField(max_length=20, choices=STATUSES, default="trial", db_index=True)
+    trial_ends_at = models.DateTimeField(null=True, blank=True)
+    subscription_ends_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Компанія"
+        verbose_name_plural = "Компанії"
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def has_access(self):
+        from django.utils import timezone
+        now = timezone.now()
+        if self.status in ("suspended", "cancelled"):
+            return False
+        if self.status == "trial":
+            return self.trial_ends_at is None or self.trial_ends_at > now
+        return self.subscription_ends_at is None or self.subscription_ends_at > now
+
+
+class CompanyMembership(models.Model):
+    """Explicit user-to-workspace membership; roles are scoped to one company."""
+    ROLES = [
+        ("owner", "Власник"), ("admin", "Адміністратор"),
+        ("manager", "Менеджер"), ("cashier", "Касир"),
+        ("mechanic", "Механік"),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="company_memberships")
+    role = models.CharField(max_length=20, choices=ROLES, default="cashier")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["company_id", "user_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["company", "user"], name="uniq_company_user_membership"),
+        ]
+        indexes = [models.Index(fields=["user", "is_active"], name="core_membership_user_active_idx")]
+        verbose_name = "Учасник компанії"
+        verbose_name_plural = "Учасники компаній"
+
+    def __str__(self):
+        return f"{self.user} · {self.company} ({self.get_role_display()})"
+
+    @property
+    def is_company_admin(self):
+        return self.is_active and self.role in ("owner", "admin")
