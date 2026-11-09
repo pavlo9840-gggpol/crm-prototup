@@ -158,7 +158,7 @@ PREFILL = ("brand", "sku", "name", "category", "unit", "cost_price", "price")
 @company_required
 def product_edit(request, pk=None):
     obj = get_object_or_404(company_queryset(Product.objects.all(), request), pk=pk) if pk else None
-    old = obj
+    old_prices = {field: getattr(obj, field) for field in ("price", "cost_price")} if obj else None
     initial = {k: request.GET[k] for k in PREFILL if request.GET.get(k)} if (not obj and request.method == "GET") else {}
     form = ProductForm(request.POST or None, request.FILES or None, instance=obj, initial=initial, company=request.company)
     if request.method == "POST" and form.is_valid():
@@ -166,11 +166,11 @@ def product_edit(request, pk=None):
         p.company = request.company
         p.save()
         form.save_m2m()
-        if old:
-            for f in ("price", "cost_price"):
-                if getattr(old, f) != getattr(p, f):
-                    PriceHistory.objects.create(company=request.company, product=p, field=f, old_value=getattr(old, f),
-                                                new_value=getattr(p, f), changed_by=request.user)
+        if old_prices is not None:
+            for field, old_value in old_prices.items():
+                if old_value != getattr(p, field):
+                    PriceHistory.objects.create(company=request.company, product=p, field=field, old_value=old_value,
+                                                new_value=getattr(p, field), changed_by=request.user)
         else:
             init = form.cleaned_data.get("initial_stock")
             if init and init > 0:
@@ -178,7 +178,7 @@ def product_edit(request, pk=None):
         if p.auto_price and pricing.reprice_product(p, request.user):
             messages.info(request, "Автоціна: ціну продажу перераховано за правилами цін")
         messages.success(request, f"Товар «{p.brand} {p.sku}» збережено")
-        if request.POST.get("again") and not old:          # швидке додавання серії: бренд і категорія лишаються
+        if request.POST.get("again") and old_prices is None:          # швидке додавання серії: бренд і категорія лишаються
             q = {"brand": p.brand, "unit": p.unit}
             if p.category_id:
                 q["category"] = p.category_id
