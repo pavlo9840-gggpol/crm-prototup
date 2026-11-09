@@ -113,6 +113,12 @@ class SupplierForm(forms.ModelForm):
 
 
 class CustomerForm(forms.ModelForm):
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if company is not None:
+            from .models import MarkupTier
+            self.fields["markup_tier"].queryset = MarkupTier.objects.filter(company=company)
+
     class Meta:
         model = Customer
         fields = ["name", "phone", "markup_tier", "birthday", "notes"]
