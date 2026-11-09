@@ -22,6 +22,10 @@ class ServiceAppointment(models.Model):
     def clean(self):
         if self.car_id and self.customer_id and self.car.customer_id != self.customer_id:
             raise ValidationError({"car": "Автомобіль має належати вибраному клієнту."})
+        if self.company_id and (
+            self.customer.company_id != self.company_id or self.car.company_id != self.company_id
+        ):
+            raise ValidationError("Клієнт та автомобіль мають належати цьому магазину.")
         if not 15 <= self.duration_minutes <= 720:
             raise ValidationError({"duration_minutes": "Тривалість має бути від 15 до 720 хвилин."})
     class Meta:
@@ -60,6 +64,12 @@ class ServiceOrder(models.Model):
     def clean(self):
         if self.car_id and self.customer_id and self.car.customer_id != self.customer_id:
             raise ValidationError({"car": "Автомобіль має належати вибраному клієнту."})
+        if self.company_id and (
+            self.customer.company_id != self.company_id or self.car.company_id != self.company_id
+        ):
+            raise ValidationError("Клієнт та автомобіль мають належати цьому магазину.")
+        if self.appointment_id and self.appointment.company_id != self.company_id:
+            raise ValidationError({"appointment": "Запис на СТО належить іншому магазину."})
         if self.paid_amount < 0:
             raise ValidationError({"paid_amount": "Оплата не може бути від'ємною."})
     class Meta:
@@ -91,6 +101,10 @@ class ServiceOrderLine(models.Model):
             raise ValidationError({"product": "Для запчастини потрібно вибрати товар зі складу."})
         if self.kind == self.LABOR and self.product_id:
             raise ValidationError({"product": "Робота не повинна списувати товар зі складу."})
+        if self.company_id and self.order.company_id != self.company_id:
+            raise ValidationError({"order": "Наряд належить іншому магазину."})
+        if self.product_id and self.company_id and self.product.company_id != self.company_id:
+            raise ValidationError({"product": "Запчастина належить іншому магазину."})
     class Meta:
         ordering = ["id"]
 
@@ -109,6 +123,10 @@ class ServicePayment(models.Model):
     def clean(self):
         if self.amount <= D0:
             raise ValidationError({"amount": "Сума оплати має бути більшою за нуль."})
+        if self.company_id and self.order.company_id != self.company_id:
+            raise ValidationError({"order": "Наряд належить іншому магазину."})
+        if self.shift_id and self.company_id and self.shift.company_id != self.company_id:
+            raise ValidationError({"shift": "Касова зміна належить іншому магазину."})
 
     class Meta:
         ordering = ["-created_at", "-pk"]
