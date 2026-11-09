@@ -126,11 +126,9 @@ def reprice_after_supplier_change(changed_keys, user=None):
         return 0
     prods = [p for p in Product.objects.filter(auto_price=True, sku_norm__in={n for _, n in changed_keys})
              if (p.brand.upper(), p.sku_norm) in changed_keys]
-    if not prods:
-        return 0
-    repl, rs, n = replacement_costs(prods), RuleSet(company=prods[0].company), 0
+    n = 0
     for p in prods:
-        c = repl.get((p.brand.upper(), p.sku_norm))
-        if c and reprice_product(p, user, cost=c, rs=rs):
+        c = replacement_costs([p]).get((p.brand.upper(), p.sku_norm))
+        if c and reprice_product(p, user, cost=c, rs=RuleSet(company=p.company)):
             n += 1
     return n
