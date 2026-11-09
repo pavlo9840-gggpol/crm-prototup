@@ -17,6 +17,9 @@ from .tenant_context import company_required
 def rates(request):
     if request.method == "POST":
         act = request.POST.get("act")
+        if act in ("manual", "add_currency") and not request.user.is_superuser:
+            messages.error(request, "Ручна зміна глобальних валютних курсів доступна лише системному адміністратору.")
+            return redirect("rates")
         try:
             if act == "nbu":
                 messages.success(request, "Курси НБУ оновлено: " + currency.refresh_from_nbu(request.user))
