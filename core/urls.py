@@ -16,6 +16,7 @@ from . import service_views as svc
 from . import tenant_views as tenant
 
 urlpatterns = [
+    path("workspace/new/", tenant.create_workspace, name="workspace_new"),
     path("workspace/select/", tenant.select_company, name="select_company"),
     path("login/", auth.LoginView.as_view(template_name="core/login.html"), name="login"),
     path("service/", svc.service_home, name="service_home"),
