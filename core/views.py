@@ -116,7 +116,7 @@ def product_list(request):
         qs = qs.filter(cond)
     if cat:
         ids = [int(cat)] if cat.isdigit() else []
-        ids += list(Category.objects.filter(parent_id__in=ids).values_list("id", flat=True))
+        ids += list(company_queryset(Category.objects.filter(parent_id__in=ids), request).values_list("id", flat=True))
         qs = qs.filter(category_id__in=ids)
     sort = request.GET.get("sort", "name")
     if sort.lstrip("-") in ("name", "current_stock", "price", "cost_price", "sku", "brand"):
@@ -207,7 +207,7 @@ def product_lookup(request):
     if info or company_queryset(PartOe.objects.filter(brand=ib, sku_norm=sn), request).exists() or offers:
         data["info"] = {"description": (info.description[:260] if info else ""), "image": info.image_url if info else "",
                         "oe": company_queryset(PartOe.objects.filter(brand=ib, sku_norm=sn), request).count(),
-                        "analogs": len(crosses.analogs(ib, sn, limit=50))}
+                        "analogs": len(crosses.analogs(ib, sn, limit=50, company=request.company))}
     return JsonResponse(data)
 
 
