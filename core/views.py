@@ -217,14 +217,14 @@ def product_lookup(request):
                "qty": float(o.qty_avail) if o.qty_avail is not None else None, "available": o.available,
                "price": float(services.markup_price(o.cost, pct))} for o in offers_qs[:8]]
     ib = brand or (offers[0]["brand"] if offers else "")
-    info = company_queryset(PartInfo.objects.filter(brand=ib, sku_norm=sn), request).first()
+    info = PartInfo.objects.filter(brand=ib, sku_norm=sn).first()
     card = reverse("part_card") + "?" + urlencode({"b": ib, "s": sn})
     data = {"dup": {"name": dup.name, "brand": dup.brand, "sku": dup.sku, "stock": float(dup.current_stock),
                     "url": reverse("product_edit", args=[dup.pk])} if dup else None,
             "others": others, "offers": offers, "card": card}
-    if info or company_queryset(PartOe.objects.filter(brand=ib, sku_norm=sn), request).exists() or offers:
+    if info or PartOe.objects.filter(brand=ib, sku_norm=sn).exists() or offers:
         data["info"] = {"description": (info.description[:260] if info else ""), "image": info.image_url if info else "",
-                        "oe": company_queryset(PartOe.objects.filter(brand=ib, sku_norm=sn), request).count(),
+                        "oe": PartOe.objects.filter(brand=ib, sku_norm=sn).count(),
                         "analogs": len(crosses.analogs(ib, sn, limit=50, company=request.company))}
     return JsonResponse(data)
 
