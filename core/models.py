@@ -416,10 +416,16 @@ class BankAccount(models.Model):
 class DocTemplate(models.Model):
     company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)
     """LEGACY (v2 HTML templates). Kept so existing data is not lost; replaced by PrintTemplate."""
-    kind = models.CharField(max_length=20, unique=True)
+    kind = models.CharField(max_length=20)
     body = models.TextField()
     paper = models.CharField(max_length=10, default="80mm")
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["company", "kind"], condition=Q(company__isnull=False),
+                                    name="uniq_company_legacy_doc_kind"),
+        ]
 
 
 class PrintTemplate(models.Model):
@@ -724,14 +730,21 @@ class SupplierPriceChange(models.Model):
 class PayPlan(models.Model):
     company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)
     """План оплати менеджера: відсоток від маржі + фіксована частина. Запис без менеджера = типовий план."""
-    user = models.OneToOneField(USER, null=True, blank=True, on_delete=models.CASCADE, related_name="pay_plan",
-                                verbose_name="Менеджер (порожньо = типовий план для всіх)")
+    user = models.ForeignKey(USER, null=True, blank=True, on_delete=models.CASCADE, related_name="pay_plans",
+                             verbose_name="Менеджер (порожньо = типовий план для всіх)")
     margin_pct = models.DecimalField("Відсоток від маржі, %", max_digits=5, decimal_places=2, default=10)
     fixed_monthly = models.DecimalField("Фіксована частина на місяць, ₴", max_digits=10, decimal_places=2, default=0)
     note = models.CharField("Примітка", max_length=200, blank=True)
 
     class Meta:
         verbose_name = "План оплати"
+        constraints = [
+            models.UniqueConstraint(fields=["company", "user"],
+                                    condition=Q(company__isnull=False, user__isnull=False),
+                                    name="uniq_company_payplan_user"),
+            models.UniqueConstraint(fields=["company"], condition=Q(company__isnull=False, user__isnull=True),
+                                    name="uniq_company_payplan_default"),
+        ]
 
 
 # ====================================================== валюти й курси
