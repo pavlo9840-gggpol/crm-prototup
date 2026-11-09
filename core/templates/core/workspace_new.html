@@ -1,0 +1,17 @@
+{% extends "core/base.html" %}
+{% block title %}Створення магазину · АвтоЗапас{% endblock %}
+{% block content %}
+<h2>Створити робочий простір</h2>
+<div class="card" style="max-width:620px">
+  <p>Кожен магазин матиме окремі товари, клієнтів, каси, закупівлі, налаштування та працівників.</p>
+  <p>Після створення ви станете власником магазину й отримаєте 14 днів пробного доступу до тарифу START.</p>
+  <form method="post">
+    {% csrf_token %}
+    <label for="workspace-name">Назва магазину</label>
+    <input id="workspace-name" name="name" maxlength="150" required autofocus
+           placeholder="Наприклад, АвтоЗапас — Рівне"
+           style="display:block;width:100%;max-width:460px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;margin:8px 0 16px">
+    <button class="btn" type="submit">Створити магазин</button>
+  </form>
+</div>
+{% endblock %}
