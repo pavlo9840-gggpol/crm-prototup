@@ -8,7 +8,7 @@ D0 = Decimal("0")
 
 
 class ServiceAppointment(models.Model):
-    STATUS = [("booked", "Заплановано"), ("arrived", "Клієнт прибув"), ("converted", "Створено наряд"), ("cancelled", "Скасовано")]
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    STATUS = [("booked", "Заплановано"), ("arrived", "Клієнт прибув"), ("converted", "Створено наряд"), ("cancelled", "Скасовано")]
     customer = models.ForeignKey("core.Customer", on_delete=models.PROTECT, related_name="service_appointments")
     car = models.ForeignKey("core.CustomerCar", on_delete=models.PROTECT, related_name="service_appointments")
     scheduled_at = models.DateTimeField("Дата й час запису", db_index=True)
@@ -29,7 +29,7 @@ class ServiceAppointment(models.Model):
 
 
 class ServiceOrder(models.Model):
-    STATUS = [("draft", "Чернетка"), ("diagnosis", "Діагностика"), ("approval", "Очікує погодження"),
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    STATUS = [("draft", "Чернетка"), ("diagnosis", "Діагностика"), ("approval", "Очікує погодження"),
               ("approved", "Погоджено"), ("in_progress", "У роботі"), ("waiting_parts", "Очікує запчастини"),
               ("completed", "Ремонт завершено"), ("delivered", "Видано клієнту"), ("cancelled", "Скасовано")]
     customer = models.ForeignKey("core.Customer", on_delete=models.PROTECT, related_name="service_orders")
@@ -65,7 +65,7 @@ class ServiceOrder(models.Model):
 
 
 class ServiceOrderLine(models.Model):
-    LABOR, PART = "labor", "part"
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    LABOR, PART = "labor", "part"
     KINDS = [(LABOR, "Робота"), (PART, "Запчастина")]
     order = models.ForeignKey(ServiceOrder, on_delete=models.CASCADE, related_name="lines")
     kind = models.CharField(max_length=10, choices=KINDS)
@@ -93,7 +93,7 @@ class ServiceOrderLine(models.Model):
 
 
 class ServicePayment(models.Model):
-    METHODS = [("cash", "Готівка"), ("card", "Картка")]
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    METHODS = [("cash", "Готівка"), ("card", "Картка")]
     order = models.ForeignKey(ServiceOrder, on_delete=models.PROTECT, related_name="payments")
     amount = models.DecimalField("Сума оплати, грн", max_digits=12, decimal_places=2)
     method = models.CharField("Спосіб оплати", max_length=10, choices=METHODS)
