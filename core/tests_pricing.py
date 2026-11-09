@@ -12,6 +12,7 @@ from django.test import TestCase, override_settings
 
 from core import pricing, services
 from core.models import (Category, Customer, MarkupTier, PriceHistory, PriceRule, Product, Supplier, SupplierItem, SupplierPriceChange)
+from core.tests_tenant_helpers import create_test_company
 from core.tests_transit import xlsx_bytes
 
 D = Decimal
@@ -72,16 +73,17 @@ class PricingEngineTest(TestCase):
 class PricingFlowTest(TestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
-        U.objects.create_user("anna", password="x")
+        admin = U.objects.create_superuser("admin", "", "x")
+        anna = U.objects.create_user("anna", password="x")
+        self.company = create_test_company(admin, "Pricing test shop", [(anna, "cashier")])
         self.adm, self.anna = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.anna.login(username="anna", password="x")
         self.anna.post("/shift/", {"action": "open", "cash": "0"})
-        MarkupTier.objects.create(name="Роздріб", percent=30, is_default=True)
-        self.sto = MarkupTier.objects.create(name="СТО", percent=15)
-        self.sup = Supplier.objects.create(name="Busmarket")
-        self.si = SupplierItem.objects.create(supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000, name="Амортизатор")
+        MarkupTier.objects.create(company=self.company, name="Роздріб", percent=30, is_default=True)
+        self.sto = MarkupTier.objects.create(company=self.company, name="СТО", percent=15)
+        self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
+        self.si = SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000, name="Амортизатор")
 
     def checkout(self, items, customer=None):
         r = self.anna.post("/pos/checkout/", json.dumps({"items": items, "payment": "cash", "customer_id": customer.pk if customer else None}),
@@ -91,20 +93,20 @@ class PricingFlowTest(TestCase):
         return Sale.objects.get(pk=r.json()["id"]).items.get()
 
     def test_pos_uses_rule_for_supplier_items_server_side_and_exposes_it(self):
-        rule(brand="BILSTEIN", markup_pct=40, rounding=10)
+        rule(company=self.company, brand="BILSTEIN", markup_pct=40, rounding=10)
         d = self.anna.get("/pos/lookup/", {"q": "19152615"}).json()["suppliers"][0]
         self.assertEqual(d["rl"], {"mk": 40.0, "mm": 0.0, "rd": 10})
         self.assertEqual(self.checkout([{"si": self.si.pk, "qty": 1}]).price, D("1400.00"))               # правило: +40%
-        cust = Customer.objects.create(name="СТО", phone="3", markup_tier=self.sto)
+        cust = Customer.objects.create(company=self.company, name="СТО", phone="3", markup_tier=self.sto)
         self.assertEqual(self.checkout([{"si": self.si.pk, "qty": 1}], cust).price, D("1150.00"))        # умови клієнта: +15%
-        PriceRule.objects.update(min_margin_pct=40)
+        PriceRule.objects.filter(company=self.company).update(min_margin_pct=40)
         self.assertEqual(self.checkout([{"si": self.si.pk, "qty": 1}], cust).price, D("1670.00"))        # поріг маржі підняв ціну навіть СТО
         self.assertEqual(self.checkout([{"si": self.si.pk, "qty": 1, "price": 1234.5}]).price, D("1234.50"))   # ручна ціна лишається
 
     def test_auto_price_follows_purchases_but_manual_products_are_untouched(self):
-        rule(markup_pct=50, rounding=10)
-        auto = Product.objects.create(name="A", sku="A1", brand="X", cost_price=100, price=130, auto_price=True)
-        manual = Product.objects.create(name="B", sku="B1", brand="X", cost_price=100, price=130)
+        rule(company=self.company, markup_pct=50, rounding=10)
+        auto = Product.objects.create(company=self.company, name="A", sku="A1", brand="X", cost_price=100, price=130, auto_price=True)
+        manual = Product.objects.create(company=self.company, name="B", sku="B1", brand="X", cost_price=100, price=130)
         services.create_purchase(get_user_model().objects.get(username="admin"), self.sup, [(auto, D(2), D(200)), (manual, D(2), D(200))])
         auto.refresh_from_db()
         manual.refresh_from_db()
@@ -114,12 +116,12 @@ class PricingFlowTest(TestCase):
         self.assertEqual((h.old_value, h.new_value), (D("130"), D("300.00")))
 
     def test_supplier_price_import_logs_changes_and_reprices_auto_products(self):
-        rule(markup_pct=30)
-        mine = Product.objects.create(name="Амортизатор", sku="19 152 615", brand="BILSTEIN", cost_price=900, price=1170, auto_price=True)
-        other = Product.objects.create(name="Інший", sku="X-1", brand="NGK", cost_price=10, price=13, auto_price=True)
-        SupplierItem.objects.create(supplier=self.sup, brand="NGK", sku="X-1", sku_norm="X1", cost=10)
-        cheaper = Supplier.objects.create(name="Дешевший")
-        SupplierItem.objects.create(supplier=cheaper, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1100)
+        rule(company=self.company, markup_pct=30)
+        mine = Product.objects.create(company=self.company, name="Амортизатор", sku="19 152 615", brand="BILSTEIN", cost_price=900, price=1170, auto_price=True)
+        other = Product.objects.create(company=self.company, name="Інший", sku="X-1", brand="NGK", cost_price=10, price=13, auto_price=True)
+        SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="NGK", sku="X-1", sku_norm="X1", cost=10)
+        cheaper = Supplier.objects.create(company=self.company, name="Дешевший")
+        SupplierItem.objects.create(company=self.company, supplier=cheaper, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1100)
         rows = [["Бренд", "Артикул", "Назва", "Ціна"], ["BILSTEIN", "19-152615", "Амортизатор", 1200], ["NGK", "X-1", "Свічка", 10]]
         f = SimpleUploadedFile("p.xlsx", xlsx_bytes(rows))
         r = self.adm.post("/supplier-prices/map/", {"supplier": self.sup.pk, "file": f, "header_row": 1})
@@ -137,10 +139,10 @@ class PricingFlowTest(TestCase):
         self.assertContains(self.adm.get("/price-review/"), "1000")
 
     def test_review_page_flags_applies_and_toggles_auto(self):
-        rule(markup_pct=30, min_margin_pct=20)
-        low = Product.objects.create(name="Дешево", sku="L1", brand="B", cost_price=100, price=110)     # маржа 9%
-        ok = Product.objects.create(name="Норм", sku="O1", brand="B", cost_price=100, price=130)
-        SupplierItem.objects.create(supplier=self.sup, brand="B", sku="O1", sku_norm="O1", cost=150)      # закупівля зросла
+        rule(company=self.company, markup_pct=30, min_margin_pct=20)
+        low = Product.objects.create(company=self.company, name="Дешево", sku="L1", brand="B", cost_price=100, price=110)     # маржа 9%
+        ok = Product.objects.create(company=self.company, name="Норм", sku="O1", brand="B", cost_price=100, price=130)
+        SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="B", sku="O1", sku_norm="O1", cost=150)      # закупівля зросла
         r = self.adm.get("/price-review/")
         rows = {x["p"].sku: x for x in r.context["rows"]}
         self.assertEqual(set(rows), {"L1", "O1"})
