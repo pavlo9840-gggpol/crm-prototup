@@ -243,7 +243,7 @@ def simple_form(request, model_form, title, back, pk=None, model=None):
     scoped = company_queryset(model.objects.all(), request) if request.company is not None else model.objects.all()
     obj = get_object_or_404(scoped, pk=pk) if pk else None
     form_kwargs = {"instance": obj}
-    if model in (Category, Supplier):
+    if model in (Category, Supplier, Customer):
         form_kwargs["company"] = request.company
     form = model_form(request.POST or None, **form_kwargs)
     if request.method == "POST" and form.is_valid():
