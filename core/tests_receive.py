@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from core.models import Customer, MarkupTier, Product, Purchase, Receipt, Sale, SaleItem, StockMovement, Supplier, SupplierItem
 from core.tests_transit import xlsx_bytes
+from core.tests_tenant_helpers import create_test_company
 
 D = Decimal
 HEAD = ["Бренд", "Артикул", "Назва", "Кількість", "Ціна"]
@@ -19,10 +20,12 @@ HEAD = ["Бренд", "Артикул", "Назва", "Кількість", "Ц�
 class ReceivingTest(TestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
-        U.objects.create_user("anna", password="x", is_staff=True)
-        U.objects.create_user("petro", password="x", is_staff=True)
-        U.objects.create_user("cashier", password="x", is_staff=False)
+        admin_user = U.objects.create_superuser("admin", "", "x")
+        anna_user = U.objects.create_user("anna", password="x", is_staff=True)
+        petro_user = U.objects.create_user("petro", password="x", is_staff=True)
+        cashier_user = U.objects.create_user("cashier", password="x", is_staff=False)
+        self.company = create_test_company(admin_user, "Receiving test shop",
+                                           [(anna_user, "manager"), (petro_user, "manager"), (cashier_user, "cashier")])
         self.adm, self.anna, self.petro, self.cashier = self.client, self.client_class(), self.client_class(), self.client_class()
         self.adm.login(username="admin", password="x")
         self.anna.login(username="anna", password="x")
@@ -30,15 +33,15 @@ class ReceivingTest(TestCase):
         self.cashier.login(username="cashier", password="x")
         for c in (self.anna, self.petro, self.cashier):
             c.post("/shift/", {"action": "open", "cash": "0"})
-        self.sup = Supplier.objects.create(name="Busmarket")
+        self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
         self.bil = self.si("BILSTEIN", "19-152615", 1000, "Амортизатор задній")
         self.sol = self.si("SOLGY", "112021", 500, "Кран печі")
-        MarkupTier.objects.create(name="Роздріб", percent=30, is_default=True)
-        self.c1 = Customer.objects.create(name="Іван", phone="1")
-        self.c2 = Customer.objects.create(name="Олена", phone="2")
+        MarkupTier.objects.create(company=self.company, name="Роздріб", percent=30, is_default=True)
+        self.c1 = Customer.objects.create(company=self.company, name="Іван", phone="1")
+        self.c2 = Customer.objects.create(company=self.company, name="Олена", phone="2")
 
     def si(self, brand, sku, cost, name=""):
-        return SupplierItem.objects.create(supplier=self.sup, brand=brand, sku=sku, sku_norm="".join(c for c in sku if c.isalnum()).upper(),
+        return SupplierItem.objects.create(company=self.company, supplier=self.sup, brand=brand, sku=sku, sku_norm="".join(c for c in sku if c.isalnum()).upper(),
                                            cost=cost, name=name)
 
     def order(self, client, si, qty, customer=None, price=1300):
@@ -165,7 +168,7 @@ class ReceivingTest(TestCase):
         self.assertContains(self.anna.get("/receive/"), "ДГ-1")
         self.assertContains(self.petro.get("/receive/"), "ДГ-1")                              # працівники бачать спільний журнал приймань
         self.assertContains(self.adm.get("/receive/"), "ДГ-1")
-        other = Supplier.objects.create(name="Other")
+        other = Supplier.objects.create(company=self.company, name="Other")
         f = SimpleUploadedFile("i.xlsx", xlsx_bytes([HEAD, ["BILSTEIN", "19-152615", "", 1, 1]]))
         r = self.adm.post("/receive/preview/", {"supplier": other.pk, "file": f})
         self.assertEqual(r.context["plan"]["totals"]["matched"], 0)                              # чужому постачальнику не зараховується
