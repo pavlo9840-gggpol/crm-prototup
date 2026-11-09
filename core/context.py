@@ -105,5 +105,5 @@ def layout(request):
         chip = []
     return {
         "nav_groups": groups, "cashier_nav": CASHIER_NAV, "cur_url": cur,
-        "rates_chip": chip, "company_name": CompanySettings.get().name,
+        "rates_chip": chip, "company_name": CompanySettings.get(getattr(request, "company", None)).name,
     }
