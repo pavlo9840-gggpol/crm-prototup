@@ -40,6 +40,18 @@ def staff_only(view):
     return wrapper
 
 
+def tenant_staff_only(view):
+    """Allow company owners/admins/managers without requiring global Django is_staff."""
+    @login_required
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        membership = getattr(request, "company_membership", None)
+        if membership is None or membership.role not in ("owner", "admin", "manager"):
+            raise PermissionDenied
+        return view(request, *args, **kwargs)
+    return wrapper
+
+
 def _jb(request):
     try:
         data = json.loads(request.body or b"{}")
@@ -100,7 +112,7 @@ def dashboard(request):
 
 
 # ---------- Products / categories / suppliers ----------
-@staff_only
+@tenant_staff_only
 @company_required
 def product_list(request):
     supplier_items = company_queryset(SupplierItem.objects.select_related("supplier"), request)
@@ -142,7 +154,7 @@ def all_brands(request):
 PREFILL = ("brand", "sku", "name", "category", "unit", "cost_price", "price")
 
 
-@staff_only
+@tenant_staff_only
 @company_required
 def product_edit(request, pk=None):
     obj = get_object_or_404(company_queryset(Product.objects.all(), request), pk=pk) if pk else None
@@ -181,7 +193,7 @@ def product_edit(request, pk=None):
         "default_pct": float(dt.percent) if dt else 30.0})
 
 
-@staff_only
+@tenant_staff_only
 @company_required
 def product_lookup(request):
     """Підказки під час введення бренду й артикула: дубль на складі, пропозиції постачальників, дані про деталь."""
@@ -217,7 +229,6 @@ def product_lookup(request):
     return JsonResponse(data)
 
 
-@staff_only
 def simple_form(request, model_form, title, back, pk=None, model=None):
     scoped = company_queryset(model.objects.all(), request) if request.company is not None else model.objects.all()
     obj = get_object_or_404(scoped, pk=pk) if pk else None
@@ -256,17 +267,17 @@ def supplier_list(request):
     })
 
 
-category_list = staff_only(company_required(category_list))
-supplier_list = staff_only(company_required(supplier_list))
+category_list = tenant_staff_only(company_required(category_list))
+supplier_list = tenant_staff_only(company_required(supplier_list))
 
 
-@staff_only
+@tenant_staff_only
 @company_required
 def category_edit(request, pk=None):
     return simple_form(request, CategoryForm, "Категорія", "category_list", pk, Category)
 
 
-@staff_only
+@tenant_staff_only
 @company_required
 def supplier_edit(request, pk=None):
     return simple_form(request, SupplierForm, "Постачальник", "supplier_list", pk, Supplier)
