@@ -103,7 +103,11 @@ def layout(request):
                 for k in ("EUR", "USD") if k in late]
     except Exception:
         chip = []
+    from .models import CompanyMembership
+    company_choices = list(CompanyMembership.objects.filter(user=u, is_active=True, company__status__in=["active", "trial"])
+                           .select_related("company").order_by("company__name"))
     return {
         "nav_groups": groups, "cashier_nav": CASHIER_NAV, "cur_url": cur,
+        "company_choices": company_choices, "active_company_id": getattr(getattr(request, "company", None), "pk", None),
         "rates_chip": chip, "company_name": CompanySettings.get(getattr(request, "company", None)).name,
     }
