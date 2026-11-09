@@ -214,7 +214,10 @@ def analogs(brand, sku_norm, limit=40, with_names=False, company=None):
     if with_names:
         mine = names.get(me, {}).get("name") or ""
         if not mine:
-            p = Product.objects.filter(sku_norm=sku_norm, brand__iexact=brand).first()
+            product_qs = Product.objects.filter(sku_norm=sku_norm, brand__iexact=brand)
+            if company is not None:
+                product_qs = product_qs.filter(company=company)
+            p = product_qs.first()
             mine = p.name if p else ""
         for key, sim in name_candidates(brand, sku_norm, mine, company=company).items():
             add(key, "name", round(40 * sim), f"Збіг за назвою ({round(sim * 100)}%): той самий тип, авто й позиція")
