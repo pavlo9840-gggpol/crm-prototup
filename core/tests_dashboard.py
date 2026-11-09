@@ -3,6 +3,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from core.context import CASHIER_NAV, STAFF_NAV
+from core.tests_tenant_helpers import create_test_company
 
 
 class UnifiedNavigationTests(TestCase):
@@ -11,6 +12,7 @@ class UnifiedNavigationTests(TestCase):
         User = get_user_model()
         cls.staff = User.objects.create_user(username="manager", password="test-password", is_staff=True)
         cls.cashier = User.objects.create_user(username="cashier", password="test-password")
+        cls.company = create_test_company(cls.staff, "Dashboard test shop", [(cls.cashier, "cashier")])
 
     def test_every_staff_navigation_item_resolves(self):
         for _group, items in STAFF_NAV:
