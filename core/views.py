@@ -151,7 +151,7 @@ def product_list(request):
         qs = qs.order_by(sort)
     from .designer_views import print_bar
     return render(request, "core/product_list.html",
-                  {"products": qs, "categories": company_queryset(Category.objects.all(), request), "q": q, "cat": cat, "condition": condition, **print_bar("pricetag")})
+                  {"products": qs, "categories": company_queryset(Category.objects.all(), request), "q": q, "cat": cat, "condition": condition, **print_bar("pricetag", request.company)})
 
 
 def all_brands(request):
@@ -316,7 +316,7 @@ def purchase_list(request):
         "purchases": qs[:300], "suppliers": company_queryset(Supplier.objects.all(), request),
         "selected_supplier": supplier_id, "q": q,
         "summary_total": summary["total"] or D0, "summary_count": summary["count"],
-        **print_bar("purchase")})
+        **print_bar("purchase", request.company)})
 
 
 @login_required
@@ -692,7 +692,7 @@ def sale_list(request):
     from .designer_views import print_bar
     return render(request, "core/sale_list.html", {
         "sales": qs.annotate(qty=Sum("items__quantity"))[:300],
-        "cashiers": get_user_model().objects.all(), "payments": Sale.PAYMENTS, **print_bar("receipt")})
+        "cashiers": get_user_model().objects.filter(company_memberships__company=request.company, company_memberships__is_active=True).distinct(), "payments": Sale.PAYMENTS, **print_bar("receipt", request.company)})
 
 
 @login_required
