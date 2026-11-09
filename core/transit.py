@@ -371,7 +371,7 @@ def pos_lookup(request):
             nm &= (Q(name_lc__contains=t.lower()) | Q(brand__icontains=t) | Q(sku__icontains=t))
         cond |= nm
     by = lambda *lv: [n for n, l in levels.items() if l in lv]
-    qs = (SupplierItem.objects.filter(company=request.company, cond, available=True).select_related("supplier", "product")
+    qs = (SupplierItem.objects.filter(cond, company=request.company, available=True).select_related("supplier", "product")
           .annotate(rank=Case(When(sku_norm=qn, then=Value(0)), When(sku_norm__in=by("oe"), then=Value(1)),
                               When(sku_norm__in=by("manual", "cross"), then=Value(2)),
                               When(sku_norm__in=by("maybe"), then=Value(3)),
