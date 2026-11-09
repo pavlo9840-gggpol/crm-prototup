@@ -8,10 +8,12 @@ from django.utils import timezone
 
 from . import currency
 from .models import Currency, ExchangeRate, Supplier
-from .views import staff_only
+from .views import tenant_staff_only
+from .tenant_context import company_required
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def rates(request):
     if request.method == "POST":
         act = request.POST.get("act")
@@ -43,7 +45,7 @@ def rates(request):
                 messages.success(request, f"Валюту {code} додано: тепер задайте її курс")
             elif act == "recompute":
                 total = 0
-                for s in Supplier.objects.filter(currency__isnull=False):
+                for s in Supplier.objects.filter(company=request.company, currency__isnull=False):
                     total += currency.recompute_supplier_costs(s, request.user)[0]
                 messages.success(request, f"Ціни в гривні перераховано за поточними курсами: {total} позицій")
         except currency.RateError as e:
@@ -51,6 +53,6 @@ def rates(request):
         return redirect("rates")
     late = currency.latest_rates()
     cur_rows = [{"c": c, "r": late.get(c.code), "stale": currency.is_stale(late.get(c.code)),
-                 "suppliers": [s.name for s in Supplier.objects.filter(currency=c)]} for c in Currency.objects.filter(is_base=False)]
+                 "suppliers": [s.name for s in Supplier.objects.filter(company=request.company, currency=c)]} for c in Currency.objects.filter(is_base=False)]
     history = ExchangeRate.objects.select_related("currency")[:40]
     return render(request, "core/rates.html", {"rows": cur_rows, "history": history, "today": timezone.localdate()})
