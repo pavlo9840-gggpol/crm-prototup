@@ -10,7 +10,8 @@ from . import crosses, enrich
 from .apisync import SyncError
 from .models import (CatalogPart, CatalogPartNumber, CatalogSource, PartFitment, PartInfo, PartOe, Product, SupplierItem, VehicleMake, VehicleModel, norm_sku)
 from .transit import MAX_FILE, TableError, read_table
-from .views import staff_only
+from .views import tenant_staff_only, tenant_cashier_only
+from .tenant_context import company_required
 
 
 def _key(request):
@@ -19,13 +20,13 @@ def _key(request):
     return brand, sku_norm
 
 
-@login_required
+@tenant_cashier_only
 def part_card(request):
     brand, sn = _key(request)
     if not sn:
         return redirect("pos")
-    prods = list(Product.objects.filter(sku_norm=sn, brand__iexact=brand))
-    offers = list(SupplierItem.objects.filter(sku_norm=sn, brand=brand).select_related("supplier__currency").order_by("-available", "cost"))
+    prods = list(Product.objects.filter(company=request.company, sku_norm=sn, brand__iexact=brand))
+    offers = list(SupplierItem.objects.filter(company=request.company, sku_norm=sn, brand=brand).select_related("supplier__currency").order_by("-available", "cost"))
     info = PartInfo.objects.filter(brand=brand, sku_norm=sn).first()
     oes = list(PartOe.objects.filter(brand=brand, sku_norm=sn).order_by("oe_brand", "oe_raw"))
     if not (prods or offers or info or oes):
@@ -35,15 +36,15 @@ def part_card(request):
     sku = (prods[0].sku if prods else offers[0].sku if offers else sn)
     return render(request, "core/part_card.html", {
         "brand": brand, "sn": sn, "sku": sku, "title": title, "prods": prods, "offers": offers, "info": info, "oes": oes,
-        "stock": sum(p.current_stock for p in prods), "analogs": crosses.analogs(brand, sn, with_names=True),
+        "stock": sum(p.current_stock for p in prods), "analogs": crosses.analogs(brand, sn, with_names=True, company=request.company),
         "can_refresh": any(o.ext_id for o in offers), "oe_text": "\n".join(f"{o.oe_raw};{o.oe_brand}" if o.oe_brand else o.oe_raw for o in oes if o.source == "manual")})
 
 
-@login_required
+@tenant_cashier_only
 @require_POST
 def part_refresh(request):
     brand, sn = _key(request)
-    items = SupplierItem.objects.filter(sku_norm=sn, brand=brand).exclude(ext_id="").select_related("supplier__api")
+    items = SupplierItem.objects.filter(company=request.company, sku_norm=sn, brand=brand).exclude(ext_id="").select_related("supplier__api")
     last_err = "Немає постачальника з налаштованим API для цієї деталі"
     for si in items:
         try:
@@ -58,7 +59,8 @@ def part_refresh(request):
     return redirect(f"/part/?b={brand}&s={sn}")
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 @require_POST
 def part_edit(request):
     brand, sn = _key(request)
@@ -85,7 +87,8 @@ def part_edit(request):
     return redirect(f"/part/?b={brand}&s={sn}")
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def parts_import(request):
     if request.method == "POST":
         kind = request.POST.get("kind")
@@ -196,7 +199,8 @@ def _import_desc(rows):
     return n
 
 
-@login_required
+@tenant_staff_only
+@company_required
 @require_POST
 def analog_action(request):
     """Менеджер підтверджує аналог (усі) або визнає, що це НЕ аналог (лише адміністратор)."""
@@ -208,7 +212,7 @@ def analog_action(request):
     elif act == "confirm":
         crosses.confirm_pair(request.user, sn, other)
         messages.success(request, "Аналог підтверджено: тепер він має найвищу довіру")
-    elif act == "reject" and request.user.is_staff:
+    elif act == "reject" and request.user.is_superuser:
         crosses.reject_pair(request.user, sn, other)
         messages.success(request, "Позначено «не аналог»: пару приховано з усіх джерел")
     else:
