@@ -87,3 +87,15 @@ class CompanyContextTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertNotIn("active_company_id", self.client.session)
+
+    def test_workspace_onboarding_creates_owner_membership_and_selects_workspace(self):
+        self.client.force_login(self.other_user)
+
+        response = self.client.post("/workspace/new/", {"name": "Новий магазин"})
+
+        self.assertEqual(response.status_code, 302)
+        company = Company.objects.get(slug="novyi-mahazyn")
+        membership = CompanyMembership.objects.get(company=company, user=self.other_user)
+        self.assertEqual(membership.role, "owner")
+        self.assertEqual(self.client.session["active_company_id"], company.pk)
+        self.assertTrue(company.has_access)
