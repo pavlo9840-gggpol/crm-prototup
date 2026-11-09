@@ -212,11 +212,13 @@ def product_lookup(request):
 
 
 @staff_only
-@company_required
 def simple_form(request, model_form, title, back, pk=None, model=None):
-    scoped = company_queryset(model.objects.all(), request)
+    scoped = company_queryset(model.objects.all(), request) if request.company is not None else model.objects.all()
     obj = get_object_or_404(scoped, pk=pk) if pk else None
-    form = model_form(request.POST or None, instance=obj, company=request.company)
+    form_kwargs = {"instance": obj}
+    if model in (Category, Supplier):
+        form_kwargs["company"] = request.company
+    form = model_form(request.POST or None, **form_kwargs)
     if request.method == "POST" and form.is_valid():
         record = form.save(commit=False)
         record.company = request.company
@@ -252,10 +254,12 @@ category_list = staff_only(company_required(category_list))
 supplier_list = staff_only(company_required(supplier_list))
 
 
+@company_required
 def category_edit(request, pk=None):
     return simple_form(request, CategoryForm, "Категорія", "category_list", pk, Category)
 
 
+@company_required
 def supplier_edit(request, pk=None):
     return simple_form(request, SupplierForm, "Постачальник", "supplier_list", pk, Supplier)
 
