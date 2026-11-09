@@ -375,7 +375,7 @@ def purchase_detail(request, pk):
 @company_required
 def pos(request):
     shift = current_shift(request.user, request.company)
-    if not shift and not request.user.is_staff:
+    if not shift:
         messages.info(request, "Спочатку відкрийте зміну")
         return redirect("shift")
     init = {"cart": [], "customer": None, "resume_id": None}
@@ -511,7 +511,7 @@ def _parse_cart(request):
         held = company_queryset(Sale.objects.filter(status=Sale.HELD), request).filter(pk=d["resume_id"]).first()
         if held is None:
             raise StockError("Чернетка вже проведена або видалена. Оновіть касу та створіть чек заново.")
-        if held.cashier_id != request.user.id and not request.user.is_staff:
+        if held.cashier_id != request.user.id and not _can_manage_company(request):
             raise PermissionDenied
     car = None
     if customer and d.get("car_id"):
@@ -665,7 +665,7 @@ def held_list(request):
 @require_POST
 def held_delete(request, pk):
     s = get_object_or_404(company_queryset(Sale.objects.all(), request), pk=pk, status=Sale.HELD)
-    if s.cashier_id != request.user.id and not request.user.is_staff:
+    if s.cashier_id != request.user.id and not _can_manage_company(request):
         raise PermissionDenied
     s.delete()
     return redirect("held_list")
