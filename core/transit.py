@@ -26,7 +26,7 @@ from .models import (CompanyMembership, CrossRef, Customer, CustomerCar, MarkupT
                      SupplierApi, SupplierItem, SupplierPriceChange, norm_sku)
 from .crosses import analog_levels
 from .services import StockError
-from .views import D0, get_date, simple_form, tenant_staff_only
+from .views import D0, get_date, simple_form, tenant_staff_only, tenant_cashier_only
 from .tenant_context import company_queryset, company_required
 
 User = get_user_model()
@@ -350,8 +350,7 @@ def crossrefs(request):
 
 
 # ============================================================== пошук на касі
-@login_required
-@company_required
+@tenant_cashier_only
 def pos_lookup(request):
     q = request.GET.get("q", "").strip()
     qn = norm_sku(q)
@@ -440,8 +439,7 @@ def _orders_qs(user, company):
     return qs if is_manager else qs.filter(sale__cashier=user)
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 def orders(request):
     st = request.GET.get("st", "open")
     sup = request.GET.get("sup", "")
@@ -476,8 +474,7 @@ def orders(request):
         "to_order": {k: "\n".join(v) for k, v in to_order.items()}, "default_days": services.CompanySettings.get(request.company).pickup_days})
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 @require_POST
 def order_action(request, pk, action):
     item = get_object_or_404(_orders_qs(request.user, request.company), pk=pk)
@@ -511,8 +508,7 @@ REV = ExpressionWrapper((F("quantity") - F("returned_qty")) * F("price"), output
 COST = ExpressionWrapper((F("quantity") - F("returned_qty")) * F("cost_price"), output_field=DEC)
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 def manager_sales(request):
     today = timezone.localdate()
     d1 = get_date(request, "from", today.replace(day=1))
