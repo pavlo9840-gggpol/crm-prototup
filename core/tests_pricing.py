@@ -173,7 +173,7 @@ class PricingFlowTest(TestCase):
         self.assertEqual(self.adm.get(f"/price-rules/{pr.pk}/edit/").status_code, 200)
         self.assertEqual(self.anna.get("/price-rules/").status_code, 403)
         data = {"brand": "bilstein", "sku": "Z-9", "name": "Деталь", "unit": "шт", "cost_price": "1000", "price": "1", "min_stock": "0",
-                "initial_stock": "0", "is_active": "on", "auto_price": "on"}
+                "initial_stock": "0", "condition": "new", "is_active": "on", "auto_price": "on"}
         r = self.adm.post("/products/new/", data, follow=True)
         self.assertContains(r, "перераховано за правилами")
         self.assertEqual(Product.objects.get(sku="Z-9").price, D("1400.00"))                      # введена вручну «1» замінена правилом
