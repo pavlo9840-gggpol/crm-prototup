@@ -22,11 +22,12 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import fitment, pricing, services
-from .models import (CrossRef, Customer, CustomerCar, MarkupTier, PriceImport, Product, Sale, SaleItem, Supplier,
+from .models import (CompanyMembership, CrossRef, Customer, CustomerCar, MarkupTier, PriceImport, Product, Sale, SaleItem, Supplier,
                      SupplierApi, SupplierItem, SupplierPriceChange, norm_sku)
 from .crosses import analog_levels
 from .services import StockError
-from .views import D0, get_date, simple_form, staff_only
+from .views import D0, get_date, simple_form, tenant_staff_only
+from .tenant_context import company_queryset, company_required
 
 User = get_user_model()
 MAX_FILE = 30_000_000
@@ -132,22 +133,24 @@ def _tmp_path(token):
 
 
 # ============================================================== імпорт прайсу постачальника
-@staff_only
+@tenant_staff_only
+@company_required
 def supplier_prices(request):
-    sups = list(Supplier.objects.select_related("api").annotate(n=Count("items", filter=Q(items__available=True)),
-                                                                last=Max("imports__created_at")).order_by("name"))
+    sups = list(company_queryset(Supplier.objects.select_related("api").annotate(n=Count("items", filter=Q(items__available=True)),
+                                                                last=Max("imports__created_at")).order_by("name"), request))
     for s_ in sups:
         s_.cfg = getattr(s_, "api", None)
     return render(request, "core/supplier_prices.html", {"suppliers": sups,
-                                                         "log": PriceImport.objects.select_related("supplier", "user")[:15]})
+                                                         "log": company_queryset(PriceImport.objects.select_related("supplier", "user"), request)[:15]})
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 @require_POST
 def price_map(request):
     """Крок 2: вибір колонок і попередній перегляд."""
     try:
-        sup = get_object_or_404(Supplier, pk=request.POST.get("supplier") or 0)
+        sup = get_object_or_404(company_queryset(Supplier.objects.all(), request), pk=request.POST.get("supplier") or 0)
         f = request.FILES.get("file")
         if f:
             if f.size > MAX_FILE:
@@ -190,7 +193,8 @@ def price_map(request):
         "headers": headers, "preview": preview, "total": len(rows) - hdr})
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 @require_POST
 def price_apply(request):
     try:
@@ -250,7 +254,7 @@ def apply_parsed(sup, parsed, user, fname):
     from . import currency
     rate, foreign = currency.effective_rate(sup), currency.is_foreign(sup)        # RateError, якщо курсу немає
     with transaction.atomic():
-        existing = {(i.brand, i.sku_norm): i for i in SupplierItem.objects.filter(supplier=sup)}
+        existing = {(i.brand, i.sku_norm): i for i in SupplierItem.objects.filter(company=sup.company, supplier=sup)}
         new, upd, seen, changes = [], [], set(), []
         for (brand, sn), (sku, name, cost, q, ext) in parsed.items():
             it = existing.get((brand, sn))
@@ -278,7 +282,7 @@ def apply_parsed(sup, parsed, user, fname):
             pricing.reprice_after_supplier_change({(i.brand.upper(), i.sku_norm) for i, _, _ in changes}, user)
         gone = [i.pk for i in existing.values() if i.available and i.pk not in seen]
         for n in range(0, len(gone), 500):
-            SupplierItem.objects.filter(pk__in=gone[n:n + 500]).update(available=False, qty_avail=Decimal(0))
+            SupplierItem.objects.filter(company=sup.company, pk__in=gone[n:n + 500]).update(available=False, qty_avail=Decimal(0))
         PriceImport.objects.create(company=sup.company, supplier=sup, user=user, file_name=fname[:200], n_new=len(new),
                                    n_updated=len(upd), n_gone=len(gone))
     return len(new), len(upd), len(gone)
@@ -297,7 +301,8 @@ def _read_pairs(rows, has_header):
     return pairs
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def crossrefs(request):
     if request.method == "POST":
         act = request.POST.get("act")
@@ -330,10 +335,10 @@ def crossrefs(request):
     qs = CrossRef.objects.filter(Q(a__contains=q) | Q(b__contains=q)) if q else CrossRef.objects.all()
     pairs = []
     for pair in qs.order_by("-pk")[:100]:
-        a_products = list(Product.objects.filter(sku_norm=pair.a, is_active=True)[:3])
-        b_products = list(Product.objects.filter(sku_norm=pair.b, is_active=True)[:3])
-        a_offers = list(SupplierItem.objects.filter(sku_norm=pair.a, available=True).select_related("supplier").order_by("cost")[:3])
-        b_offers = list(SupplierItem.objects.filter(sku_norm=pair.b, available=True).select_related("supplier").order_by("cost")[:3])
+        a_products = list(Product.objects.filter(company=request.company, sku_norm=pair.a, is_active=True)[:3])
+        b_products = list(Product.objects.filter(company=request.company, sku_norm=pair.b, is_active=True)[:3])
+        a_offers = list(SupplierItem.objects.filter(company=request.company, sku_norm=pair.a, available=True).select_related("supplier").order_by("cost")[:3])
+        b_offers = list(SupplierItem.objects.filter(company=request.company, sku_norm=pair.b, available=True).select_related("supplier").order_by("cost")[:3])
         pairs.append({
             "obj": pair, "a_products": a_products, "b_products": b_products,
             "a_offers": a_offers, "b_offers": b_offers,
@@ -341,11 +346,12 @@ def crossrefs(request):
             "b_stock": sum((p.current_stock for p in b_products), Decimal("0")),
             "source_label": {"manual": "Підтверджено вручну", "api": "API постачальника", "import": "Імпорт"}.get(pair.source, pair.source),
         })
-    return render(request, "core/crossrefs.html", {"pairs": pairs, "total": CrossRef.objects.count(), "query": request.GET.get("q", "")})
+    return render(request, "core/crossrefs.html", {"pairs": pairs, "total": qs.count(), "query": request.GET.get("q", "")})
 
 
 # ============================================================== пошук на касі
 @login_required
+@company_required
 def pos_lookup(request):
     q = request.GET.get("q", "").strip()
     qn = norm_sku(q)
@@ -356,7 +362,7 @@ def pos_lookup(request):
     analogs = [{"id": p.pk, "n": p.name, "s": p.sku, "b": p.barcode or "", "p": float(p.price), "a": p.allow_price_change,
                 "st": float(p.current_stock), "u": p.unit, "k": float(p.cost_price), "br": p.brand,
                 "lv": levels.get(p.sku_norm, "")}
-               for p in Product.objects.filter(is_active=True, current_stock__gt=0, sku_norm__in=an)[:10]] if an else []
+               for p in Product.objects.filter(company=request.company, is_active=True, current_stock__gt=0, sku_norm__in=an)[:10]] if an else []
     cond = Q(sku_norm=qn) | Q(sku_norm__in=an) | Q(sku_norm__startswith=qn)
     toks = [t for t in re.split(r"\s+", q) if len(t) >= 2]
     if len(q) >= 4 and toks:
@@ -365,13 +371,13 @@ def pos_lookup(request):
             nm &= (Q(name_lc__contains=t.lower()) | Q(brand__icontains=t) | Q(sku__icontains=t))
         cond |= nm
     by = lambda *lv: [n for n, l in levels.items() if l in lv]
-    qs = (SupplierItem.objects.filter(cond, available=True).select_related("supplier", "product")
+    qs = (SupplierItem.objects.filter(company=request.company, cond, available=True).select_related("supplier", "product")
           .annotate(rank=Case(When(sku_norm=qn, then=Value(0)), When(sku_norm__in=by("oe"), then=Value(1)),
                               When(sku_norm__in=by("manual", "cross"), then=Value(2)),
                               When(sku_norm__in=by("maybe"), then=Value(3)),
                               default=Value(4), output_field=IntegerField()))
           .order_by("rank", "cost")[:40])
-    rs = pricing.RuleSet()
+    rs = pricing.RuleSet(company=request.company)
     sup = [{"si": i.pk, "brand": i.brand, "sku": i.sku, "name": i.name, "sup": i.supplier.name, "cost": float(i.cost),
             "avail": float(i.qty_avail) if i.qty_avail is not None else None,
             "kind": "exact" if i.rank == 0 else "analog" if i.rank <= 3 else "like",
@@ -389,7 +395,7 @@ def pos_lookup(request):
 def _fit_checker(car_id, pairs):
     """Підказка «підходить до авто»: True/False за списком застосовності деталі; None, якщо даних немає або авто не вибрано.
     Лише підказка: назви авто в каталозі й у картці клієнта можуть бути записані по-різному."""
-    car = CustomerCar.objects.filter(pk=car_id).first() if car_id and str(car_id).isdigit() else None
+    car = CustomerCar.objects.filter(company=request.company, pk=car_id).first() if car_id and str(car_id).isdigit() else None
     toks = [x for x in re.findall(r"[0-9A-Za-zА-Яа-яІіЇїЄєҐґ]+", f"{car.make} {car.model}".lower()) if len(x) >= 2] if car else []
     if not toks:
         return lambda b, n: None
@@ -408,33 +414,38 @@ class MarkupForm(forms.ModelForm):
     def save(self, commit=True):
         obj = super().save(commit)
         if commit and obj.is_default:
-            MarkupTier.objects.exclude(pk=obj.pk).update(is_default=False)
+            MarkupTier.objects.filter(company=obj.company).exclude(pk=obj.pk).update(is_default=False)
         return obj
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def markup_list(request):
-    return render(request, "core/simple_list.html", {"title": "Націнки клієнтів", "items": MarkupTier.objects.all(),
+    return render(request, "core/simple_list.html", {"title": "Націнки клієнтів", "items": company_queryset(MarkupTier.objects.all(), request),
                                                     "add": "markup_new", "edit": "markup_edit"})
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def markup_edit(request, pk=None):
     return simple_form(request, MarkupForm, "Націнка", "markup_list", pk, MarkupTier)
 
 
 # ============================================================== замовлення в дорозі
-def _orders_qs(user):
-    qs = (SaleItem.objects.filter(source=SaleItem.SUPPLIER, sale__status=Sale.DONE)
+def _orders_qs(user, company):
+    qs = (SaleItem.objects.filter(company=company, sale__company=company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE)
           .select_related("sale__customer", "sale__cashier", "sale__car", "supplier", "supplier_item", "product"))
-    return qs if user.is_staff else qs.filter(sale__cashier=user)
+    is_manager = CompanyMembership.objects.filter(company=company, user=user, is_active=True,
+                                                   role__in=("owner", "admin", "manager")).exists()
+    return qs if is_manager else qs.filter(sale__cashier=user)
 
 
 @login_required
+@company_required
 def orders(request):
     st = request.GET.get("st", "open")
     sup = request.GET.get("sup", "")
-    qs = _orders_qs(request.user)
+    qs = _orders_qs(request.user, request.company)
     today = timezone.localdate()
     if st == "ordered":
         qs = qs.filter(fulfil_status=SaleItem.ORDERED)
@@ -461,14 +472,15 @@ def orders(request):
             line = f"{(si.brand + ' ') if si and si.brand else ''}{si.sku if si else i.product.sku} × {i.left.normalize():f}"
             to_order.setdefault(i.supplier.name if i.supplier else "—", []).append(line)
     return render(request, "core/orders.html", {
-        "items": items, "st": st, "sup": sup, "suppliers": Supplier.objects.all(),
-        "to_order": {k: "\n".join(v) for k, v in to_order.items()}, "default_days": services.CompanySettings.get(getattr(request, "company", None)).pickup_days})
+        "items": items, "st": st, "sup": sup, "suppliers": company_queryset(Supplier.objects.all(), request),
+        "to_order": {k: "\n".join(v) for k, v in to_order.items()}, "default_days": services.CompanySettings.get(request.company).pickup_days})
 
 
 @login_required
+@company_required
 @require_POST
 def order_action(request, pk, action):
-    item = get_object_or_404(_orders_qs(request.user), pk=pk)
+    item = get_object_or_404(_orders_qs(request.user, request.company), pk=pk)
     try:
         if action == "arrived":
             services.mark_arrived(request.user, item, request.POST.get("days"))
@@ -500,14 +512,18 @@ COST = ExpressionWrapper((F("quantity") - F("returned_qty")) * F("cost_price"), 
 
 
 @login_required
+@company_required
 def manager_sales(request):
     today = timezone.localdate()
     d1 = get_date(request, "from", today.replace(day=1))
     d2 = get_date(request, "to", today)
-    qs = (SaleItem.objects.filter(sale__status=Sale.DONE, sale__created_at__date__gte=d1, sale__created_at__date__lte=d2)
+    qs = (SaleItem.objects.filter(company=request.company, sale__company=request.company, sale__status=Sale.DONE,
+                                         sale__created_at__date__gte=d1, sale__created_at__date__lte=d2)
           .filter(returned_qty__lt=F("quantity")))
     mgr = request.GET.get("manager", "")
-    if request.user.is_staff:
+    is_manager = CompanyMembership.objects.filter(company=request.company, user=request.user, is_active=True,
+                                                           role__in=("owner", "admin", "manager")).exists()
+    if is_manager:
         if mgr:
             qs = qs.filter(sale__cashier_id=mgr)
     else:
@@ -522,7 +538,7 @@ def manager_sales(request):
     tot = base.aggregate(s_rev=Sum("l_rev"), s_cst=Sum("l_cst"))
     rev, cst = tot["s_rev"] or D0, tot["s_cst"] or D0
     summary = []
-    if request.user.is_staff:
+    if is_manager:
         for r in (base.values("sale__cashier__username").annotate(rev=Sum("l_rev"), cst=Sum("l_cst"), n=Count("sale", distinct=True))
                   .order_by("-rev")):
             r["margin"] = r["rev"] - r["cst"]
@@ -624,7 +640,8 @@ class SupplierApiForm(forms.ModelForm):
         return obj
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def supplier_api(request, pk):
     from . import apisync
     sup = get_object_or_404(Supplier, pk=pk)
