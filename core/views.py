@@ -354,7 +354,7 @@ def pos(request):
     init["cats"] = [{"id": c.pk, "name": c.name} for c in cats.values() if not c.parent_id]
     init["denoms"] = [{"k": d, "l": cashlib.label(d)} for d in cashlib.DENOMS]
     init["drawer"] = float(cashlib.to_dec(cashlib.total(shift.drawer))) if shift else None
-    cs = CompanySettings.get()
+    cs = CompanySettings.get(getattr(request, "company", None))
     init["auto_print"], init["auto_print_format"] = cs.auto_print, cs.auto_print_format
     return render(request, "core/pos.html", {"init": init, "shift": shift})
 
@@ -993,12 +993,16 @@ def company_settings(request):
     from django.forms import modelformset_factory
     AccFS = modelformset_factory(BankAccount, fields=["bank_name", "iban", "mfo", "holder", "currency", "note", "is_default"],
                                  extra=1, can_delete=True)
-    obj = CompanySettings.get()
+    company = getattr(request, "company", None)
+    obj = CompanySettings.get(company)
+    account_qs = BankAccount.objects.filter(company=company) if company else BankAccount.objects.all()
     form = CompanyForm(request.POST or None, request.FILES or None, instance=obj)
-    fs = AccFS(request.POST or None, queryset=BankAccount.objects.all())
+    fs = AccFS(request.POST or None, queryset=account_qs)
     if request.method == "POST" and form.is_valid() and fs.is_valid():
         form.save()
         for inst in fs.save(commit=False):
+            if company:
+                inst.company = company
             inst.save()
         for inst in fs.deleted_objects:
             inst.delete()
