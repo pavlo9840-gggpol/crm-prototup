@@ -231,7 +231,7 @@ def designer_edit(request, pk):
 @tenant_staff_only
 @require_POST
 def designer_save(request, pk):
-    t = get_object_or_404(PrintTemplate, pk=pk)
+    t = get_object_or_404(PrintTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
     if t.is_builtin:
         return JsonResponse({"error": "Стандартні шаблони не редагуються — скористайтеся «Зберегти як новий»"}, status=403)
     data = _read_json(request)
@@ -251,7 +251,7 @@ def designer_save(request, pk):
 @tenant_staff_only
 @require_POST
 def designer_save_as(request, pk):
-    src = get_object_or_404(PrintTemplate, pk=pk)
+    src = get_object_or_404(PrintTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
     data = _read_json(request)
     name = str(data.get("name", "")).strip()[:150]
     if not name:
@@ -281,7 +281,7 @@ def designer_new(request, doc_type):
 @tenant_staff_only
 @require_POST
 def designer_copy(request, pk):
-    src = get_object_or_404(PrintTemplate, pk=pk)
+    src = get_object_or_404(PrintTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
     n = PrintTemplate.objects.create(company=request.company, doc_type=src.doc_type, name=f"{src.name} (копія)"[:150], layout=src.layout,
                                      format_version=src.format_version)
     messages.success(request, "Створено копію — тепер її можна редагувати")
@@ -293,7 +293,7 @@ def designer_copy(request, pk):
 @tenant_staff_only
 @require_POST
 def designer_delete(request, pk):
-    t = get_object_or_404(PrintTemplate, pk=pk)
+    t = get_object_or_404(PrintTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
     if t.is_builtin:
         raise PermissionDenied
     dt = t.doc_type
@@ -307,7 +307,7 @@ def designer_delete(request, pk):
 @tenant_staff_only
 @require_POST
 def designer_default(request, pk):
-    t = get_object_or_404(PrintTemplate, pk=pk)
+    t = get_object_or_404(PrintTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
     PrintTemplate.objects.filter(company=request.company, doc_type=t.doc_type).update(is_default=False)
     t.is_default = True
     t.save(update_fields=["is_default"])
@@ -324,7 +324,7 @@ def envelope(t):
 @company_required
 @tenant_staff_only
 def designer_export(request, pk):
-    t = get_object_or_404(PrintTemplate, pk=pk)
+    t = get_object_or_404(PrintTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
     r = HttpResponse(json.dumps(envelope(t), ensure_ascii=False, indent=1), content_type="application/json; charset=utf-8")
     r["Content-Disposition"] = f'attachment; filename="template-{t.doc_type}-{t.pk}.json"'
     return r
@@ -408,7 +408,7 @@ def designer_export_all(request):
 @company_required
 @tenant_staff_only
 def designer_preview(request, pk):
-    t = get_object_or_404(PrintTemplate, pk=pk)
+    t = get_object_or_404(PrintTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
     layout = t.layout
     if request.method == "POST":
         layout = _read_json(request).get("layout")
@@ -435,7 +435,7 @@ def font_view(request, style):
 @tenant_staff_only
 @require_POST
 def legacy_convert(request, pk):
-    o = get_object_or_404(DocTemplate, pk=pk)
+    o = get_object_or_404(DocTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
     if o.kind not in legacy.LEGACY_KINDS:
         messages.error(request, "Цей тип старого шаблону не підтримується")
         return redirect("designer_home")
