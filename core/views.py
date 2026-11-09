@@ -113,9 +113,9 @@ def dashboard(request):
         "last_sales": done_sales(request.company).select_related("cashier")[:10],
         "last_moves": company_queryset(StockMovement.objects.select_related("product"), request)[:10],
         "bars": bars,
-        "waiting_orders": company_queryset(SaleItem.objects.filter(source=SaleItem.SUPPLIER, sale__status=Sale.DONE,), request).filter(
+        "waiting_orders": company_queryset(SaleItem.objects.filter(company=request.company, sale__company=request.company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE,), request).filter(
                                                   fulfil_status__in=[SaleItem.ORDERED, SaleItem.ARRIVED]).count(),
-        "overdue_orders": company_queryset(SaleItem.objects.filter(source=SaleItem.SUPPLIER, sale__status=Sale.DONE,
+        "overdue_orders": company_queryset(SaleItem.objects.filter(company=request.company, sale__company=request.company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE,
                                                   fulfil_status=SaleItem.ARRIVED, pickup_deadline__lt=today), request).count(),
     }
     return render(request, "core/dashboard.html", ctx)
@@ -703,8 +703,8 @@ def sale_detail(request, pk):
     sale = get_object_or_404(company_queryset(Sale.objects.select_related("cashier", "customer"), request), pk=pk)
     if not _can_manage_company(request) and sale.cashier_id != request.user.id:
         raise PermissionDenied
-    return render(request, "core/sale_detail.html", {"sale": sale, "items": sale.items.select_related("product"),
-                                                     "returns": sale.returns.all()})
+    return render(request, "core/sale_detail.html", {"sale": sale, "items": sale.items.filter(company=request.company).select_related("product"),
+                                                     "returns": sale.returns.filter(company=request.company)})
 
 
 @login_required
@@ -715,7 +715,7 @@ def sale_detail(request, pk):
 def sale_return(request, pk):
     sale = get_object_or_404(company_queryset(Sale.objects.all(), request), pk=pk, status=Sale.DONE)
     qty_map = {}
-    for item in sale.items.all():
+    for item in sale.items.filter(company=request.company):
         q = dec(request.POST.get(f"ret_{item.pk}", "0"), D0)
         if q and q > 0:
             qty_map[item.pk] = q
@@ -743,7 +743,7 @@ def sale_return(request, pk):
 @require_POST
 @transaction.atomic
 def sale_return_settle(request, pk, return_pk):
-    ret = get_object_or_404(company_queryset(SaleReturn.objects.all(), request), pk=return_pk, sale_id=pk)
+    ret = get_object_or_404(company_queryset(SaleReturn.objects.all(), request), pk=return_pk, sale_id=pk, sale__company=request.company)
     try:
         settled = services.settle_return(
             request.user, ret,
@@ -835,7 +835,7 @@ def inventory_movements(request):
 @company_required
 @tenant_staff_only
 def customer_list(request):
-    qs = company_queryset(Customer.objects.annotate(last=Max("sales__created_at", filter=Q(sales__status="done"))), request)
+    qs = company_queryset(Customer.objects.annotate(last=Max("sales__created_at", filter=Q(sales__company=request.company, sales__status="done"))), request)
     q = request.GET.get("q", "").strip()
     if q:
         qs = qs.filter(Q(name_lc__contains=q.lower()) | Q(phone__icontains=q))
