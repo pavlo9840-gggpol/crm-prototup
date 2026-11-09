@@ -20,6 +20,14 @@ def assign_legacy_company(apps, schema_editor):
             "status": "active",
         },
     )
+    Membership = apps.get_model("core", "CompanyMembership")
+    for user in User.objects.using(alias).filter(is_active=True).order_by("pk"):
+        role = "owner" if owner and user.pk == owner.pk else ("admin" if user.is_staff else "cashier")
+        Membership.objects.using(alias).get_or_create(
+            company_id=company.pk, user_id=user.pk,
+            defaults={"role": role, "is_active": True},
+        )
+
     for model_name in BUSINESS_MODELS:
         Model = apps.get_model("core", model_name)
         Model.objects.using(alias).filter(company__isnull=True).update(company_id=company.pk)
