@@ -86,7 +86,7 @@ class CompanyContextTests(TestCase):
         response = self.client.post("/workspace/select/", {"company_id": self.other_company.pk})
 
         self.assertEqual(response.status_code, 404)
-        self.assertNotIn("active_company_id", self.client.session)
+        self.assertEqual(self.client.session["active_company_id"], self.company.pk)
 
     def test_workspace_onboarding_creates_owner_membership_and_selects_workspace(self):
         self.client.force_login(self.other_user)
