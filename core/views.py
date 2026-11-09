@@ -24,6 +24,7 @@ from .models import (BankAccount, CashOperation, CompanySettings, Category, Cust
                      Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem)
 from .models import norm_plate, norm_sku
 from .services import StockError
+from .tenant_context import company_queryset, company_required
 
 D0 = Decimal("0")
 DEC = DecimalField(max_digits=14, decimal_places=2)
@@ -100,8 +101,9 @@ def dashboard(request):
 
 # ---------- Products / categories / suppliers ----------
 @staff_only
+@company_required
 def product_list(request):
-    qs = Product.objects.select_related("category").prefetch_related("supplier_items__supplier")
+    qs = company_queryset(Product.objects.select_related("category").prefetch_related("supplier_items__supplier"), request)
     q, cat = request.GET.get("q", "").strip(), request.GET.get("category", "")
     condition = request.GET.get("condition", "").strip()
     if condition in dict(Product.CONDITION_CHOICES):
@@ -124,10 +126,10 @@ def product_list(request):
                   {"products": qs, "categories": Category.objects.all(), "q": q, "cat": cat, "condition": condition, **print_bar("pricetag")})
 
 
-def all_brands():
-    """Бренди зі складу та з прайсів постачальників (для підказок у формі)."""
-    names = set(Product.objects.exclude(brand="").values_list("brand", flat=True).distinct())
-    names |= set(SupplierItem.objects.exclude(brand="").values_list("brand", flat=True).distinct()[:3000])
+def all_brands(request):
+    """Бренди лише з активного магазину та його прайсів постачальників."""
+    names = set(company_queryset(Product.objects.exclude(brand=""), request).values_list("brand", flat=True).distinct())
+    names |= set(company_queryset(SupplierItem.objects.exclude(brand=""), request).values_list("brand", flat=True).distinct()[:3000])
     return sorted(names)[:3000]
 
 
@@ -135,17 +137,21 @@ PREFILL = ("brand", "sku", "name", "category", "unit", "cost_price", "price")
 
 
 @staff_only
+@company_required
 def product_edit(request, pk=None):
-    obj = get_object_or_404(Product, pk=pk) if pk else None
-    old = Product.objects.get(pk=pk) if pk else None
+    obj = get_object_or_404(company_queryset(Product.objects.all(), request), pk=pk) if pk else None
+    old = obj
     initial = {k: request.GET[k] for k in PREFILL if request.GET.get(k)} if (not obj and request.method == "GET") else {}
-    form = ProductForm(request.POST or None, request.FILES or None, instance=obj, initial=initial)
+    form = ProductForm(request.POST or None, request.FILES or None, instance=obj, initial=initial, company=request.company)
     if request.method == "POST" and form.is_valid():
-        p = form.save()
+        p = form.save(commit=False)
+        p.company = request.company
+        p.save()
+        form.save_m2m()
         if old:
             for f in ("price", "cost_price"):
                 if getattr(old, f) != getattr(p, f):
-                    PriceHistory.objects.create(product=p, field=f, old_value=getattr(old, f),
+                    PriceHistory.objects.create(company=request.company, product=p, field=f, old_value=getattr(old, f),
                                                 new_value=getattr(p, f), changed_by=request.user)
         else:
             init = form.cleaned_data.get("initial_stock")
@@ -161,14 +167,16 @@ def product_edit(request, pk=None):
             return redirect(reverse("product_new") + "?" + urlencode(q))
         return redirect("product_list")
     history = obj.price_history.select_related("changed_by")[:20] if obj else []
-    tiers = [{"id": t.pk, "name": t.name, "pct": float(t.percent)} for t in MarkupTier.objects.all()]
-    dt = MarkupTier.objects.filter(is_default=True).first()
+    tiers = [{"id": t.pk, "name": t.name, "pct": float(t.percent)}
+             for t in MarkupTier.objects.filter(company=request.company)]
+    dt = MarkupTier.objects.filter(company=request.company, is_default=True).first()
     return render(request, "core/product_form.html", {
-        "form": form, "obj": obj, "history": history, "brands": all_brands(), "tiers": tiers,
+        "form": form, "obj": obj, "history": history, "brands": all_brands(request), "tiers": tiers,
         "default_pct": float(dt.percent) if dt else 30.0})
 
 
 @staff_only
+@company_required
 def product_lookup(request):
     """Підказки під час введення бренду й артикула: дубль на складі, пропозиції постачальників, дані про деталь."""
     from . import crosses
@@ -178,48 +186,54 @@ def product_lookup(request):
     if len(sn) < 2:
         return JsonResponse({"empty": True})
     exclude = request.GET.get("pk") or 0
-    same = Product.objects.filter(sku_norm=sn).exclude(pk=exclude)
+    same = company_queryset(Product.objects.filter(sku_norm=sn), request).exclude(pk=exclude)
     dup = same.filter(brand__iexact=brand).first() if brand else same.filter(brand="").first()
     others = [{"brand": p.brand or "—", "name": p.name, "url": reverse("product_edit", args=[p.pk])}
               for p in same.exclude(pk=dup.pk if dup else 0)[:5]]
-    pct = services.tier_pct(None)
-    offers_qs = SupplierItem.objects.filter(sku_norm=sn).select_related("supplier").order_by("-available", "cost")
+    default_tier = MarkupTier.objects.filter(company=request.company, is_default=True).first()
+    pct = default_tier.percent if default_tier else D0
+    offers_qs = company_queryset(SupplierItem.objects.filter(sku_norm=sn), request).select_related("supplier").order_by("-available", "cost")
     if brand:
         offers_qs = offers_qs.filter(brand=brand)
     offers = [{"id": o.pk, "brand": o.brand, "sku": o.sku, "name": o.name, "supplier": o.supplier.name, "cost": float(o.cost),
                "qty": float(o.qty_avail) if o.qty_avail is not None else None, "available": o.available,
                "price": float(services.markup_price(o.cost, pct))} for o in offers_qs[:8]]
     ib = brand or (offers[0]["brand"] if offers else "")
-    info = PartInfo.objects.filter(brand=ib, sku_norm=sn).first()
+    info = company_queryset(PartInfo.objects.filter(brand=ib, sku_norm=sn), request).first()
     card = reverse("part_card") + "?" + urlencode({"b": ib, "s": sn})
     data = {"dup": {"name": dup.name, "brand": dup.brand, "sku": dup.sku, "stock": float(dup.current_stock),
                     "url": reverse("product_edit", args=[dup.pk])} if dup else None,
             "others": others, "offers": offers, "card": card}
-    if info or PartOe.objects.filter(brand=ib, sku_norm=sn).exists() or offers:
+    if info or company_queryset(PartOe.objects.filter(brand=ib, sku_norm=sn), request).exists() or offers:
         data["info"] = {"description": (info.description[:260] if info else ""), "image": info.image_url if info else "",
-                        "oe": PartOe.objects.filter(brand=ib, sku_norm=sn).count(),
+                        "oe": company_queryset(PartOe.objects.filter(brand=ib, sku_norm=sn), request).count(),
                         "analogs": len(crosses.analogs(ib, sn, limit=50))}
     return JsonResponse(data)
 
 
 @staff_only
+@company_required
 def simple_form(request, model_form, title, back, pk=None, model=None):
-    obj = get_object_or_404(model, pk=pk) if pk else None
-    form = model_form(request.POST or None, instance=obj)
+    scoped = company_queryset(model.objects.all(), request)
+    obj = get_object_or_404(scoped, pk=pk) if pk else None
+    form = model_form(request.POST or None, instance=obj, company=request.company)
     if request.method == "POST" and form.is_valid():
-        form.save()
+        record = form.save(commit=False)
+        record.company = request.company
+        record.save()
+        form.save_m2m()
         messages.success(request, "Збережено")
         return redirect(back)
     return render(request, "core/form.html", {"form": form, "title": title, "back": back})
 
 
 def category_list(request):
-    return render(request, "core/simple_list.html", {"title": "Категорії", "items": Category.objects.all(),
+    return render(request, "core/simple_list.html", {"title": "Категорії", "items": company_queryset(Category.objects.all(), request),
                                                     "add": "category_new", "edit": "category_edit"})
 
 
 def supplier_list(request):
-    qs = Supplier.objects.all()
+    qs = company_queryset(Supplier.objects.all(), request)
     q = (request.GET.get("q") or "").strip()[:120]
     active = (request.GET.get("active") or "").strip()
     if q:
@@ -234,8 +248,8 @@ def supplier_list(request):
     })
 
 
-category_list = staff_only(category_list)
-supplier_list = staff_only(supplier_list)
+category_list = staff_only(company_required(category_list))
+supplier_list = staff_only(company_required(supplier_list))
 
 
 def category_edit(request, pk=None):
