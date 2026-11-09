@@ -73,6 +73,8 @@ def ensure_product(si):
     Картка потрібна, щоб продаж, історія й повернення працювали як зі звичайним товаром;
     у каталозі каси вона з'являється лише коли товар справді оприбутковано."""
     if si.product_id:
+        if si.product.company_id != si.company_id:
+            raise StockError("Картка товару позиції постачальника належить іншому магазину")
         return si.product
     p = (Product.objects.filter(company=si.company, sku_norm=si.sku_norm, brand__iexact=si.brand).first()
          or Product.objects.filter(company=si.company, sku_norm=si.sku_norm, brand="").first())
@@ -111,7 +113,6 @@ def _make_item(sale, p, q, pr, x, done):
                                    price=pr, cost_price=p.cost_price, earned_at=timezone.now() if done else None)
 
 
-@transaction.atomic
 def _can_manage(user, company):
     return CompanyMembership.objects.filter(company=company, user=user, is_active=True,
                                             role__in=("owner", "admin", "manager")).exists()
@@ -127,12 +128,12 @@ def save_held(user, lines, payment, customer, shift, held=None, car=None, compan
         raise StockError("Автомобіль не належить вибраному клієнту цього магазину")
     if shift and shift.company_id != company.pk:
         raise StockError("Касова зміна належить іншому магазину")
+    if shift and shift.cashier_id != user.pk and not _can_manage(user, company):
+        raise StockError("Немає доступу до цієї касової зміни")
     if held and held.company_id != company.pk:
         raise StockError("Чернетка належить іншому магазину")
     if held and held.cashier_id != user.pk and not _can_manage(user, company):
         raise StockError("Немає доступу до цієї чернетки")
-    if car and (car.company_id != company.pk or not customer or car.customer_id != customer.pk):
-        raise StockError("Автомобіль не належить вибраному клієнту цього магазину")
     if any(x and (x["si"].company_id != company.pk or x["si"].supplier.company_id != company.pk) for *_a, x in lines):
         raise StockError("Позиція постачальника належить іншому магазину")
     sale = held or Sale(company=company, cashier=user, status=Sale.HELD)
@@ -158,6 +159,8 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
         raise StockError("Клієнт належить іншому магазину")
     if shift and shift.company_id != company.pk:
         raise StockError("Касова зміна належить іншому магазину")
+    if shift and shift.cashier_id != user.pk and not _can_manage(user, company):
+        raise StockError("Немає доступу до цієї касової зміни")
     if any(x and (x["si"].company_id != company.pk or x["si"].supplier.company_id != company.pk) for *_a, x in lines):
         raise StockError("Позиція постачальника належить іншому магазину")
     if not lines:
@@ -169,6 +172,8 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
         if held.cashier_id != user.pk and not _can_manage(user, company):
             raise StockError("Немає доступу до цієї чернетки")
     if shift is not None:
+        if shift.cashier_id != user.pk and not _can_manage(user, company):
+            raise StockError("Немає доступу до цієї касової зміни")
         shift = Shift.objects.select_for_update().filter(pk=shift.pk, company=company, closed_at__isnull=True).first()
         if shift is None:
             raise StockError("Зміну вже закрито. Відкрийте нову зміну.")
@@ -236,6 +241,10 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
     if refund_method in {"cash", "mixed"}:
         if shift is None:
             raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
+        if shift.cashier_id != user.pk and not _can_manage(user, company):
+            raise StockError("Немає доступу до цієї касової зміни")
+        if shift.cashier_id != user.pk and not _can_manage(user, company):
+            raise StockError("Немає доступу до цієї касової зміни")
         locked_shift = Shift.objects.select_for_update().filter(
             pk=shift.pk, company=company, closed_at__isnull=True
         ).first()
@@ -318,7 +327,7 @@ def settle_return(user, sale_return, refund_method, refund_cash_amount=None, shi
     company = company or sale_return.company
     if company is None or sale_return.company_id != company.pk:
         raise StockError("Повернення належить іншому магазину")
-    ret = SaleReturn.objects.select_for_update().filter(pk=sale_return.pk, company=company).first()
+    ret = SaleReturn.objects.select_for_update().filter(pk=sale_return.pk, company=company, sale__company=company).first()
     if ret is None:
         raise StockError("Повернення не знайдено")
     if ret.refund_method != "pending":
@@ -384,7 +393,9 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
             raise StockError(f"{p.name}: закупівельна ціна не може бути від'ємною")
     # Lock all affected stock rows before changing any of them. Sorting makes
     # two purchases with the same products acquire locks in a consistent order.
-    _lock_products((p.pk for p, _q, _cost in lines), company=company)
+    locked = _lock_products((p.pk for p, _q, _cost in lines), company=company)
+    if len(locked) != len({p.pk for p, _q, _cost in lines}):
+        raise StockError("Один із товарів не належить цьому магазину")
     pur = Purchase.objects.create(company=company, supplier=supplier, user=user)
     _num(pur, "NK")
     total = D0
@@ -463,7 +474,7 @@ def mark_arrived(user, item, days=None, ref="", receiving=False):
 @transaction.atomic
 def mark_issued(user, item):
     """Клієнт забрав товар — транзитом, без складу."""
-    item = SaleItem.objects.select_for_update().select_related("sale").get(pk=item.pk)
+    item = SaleItem.objects.select_for_update().select_related("sale").get(pk=item.pk, company=item.company_id)
     _check(user, item, (SaleItem.ORDERED, SaleItem.ARRIVED))
     item.fulfil_status = SaleItem.ISSUED
     item.arrived_at = item.arrived_at or timezone.now()
@@ -476,9 +487,9 @@ def _unclaimed(user, item, mode):
     # Keep lock order consistent with create_return(): sale first, then its items.
     # Locking the item first here could deadlock against a simultaneous return.
     Sale.objects.select_for_update().get(pk=item.sale_id, company=item.company_id)
-    item = SaleItem.objects.select_for_update().select_related("sale").get(pk=item.pk)
+    item = SaleItem.objects.select_for_update().select_related("sale").get(pk=item.pk, company=item.company_id)
     _check(user, item, (SaleItem.ARRIVED,))
-    before = Product.objects.select_for_update().get(pk=item.product_id).current_stock
+    before = Product.objects.select_for_update().get(pk=item.product_id, company=item.company_id).current_stock
     qty = item.quantity - item.returned_qty
     if qty > 0:
         create_return(user, item.sale, {item.pk: qty}, mode=mode, mtype="transit_stock")
