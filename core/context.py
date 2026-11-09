@@ -87,8 +87,11 @@ def layout(request):
     cur = ALIASES.get(cur, cur)
     if cur == "print_docs" or (m and m.url_name == "print_docs"):
         cur = "designer_home"
+    membership = getattr(request, "company_membership", None)
+    can_manage_company = bool(membership and membership.role in ("owner", "admin", "manager")
+                               and getattr(request, "company_access", False))
     groups = []
-    if u.is_staff:
+    if can_manage_company:
         for title, items in STAFF_NAV:
             rows = [{"label": lbl, "name": name, "active": name == cur} for lbl, name in items]
             groups.append({
@@ -106,8 +109,10 @@ def layout(request):
     from .models import CompanyMembership
     company_choices = list(CompanyMembership.objects.filter(user=u, is_active=True, company__status__in=["active", "trial"])
                            .select_related("company").order_by("company__name"))
+    active_company = getattr(request, "company", None)
     return {
-        "nav_groups": groups, "cashier_nav": CASHIER_NAV, "cur_url": cur,
+        "nav_groups": groups, "cashier_nav": CASHIER_NAV if active_company and not can_manage_company else [],
+        "can_manage_company": can_manage_company, "cur_url": cur,
         "company_choices": company_choices, "active_company_id": getattr(getattr(request, "company", None), "pk", None),
-        "rates_chip": chip, "company_name": CompanySettings.get(getattr(request, "company", None)).name,
+        "rates_chip": chip if can_manage_company else [], "company_name": CompanySettings.get(active_company).name if active_company else "",
     }
