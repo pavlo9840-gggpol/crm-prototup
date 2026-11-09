@@ -28,7 +28,7 @@ def add_movement(product, change, mtype, doc="", user=None, note=""):
     p = Product.objects.select_for_update().get(pk=product.pk)
     p.current_stock += Decimal(change)
     p.save(update_fields=["current_stock"])
-    return StockMovement.objects.create(product=p, movement_type=mtype, quantity_change=change,
+    return StockMovement.objects.create(company=p.company, product=p, movement_type=mtype, quantity_change=change,
                                         balance_after=p.current_stock, doc_ref=doc, note=note, user=user)
 
 
