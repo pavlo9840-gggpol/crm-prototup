@@ -219,6 +219,7 @@ def service_order_payment(request, pk):
         order=order, amount=amount, method=method,
         note=request.POST.get("note", "").strip()[:200],
         received_by=request.user,
+        company=request.company,
     )
     try:
         payment.full_clean()
