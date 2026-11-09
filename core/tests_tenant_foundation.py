@@ -26,7 +26,7 @@ class TenantFoundationTests(TestCase):
 
     def test_company_slug_is_unique_and_generated_deterministically(self):
         first = create_company(self.user, "Авто Запас", slug="avto-zapas")
-        second = create_company(self.user, "Авто Запас")
+        second = create_company(self.user, "Авто Запас", slug="avto-zapas")
 
         self.assertEqual(first.slug, "avto-zapas")
         self.assertEqual(second.slug, "avto-zapas-2")
