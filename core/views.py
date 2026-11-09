@@ -613,7 +613,7 @@ def pos_change(request):
 def pos_checkout(request):
     # Serialize checkouts in the same cash shift before reading/updating its drawer.
     shift = Shift.objects.select_for_update().filter(company=request.company, cashier=request.user, closed_at__isnull=True).first()
-    if not shift and not request.user.is_staff:
+    if not shift:
         return JsonResponse({"error": "Зміну не відкрито"}, status=400)
     try:
         lines, pay, customer, held, car = _parse_cart(request)
@@ -676,7 +676,7 @@ def held_delete(request, pk):
 @company_required
 def sale_list(request):
     qs = done_sales(request.company).select_related("cashier", "customer")
-    if not request.user.is_staff:
+    if not _can_manage_company(request):
         qs = qs.filter(cashier=request.user)
     d1, d2 = get_date(request, "from", None), get_date(request, "to", None)
     if d1:
