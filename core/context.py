@@ -46,6 +46,7 @@ CASHIER_NAV = [
     ("Мої продажі", "manager_sales"), ("Чеки", "sale_list"),
     ("Готівка", "drawer"), ("Зміна", "shift"),
 ]
+MECHANIC_NAV = [("СТО", "service_home")]
 
 # Внутрішні сторінки підсвічують батьківський пункт меню.
 ALIASES = {
@@ -113,7 +114,10 @@ def layout(request):
                            .select_related("company").order_by("company__name"))
     active_company = getattr(request, "company", None)
     return {
-        "nav_groups": groups, "cashier_nav": CASHIER_NAV if active_company and not can_manage_company else [],
+        "nav_groups": groups, "cashier_nav": (
+            MECHANIC_NAV if membership and membership.role == "mechanic"
+            else CASHIER_NAV if active_company and not can_manage_company else []
+        ),
         "can_manage_company": can_manage_company, "cur_url": cur,
         "company_choices": company_choices, "active_company_id": getattr(getattr(request, "company", None), "pk", None),
         "rates_chip": chip if can_manage_company else [], "company_name": CompanySettings.get(active_company).name if active_company else "",
