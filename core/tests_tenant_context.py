@@ -11,7 +11,7 @@ from core.tenant_context import CompanyContextMiddleware, company_queryset
 class CompanyContextTests(TestCase):
     def setUp(self):
         User = get_user_model()
-        self.user = User.objects.create_user(username="workspace-user", password="secret", is_staff=True)
+        self.user = User.objects.create_user(username="workspace-user", password="secret")
         self.other_user = User.objects.create_user(username="other-workspace-user", password="secret")
         self.company = Company.objects.create(name="Магазин А", slug="shop-a", owner=self.user, status="active")
         self.other_company = Company.objects.create(name="Магазин Б", slug="shop-b", owner=self.other_user, status="active")
