@@ -115,9 +115,16 @@ class SupplierForm(forms.ModelForm):
 class CustomerForm(forms.ModelForm):
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.company = company
         if company is not None:
             from .models import MarkupTier
             self.fields["markup_tier"].queryset = MarkupTier.objects.filter(company=company)
+
+    def clean_phone(self):
+        phone = self.cleaned_data["phone"]
+        if self.company is not None and Customer.objects.filter(company=self.company, phone=phone).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError("Клієнт із таким телефоном уже є в цьому магазині.")
+        return phone
 
     class Meta:
         model = Customer
