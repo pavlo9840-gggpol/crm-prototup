@@ -2,6 +2,7 @@ import re
 from decimal import Decimal
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 USER = settings.AUTH_USER_MODEL
 D0 = Decimal("0")
