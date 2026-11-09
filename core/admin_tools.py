@@ -54,7 +54,7 @@ class UserForm(forms.Form):
     def __init__(self, *a, user=None, editing_self=False, editing_owner=False, **k):
         super().__init__(*a, **k)
         self.user_obj, self.editing = user, user is not None
-        if not self.editing:
+        if not editing_owner:
             self.fields["role"].choices = [choice for choice in self.fields["role"].choices if choice[0] != "owner"]
         if editing_self or editing_owner:
             self.fields["role"].disabled = True
