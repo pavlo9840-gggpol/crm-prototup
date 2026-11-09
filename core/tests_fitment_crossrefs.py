@@ -6,11 +6,13 @@ from core.models import (
     CatalogPart, CatalogPartNumber, CatalogSource, CrossRef, Customer,
     PartFitment, Product, Supplier, SupplierItem, VehicleMake, VehicleModel,
 )
+from core.tests_tenant_helpers import create_test_company
 
 
 class StructuredFitmentLookupTests(TestCase):
     def setUp(self):
         user = get_user_model().objects.create_superuser("catalog-admin", "catalog@example.test", "secret")
+        self.company = create_test_company(user, "Fitment test shop")
         self.client.force_login(user)
         self.source = CatalogSource.objects.create(name="Fixture fitment source", commercial_use=True)
         self.make = VehicleMake.objects.create(name="Renault", slug="renault", kind="car", source=self.source, name_norm="renault")
@@ -18,10 +20,10 @@ class StructuredFitmentLookupTests(TestCase):
         self.part = CatalogPart.objects.create(name="Амортизатор задній")
         self.number = CatalogPartNumber.objects.create(part=self.part, brand="SACHS", brand_norm="sachs",
             sku="315 849", sku_norm="315849", source=self.source, verified=True)
-        self.supplier = Supplier.objects.create(name="Parts supplier")
-        self.product = Product.objects.create(name="Амортизатор SACHS", brand="SACHS", sku="315 849",
+        self.supplier = Supplier.objects.create(company=self.company, name="Parts supplier")
+        self.product = Product.objects.create(company=self.company, name="Амортизатор SACHS", brand="SACHS", sku="315 849",
                                               current_stock=2, price=1250)
-        SupplierItem.objects.create(supplier=self.supplier, brand="SACHS", sku="315 849", sku_norm="315849",
+        SupplierItem.objects.create(company=self.company, supplier=self.supplier, brand="SACHS", sku="315 849", sku_norm="315849",
                                     cost=900, name="Амортизатор SACHS", available=True)
         PartFitment.objects.create(part_number=self.number, vehicle_model=self.model, source=self.source,
                                    year_from=2006, year_to=2014, verified=True)
