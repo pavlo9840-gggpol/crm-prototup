@@ -495,7 +495,7 @@ class FinancialIntegrityTests(TestCase):
 
     def test_inventory_movement_history_searches_document_and_preserves_filters(self):
         StockMovement.objects.create(
-            product=self.product, movement_type="purchase", quantity_change=Decimal("2.000"),
+            company=self.company, product=self.product, movement_type="purchase", quantity_change=Decimal("2.000"),
             balance_after=Decimal("12.000"), doc_ref="NK-TEST-42", user=self.admin,
         )
         StockMovement.objects.create(
