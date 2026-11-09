@@ -149,7 +149,6 @@ def _part_names(norms, company=None):
     if company is not None:
         products = products.filter(company=company)
         supplier_items = supplier_items.filter(company=company)
-        oe_rows = oe_rows.filter(company=company)
     for p in products:
         parts[(p.brand.upper(), p.sku_norm)] = {"name": p.name, "sku": p.sku}
     for i in supplier_items:
@@ -171,32 +170,20 @@ def analogs(brand, sku_norm, limit=40, with_names=False, company=None):
             return
         ev.setdefault(key, []).append((kind, weight, text))
 
-    my_oe_qs = PartOe.objects.filter(brand=brand, sku_norm=sku_norm)
-    if company is not None:
-        my_oe_qs = my_oe_qs.filter(company=company)
-    my_oes = {o.oe_norm: o.oe_raw for o in my_oe_qs}
+    my_oes = {o.oe_norm: o.oe_raw for o in PartOe.objects.filter(brand=brand, sku_norm=sku_norm)}
     shared = {}
     if my_oes:
-        oe_qs = PartOe.objects.filter(oe_norm__in=list(my_oes))
-        if company is not None:
-            oe_qs = oe_qs.filter(company=company)
-        for o in oe_qs:
+        for o in PartOe.objects.filter(oe_norm__in=list(my_oes)):
             shared.setdefault((o.brand, o.sku_norm), set()).add(my_oes[o.oe_norm])
     for key, s in shared.items():
         add(key, "oe", 70 + 10 * (min(len(s), 3) - 1), "Спільні OE: " + ", ".join(sorted(s)[:4]))
 
     direct = {}
-    cross_qs = CrossRef.objects.filter(Q(a=sku_norm) | Q(b=sku_norm))
-    if company is not None:
-        cross_qs = cross_qs.filter(company=company)
-    for a, b, src in cross_qs.values_list("a", "b", "source"):
+    for a, b, src in CrossRef.objects.filter(Q(a=sku_norm) | Q(b=sku_norm)).values_list("a", "b", "source"):
         direct.setdefault(b if a == sku_norm else a, set()).add(src)
     hop2 = set()
     if direct:
-        hop_qs = CrossRef.objects.filter(Q(a__in=list(direct)) | Q(b__in=list(direct)))
-        if company is not None:
-            hop_qs = hop_qs.filter(company=company)
-        for a, b in hop_qs.values_list("a", "b"):
+        for a, b in CrossRef.objects.filter(Q(a__in=list(direct)) | Q(b__in=list(direct))).values_list("a", "b"):
             hop2.update((a, b))
     hop2 -= set(direct) | {sku_norm}
     parts = _part_names(set(direct) | hop2, company=company)
