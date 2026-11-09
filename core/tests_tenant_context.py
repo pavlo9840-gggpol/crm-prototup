@@ -4,14 +4,14 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
-from core.models import Company, CompanyMembership, CompanySettings, Product
+from core.models import Category, Company, CompanyMembership, CompanySettings, Product, StockMovement, Supplier
 from core.tenant_context import CompanyContextMiddleware, company_queryset
 
 
 class CompanyContextTests(TestCase):
     def setUp(self):
         User = get_user_model()
-        self.user = User.objects.create_user(username="workspace-user", password="secret")
+        self.user = User.objects.create_user(username="workspace-user", password="secret", is_staff=True)
         self.other_user = User.objects.create_user(username="other-workspace-user", password="secret")
         self.company = Company.objects.create(name="Магазин А", slug="shop-a", owner=self.user, status="active")
         self.other_company = Company.objects.create(name="Магазин Б", slug="shop-b", owner=self.other_user, status="active")
@@ -99,3 +99,67 @@ class CompanyContextTests(TestCase):
         self.assertEqual(membership.role, "owner")
         self.assertEqual(self.client.session["active_company_id"], company.pk)
         self.assertTrue(company.has_access)
+
+    def test_product_catalog_and_detail_are_isolated_between_workspaces(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get("/products/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Свій товар")
+        self.assertNotContains(response, "Чужий товар")
+
+        response = self.client.get(f"/products/{self.other_product.pk}/edit/")
+        self.assertEqual(response.status_code, 404)
+        response = self.client.post(
+            f"/products/{self.other_product.pk}/edit/",
+            {"brand": "HACK", "sku": "HACK-1", "name": "Зміна чужого товару",
+             "unit": "шт", "cost_price": "1", "price": "2", "min_stock": "0"},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.other_product.refresh_from_db()
+        self.assertEqual(self.other_product.name, "Чужий товар")
+
+    def test_product_cannot_attach_foreign_category_and_new_product_gets_company(self):
+        foreign_category = Category.objects.create(company=self.other_company, name="Чужа категорія")
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            "/products/new/",
+            {"brand": "BOSCH", "sku": "TENANT-1", "name": "Новий фільтр",
+             "category": foreign_category.pk, "unit": "шт", "cost_price": "100",
+             "price": "130", "min_stock": "0", "initial_stock": "2", "is_active": "on"},
+        )
+        self.assertEqual(response.status_code, 200)  # invalid ModelChoice is rendered, not saved
+        self.assertFalse(Product.objects.filter(sku="TENANT-1").exists())
+
+        response = self.client.post(
+            "/products/new/",
+            {"brand": "BOSCH", "sku": "TENANT-2", "name": "Свій фільтр",
+             "unit": "шт", "cost_price": "100", "price": "130",
+             "min_stock": "0", "initial_stock": "2", "is_active": "on"},
+        )
+        self.assertEqual(response.status_code, 302)
+        created = Product.objects.get(sku="TENANT-2")
+        self.assertEqual(created.company, self.company)
+        movement = StockMovement.objects.get(product=created)
+        self.assertEqual(movement.company, self.company)
+
+    def test_category_and_supplier_forms_reject_foreign_objects_and_set_company(self):
+        foreign_category = Category.objects.create(company=self.other_company, name="Зовнішня")
+        foreign_supplier = Supplier.objects.create(company=self.other_company, name="Чужий постачальник")
+        self.client.force_login(self.user)
+
+        response = self.client.post("/categories/new/", {"name": "Дочірня", "parent": foreign_category.pk})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Category.objects.filter(name="Дочірня").exists())
+
+        response = self.client.post(f"/suppliers/{foreign_supplier.pk}/edit/", {"name": "Підміна чужого"})
+        self.assertEqual(response.status_code, 404)
+        foreign_supplier.refresh_from_db()
+        self.assertEqual(foreign_supplier.name, "Чужий постачальник")
+
+        response = self.client.post("/suppliers/new/", {"name": "Свій постачальник", "is_active": "on"})
+        self.assertEqual(response.status_code, 302)
+        supplier = Supplier.objects.get(name="Свій постачальник")
+        self.assertEqual(supplier.company, self.company)
+
