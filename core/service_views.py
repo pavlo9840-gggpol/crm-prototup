@@ -92,7 +92,7 @@ def service_reports(request):
     })
 
 
-@workshop_staff
+@workshop_cashier
 def service_appointment_new(request):
     form = ServiceAppointmentForm(request.POST or None, company=request.company)
     if request.method == "POST" and form.is_valid():
@@ -135,7 +135,7 @@ def service_appointment_new(request):
     return render(request, "core/service_appointment_form.html", {"form": form})
 
 
-@workshop_staff
+@workshop_cashier
 def service_order_new(request):
     form = ServiceOrderForm(request.POST or None, company=request.company)
     if request.method == "POST" and form.is_valid():
