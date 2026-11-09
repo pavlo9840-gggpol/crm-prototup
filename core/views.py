@@ -428,7 +428,7 @@ def _cart_line_json(i):
     si = i.supplier_item if i.source == SaleItem.SUPPLIER else None
     if si:
         return dict(base, key=f"s{si.pk}", si=si.pk, allow=True, name=f"{si.brand} {si.sku} {si.name}".strip(),
-                    rl=pricing.rule_json(pricing.RuleSet().for_(si.brand, i.product.category_id)),
+                    rl=pricing.rule_json(pricing.RuleSet(company=i.product.company).for_(si.brand, i.product.category_id)),
                     sup=si.supplier.name, avail=float(si.qty_avail) if si.qty_avail is not None else None)
     return dict(base, key=f"p{i.product_id}", allow=i.product.allow_price_change,
                 name=f"{i.product.brand} {i.product.name}".strip())
@@ -490,7 +490,7 @@ def _parse_cart(request):
             if not si or not q or q <= 0:
                 raise StockError("Позиції немає в актуальному прайсі постачальника")
             p = services.ensure_product(si)
-            listp = pricing.list_price(si.cost, si.brand, p.category_id, customer)[0]
+            listp = pricing.list_price(si.cost, si.brand, p.category_id, customer, rs=pricing.RuleSet(company=request.company))[0]
             price = dec(it.get("price"), listp)
             if price is None or price < 0:
                 price = listp
