@@ -74,7 +74,8 @@ def _cols(request, rows, hdr, fresh):
     return headers, cols, ncol
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 @require_POST
 def receive_preview(request):
     try:
@@ -101,7 +102,8 @@ def receive_preview(request):
         "can_apply": bool(pl["totals"]["matched"] or pl["totals"]["stock_lines"])})
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 @require_POST
 @transaction.atomic
 def receive_apply(request):
