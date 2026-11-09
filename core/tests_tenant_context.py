@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
-from core.models import Category, Company, CompanyMembership, CompanySettings, Product, StockMovement, Supplier
+from core.models import Category, Company, CompanyMembership, CompanySettings, Product, StockMovement, Supplier, SupplierItem
 from core.tenant_context import CompanyContextMiddleware, company_queryset
 
 
@@ -147,7 +147,16 @@ class CompanyContextTests(TestCase):
     def test_category_and_supplier_forms_reject_foreign_objects_and_set_company(self):
         foreign_category = Category.objects.create(company=self.other_company, name="Зовнішня")
         foreign_supplier = Supplier.objects.create(company=self.other_company, name="Чужий постачальник")
+        SupplierItem.objects.create(company=self.other_company, supplier=foreign_supplier, brand="FOREIGN",
+                                     sku="FOREIGN-42", sku_norm="FOREIGN42", cost=99)
         self.client.force_login(self.user)
+
+        categories = self.client.get("/categories/")
+        suppliers = self.client.get("/suppliers/")
+        self.assertNotContains(categories, "Зовнішня")
+        self.assertNotContains(suppliers, "Чужий постачальник")
+        lookup = self.client.get("/products/lookup/", {"b": "FOREIGN", "s": "FOREIGN-42"}).json()
+        self.assertEqual(lookup["offers"], [])
 
         response = self.client.post("/categories/new/", {"name": "Дочірня", "parent": foreign_category.pk})
         self.assertEqual(response.status_code, 200)
