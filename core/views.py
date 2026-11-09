@@ -123,7 +123,7 @@ def product_list(request):
         qs = qs.order_by(sort)
     from .designer_views import print_bar
     return render(request, "core/product_list.html",
-                  {"products": qs, "categories": Category.objects.all(), "q": q, "cat": cat, "condition": condition, **print_bar("pricetag")})
+                  {"products": qs, "categories": company_queryset(Category.objects.all(), request), "q": q, "cat": cat, "condition": condition, **print_bar("pricetag")})
 
 
 def all_brands(request):
