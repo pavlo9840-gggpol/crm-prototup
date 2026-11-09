@@ -34,28 +34,38 @@ def ensure_builtin():
             obj.save(update_fields=["layout", "name", "doc_type", "is_builtin", "format_version", "updated_at"])
 
 
-def templates_for(doc_type):
+def templates_for(doc_type, company=None):
     ensure_builtin()
-    return list(PrintTemplate.objects.filter(doc_type=doc_type))
+    qs = PrintTemplate.objects.filter(doc_type=doc_type)
+    if company is not None:
+        qs = qs.filter(Q(company=company) | Q(company__isnull=True))
+    else:
+        qs = qs.filter(company__isnull=True)
+    return list(qs)
 
 
-def default_template(doc_type):
+def default_template(doc_type, company=None):
     ensure_builtin()
-    t = PrintTemplate.objects.filter(doc_type=doc_type, is_default=True).first()
-    return t or PrintTemplate.objects.filter(doc_type=doc_type, is_builtin=True).order_by("id").first()
-
-
-def pick_template(doc_type, raw_id):
-    if str(raw_id or "").isdigit():
-        t = PrintTemplate.objects.filter(pk=raw_id, doc_type=doc_type).first()
+    if company is not None:
+        t = PrintTemplate.objects.filter(company=company, doc_type=doc_type, is_default=True).first()
         if t:
             return t
-    return default_template(doc_type)
+    return PrintTemplate.objects.filter(company__isnull=True, doc_type=doc_type, is_builtin=True).order_by("id").first()
 
 
-def print_bar(doc_type):
+def pick_template(doc_type, raw_id, company=None):
+    if str(raw_id or "").isdigit():
+        qs = PrintTemplate.objects.filter(pk=raw_id, doc_type=doc_type)
+        qs = qs.filter(Q(company=company) | Q(company__isnull=True)) if company is not None else qs.filter(company__isnull=True)
+        t = qs.first()
+        if t:
+            return t
+    return default_template(doc_type, company)
+
+
+def print_bar(doc_type, company=None):
     """Context for the group-print bar included in list pages."""
-    return {"ptype": doc_type, "ptpls": templates_for(doc_type)}
+    return {"ptype": doc_type, "ptpls": templates_for(doc_type, company)}
 
 
 def _read_json(request):
@@ -112,7 +122,7 @@ def print_docs(request, doc_type):
     if doc_type != "receipt" and getattr(getattr(request, "company_membership", None), "role", "") not in ("owner", "admin", "manager"):
         raise PermissionDenied
     ctxs = docs.load(doc_type, request)
-    tpl = pick_template(doc_type, request.GET.get("template"))
+    tpl = pick_template(doc_type, request.GET.get("template"), request.company)
     res, err = _sanitize_or_400(tpl.layout, doc_type)
     if err:
         return err
@@ -131,7 +141,7 @@ def print_docs(request, doc_type):
     for k in ("template", "fmt", "auto"):
         keep.pop(k, None)
     extra = {"doc_type": doc_type, "doc_label": docs.DOC_TYPES[doc_type]["label"], "tpl": tpl,
-             "templates": templates_for(doc_type), "qs": keep.urlencode(), "auto": request.GET.get("auto") == "1"}
+             "templates": templates_for(doc_type, request.company), "qs": keep.urlencode(), "auto": request.GET.get("auto") == "1"}
     return output(request, pages, request.GET.get("fmt", "html"), doc_type, extra)
 
 
@@ -159,7 +169,7 @@ def purchase_print(request, pk):
 @tenant_staff_only
 def adjustment_list(request):
     qs = company_queryset(StockAdjustment.objects.select_related("product", "user").order_by("-created_at"), request)[:300]
-    return render(request, "core/adjustment_list.html", {"adjustments": qs, **print_bar("writeoff")})
+    return render(request, "core/adjustment_list.html", {"adjustments": qs, **print_bar("writeoff", request.company)})
 
 
 # ---------------------------------------------------------------- designer pages
@@ -170,12 +180,12 @@ def designer_home(request):
     ensure_builtin()
     cards = []
     for key, spec in docs.DOC_TYPES.items():
-        tpls = list(PrintTemplate.objects.filter(doc_type=key))
-        d = default_template(key)
+        tpls = templates_for(key, request.company)
+        d = default_template(key, request.company)
         cards.append({"key": key, "label": spec["label"], "count": len(tpls), "custom": sum(1 for t in tpls if not t.is_builtin),
                       "default": d.name if d else ""})
     old = [{"obj": o, "label": legacy.LEGACY_KINDS.get(o.kind, o.kind), "ok": o.kind in legacy.LEGACY_KINDS}
-           for o in DocTemplate.objects.all().order_by("kind")]
+           for o in DocTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)).order_by("kind")]
     return render(request, "core/designer_home.html", {"cards": cards, "legacy": old})
 
 
@@ -186,9 +196,9 @@ def designer_select(request):
     doc_type = request.GET.get("type", "")
     if doc_type not in docs.DOC_TYPES:
         return redirect("designer_home")
-    d = default_template(doc_type)
+    d = default_template(doc_type, request.company)
     return render(request, "core/designer_select.html", {
-        "dt": doc_type, "label": docs.DOC_TYPES[doc_type]["label"], "templates": templates_for(doc_type),
+        "dt": doc_type, "label": docs.DOC_TYPES[doc_type]["label"], "templates": templates_for(doc_type, request.company),
         "default_id": d.pk if d else None})
 
 
@@ -196,7 +206,7 @@ def designer_select(request):
 @company_required
 @tenant_staff_only
 def designer_edit(request, pk):
-    t = get_object_or_404(PrintTemplate, pk=pk)
+    t = get_object_or_404(PrintTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
     res, err = _sanitize_or_400(t.layout, t.doc_type)
     if err:
         raise Http404("Шаблон пошкоджено")
@@ -249,7 +259,7 @@ def designer_save_as(request, pk):
     res, err = _sanitize_or_400(data.get("layout"), src.doc_type)
     if err:
         return err
-    n = PrintTemplate.objects.create(doc_type=src.doc_type, name=name, layout=res[0], format_version=designer.FORMAT_VERSION)
+    n = PrintTemplate.objects.create(company=request.company, doc_type=src.doc_type, name=name, layout=res[0], format_version=designer.FORMAT_VERSION)
     return JsonResponse({"ok": True, "url": f"/designer/edit/{n.pk}/", "warnings": res[1]})
 
 
@@ -260,8 +270,8 @@ def designer_save_as(request, pk):
 def designer_new(request, doc_type):
     if doc_type not in docs.DOC_TYPES:
         raise Http404
-    base = default_template(doc_type)
-    n = PrintTemplate.objects.create(doc_type=doc_type, name=f"Новий шаблон ({docs.DOC_TYPES[doc_type]['label']})",
+    base = default_template(doc_type, request.company)
+    n = PrintTemplate.objects.create(company=request.company, doc_type=doc_type, name=f"Новий шаблон ({docs.DOC_TYPES[doc_type]['label']})",
                                      layout=base.layout, format_version=designer.FORMAT_VERSION)
     return redirect("designer_edit", pk=n.pk)
 
@@ -272,7 +282,7 @@ def designer_new(request, doc_type):
 @require_POST
 def designer_copy(request, pk):
     src = get_object_or_404(PrintTemplate, pk=pk)
-    n = PrintTemplate.objects.create(doc_type=src.doc_type, name=f"{src.name} (копія)"[:150], layout=src.layout,
+    n = PrintTemplate.objects.create(company=request.company, doc_type=src.doc_type, name=f"{src.name} (копія)"[:150], layout=src.layout,
                                      format_version=src.format_version)
     messages.success(request, "Створено копію — тепер її можна редагувати")
     return redirect("designer_edit", pk=n.pk)
@@ -298,7 +308,7 @@ def designer_delete(request, pk):
 @require_POST
 def designer_default(request, pk):
     t = get_object_or_404(PrintTemplate, pk=pk)
-    PrintTemplate.objects.filter(doc_type=t.doc_type).update(is_default=False)
+    PrintTemplate.objects.filter(company=request.company, doc_type=t.doc_type).update(is_default=False)
     t.is_default = True
     t.save(update_fields=["is_default"])
     messages.success(request, f"«{t.name}» тепер шаблон за замовчуванням")
@@ -320,7 +330,7 @@ def designer_export(request, pk):
     return r
 
 
-def _import_one(data, make_default):
+def _import_one(data, make_default, company):
     """Create a NEW custom template from an exported envelope. Raises ValueError on invalid input."""
     if not isinstance(data, dict) or data.get("kind") != "print_template" or data.get("doc_type") not in docs.DOC_TYPES:
         raise ValueError("це не файл шаблону цієї системи (підтримується лише власний формат JSON)")
@@ -331,9 +341,9 @@ def _import_one(data, make_default):
     except (TypeError, KeyError, AttributeError) as e:
         raise ValueError(f"пошкоджена структура ({e})")
     name = str(data.get("name") or "Імпортований шаблон").strip()[:130] + " (імпорт)"
-    t = PrintTemplate.objects.create(doc_type=data["doc_type"], name=name, layout=clean, format_version=designer.FORMAT_VERSION)
+    t = PrintTemplate.objects.create(company=company, doc_type=data["doc_type"], name=name, layout=clean, format_version=designer.FORMAT_VERSION)
     if make_default:
-        PrintTemplate.objects.filter(doc_type=t.doc_type).update(is_default=False)
+        PrintTemplate.objects.filter(company=company, doc_type=t.doc_type).update(is_default=False)
         t.is_default = True
         t.save(update_fields=["is_default"])
     return t, warns
@@ -364,7 +374,7 @@ def designer_import(request):
     done, last = [], None
     for fname, blob in blobs:
         try:
-            t, warns = _import_one(json.loads(blob.decode("utf-8-sig")), make_default and len(blobs) == 1)
+            t, warns = _import_one(json.loads(blob.decode("utf-8-sig")), make_default and len(blobs) == 1, request.company)
         except (ValueError, UnicodeDecodeError) as e:
             messages.error(request, f"Не вдалося завантажити «{fname}»: {e}")
             continue
@@ -387,7 +397,7 @@ def designer_export_all(request):
     """Backup of all custom templates (one JSON per template inside a ZIP)."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for t in PrintTemplate.objects.filter(is_builtin=False):
+        for t in PrintTemplate.objects.filter(company=request.company, is_builtin=False):
             z.writestr(f"{t.doc_type}-{t.pk}.json", json.dumps(envelope(t), ensure_ascii=False, indent=1))
     r = HttpResponse(buf.getvalue(), content_type="application/zip")
     r["Content-Disposition"] = 'attachment; filename="print-templates-backup.zip"'
@@ -434,7 +444,7 @@ def legacy_convert(request, pk):
     except (ValueError, TypeError, KeyError, AttributeError) as e:
         messages.error(request, f"Не вдалося перетворити шаблон: {e}")
         return redirect("designer_home")
-    t = PrintTemplate.objects.create(doc_type=o.kind, name=f"{legacy.LEGACY_KINDS[o.kind]} (зі старої версії)", layout=layout,
+    t = PrintTemplate.objects.create(company=request.company, doc_type=o.kind, name=f"{legacy.LEGACY_KINDS[o.kind]} (зі старої версії)", layout=layout,
                                      format_version=designer.FORMAT_VERSION)
     messages.success(request, "Старий шаблон перетворено на новий. Перевірте вигляд і за потреби підкоригуйте — "
                               "перетворення автоматичне й наближене.")
@@ -446,7 +456,7 @@ def legacy_convert(request, pk):
 @tenant_staff_only
 @require_POST
 def legacy_delete(request, pk=None):
-    qs = DocTemplate.objects.all() if pk is None else DocTemplate.objects.filter(pk=pk)
+    qs = DocTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)) if pk is None else DocTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True), pk=pk)
     n = qs.count()
     qs.delete()
     messages.success(request, f"Видалено старих шаблонів: {n}")
