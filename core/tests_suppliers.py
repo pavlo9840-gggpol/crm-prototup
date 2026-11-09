@@ -2,15 +2,17 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from core.models import Supplier
+from core.models import Company, CompanyMembership, Supplier
 
 
 class SupplierDirectoryTests(TestCase):
     def setUp(self):
         User = get_user_model()
         self.staff = User.objects.create_user(username="supplier-manager", password="test-pass", is_staff=True)
-        self.active = Supplier.objects.create(name="Auto Parts West", contact_person="Ірина", phone="+380501234567")
-        self.inactive = Supplier.objects.create(name="Old Supplier", contact_person="Петро", is_active=False)
+        self.company = Company.objects.create(name="Supplier test shop", slug="supplier-test-shop", status="active", owner=self.staff)
+        CompanyMembership.objects.create(company=self.company, user=self.staff, role="owner")
+        self.active = Supplier.objects.create(company=self.company, name="Auto Parts West", contact_person="Ірина", phone="+380501234567")
+        self.inactive = Supplier.objects.create(company=self.company, name="Old Supplier", contact_person="Петро", is_active=False)
 
     def test_supplier_search_and_active_filter(self):
         self.client.force_login(self.staff)
