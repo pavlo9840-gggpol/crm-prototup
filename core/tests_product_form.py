@@ -13,7 +13,7 @@ class ProductFormUxTest(TestCase):
     def setUp(self):
         U = get_user_model()
         admin = U.objects.create_superuser("admin", "", "x")
-        U.objects.create_user("cash", password="x")
+        cash = U.objects.create_user("cash", password="x")
         self.company = Company.objects.create(name="Магазин тестів", slug="product-form-shop", status="active", owner=admin)
         CompanyMembership.objects.create(company=self.company, user=admin, role="owner")
         CompanyMembership.objects.create(company=self.company, user=cash, role="cashier")
