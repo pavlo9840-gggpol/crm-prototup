@@ -127,7 +127,7 @@ class CompanyContextTests(TestCase):
             "/products/new/",
             {"brand": "BOSCH", "sku": "TENANT-1", "name": "Новий фільтр",
              "category": foreign_category.pk, "unit": "шт", "cost_price": "100",
-             "price": "130", "min_stock": "0", "initial_stock": "2", "is_active": "on"},
+             "price": "130", "min_stock": "0", "initial_stock": "2", "condition": "new", "is_active": "on"},
         )
         self.assertEqual(response.status_code, 200)  # invalid ModelChoice is rendered, not saved
         self.assertFalse(Product.objects.filter(sku="TENANT-1").exists())
@@ -136,7 +136,7 @@ class CompanyContextTests(TestCase):
             "/products/new/",
             {"brand": "BOSCH", "sku": "TENANT-2", "name": "Свій фільтр",
              "unit": "шт", "cost_price": "100", "price": "130",
-             "min_stock": "0", "initial_stock": "2", "is_active": "on"},
+             "min_stock": "0", "initial_stock": "2", "condition": "new", "is_active": "on"},
         )
         self.assertEqual(response.status_code, 302)
         created = Product.objects.get(sku="TENANT-2")
