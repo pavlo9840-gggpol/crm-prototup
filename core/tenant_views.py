@@ -1,9 +1,25 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from .models import CompanyMembership
+from .tenancy import create_company
+
+
+@login_required
+def create_workspace(request):
+    if request.method == "POST":
+        name = request.POST.get("name", "")
+        try:
+            company = create_company(request.user, name)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+        else:
+            request.session["active_company_id"] = company.pk
+            messages.success(request, f"Магазин «{company.name}» створено. Пробний період — 14 днів.")
+            return redirect("dashboard")
+    return render(request, "core/workspace_new.html")
 
 
 @login_required
