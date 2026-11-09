@@ -108,7 +108,7 @@ def vat_parts(total, rate):
 
 def base_ctx(company=None):
     c = CompanySettings.get(company)
-    acc = BankAccount.objects.filter(company=company).first() if company is not None else BankAccount.objects.none().first()
+    acc = BankAccount.objects.filter(company=company).first() if company is not None else BankAccount.objects.first()
     logo = None
     if c.logo:
         try:
