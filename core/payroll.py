@@ -50,7 +50,7 @@ def compute(d1, d2, include_pending=False, only_user=None, company=None):
     ids = set(earned) | set(pending) | {u for u in plans if u is not None}
     if default and only_user is None:                  # типовий план (з фіксованою частиною) діє й для тих, хто нічого не продав
         ids |= set(User.objects.filter(company_memberships__company=company, company_memberships__is_active=True,
-                                              is_active=True).distinct().values_list("pk", flat=True))
+                                              company_memberships__role__in=("manager", "cashier", "mechanic"), is_active=True).distinct().values_list("pk", flat=True))
     if only_user is not None:
         ids = {only_user.pk}
     users = {u.pk: u for u in User.objects.filter(pk__in=ids, company_memberships__company=company,
