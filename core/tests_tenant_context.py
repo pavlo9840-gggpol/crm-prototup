@@ -6,7 +6,7 @@ from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
 from core.models import (Category, Company, CompanyMembership, CompanySettings, Product, StockMovement,
-                         Supplier, SupplierItem, Customer, Sale, Shift, SaleItem)
+                         Supplier, SupplierItem, Customer, Sale, Shift, SaleItem, DocTemplate, PayPlan)
 from core.tenant_context import CompanyContextMiddleware, company_queryset
 
 
@@ -136,6 +136,18 @@ class CompanyContextTests(TestCase):
         own_sale = Sale.objects.create(company=self.company, cashier=self.user, status=Sale.DONE,
                                        number="OWN-CH", total=10, customer=own_customer)
         self.assertEqual(self.client.get(f"/sales/{own_sale.pk}/").status_code, 200)
+
+    def test_legacy_templates_and_payroll_plans_are_company_scoped(self):
+        DocTemplate.objects.create(company=self.company, kind="receipt", body="shop A")
+        DocTemplate.objects.create(company=self.other_company, kind="receipt", body="shop B")
+        CompanyMembership.objects.create(company=self.other_company, user=self.user, role="cashier")
+        PayPlan.objects.create(company=self.company, user=self.user, margin_pct=10)
+        PayPlan.objects.create(company=self.other_company, user=self.user, margin_pct=20)
+        PayPlan.objects.create(company=self.company, user=None, margin_pct=5)
+        PayPlan.objects.create(company=self.other_company, user=None, margin_pct=7)
+        self.assertEqual(DocTemplate.objects.filter(kind="receipt").count(), 2)
+        self.assertEqual(PayPlan.objects.filter(user=self.user).count(), 2)
+        self.assertEqual(PayPlan.objects.filter(user__isnull=True).count(), 2)
 
     def test_customer_phones_and_product_barcodes_are_unique_per_company(self):
         Customer.objects.create(company=self.company, name="Клієнт А", phone="380991234567")
