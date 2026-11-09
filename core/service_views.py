@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from functools import wraps
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -14,29 +15,29 @@ from .models import Product, Shift, CashOperation
 from . import cash as cashlib
 from .services import StockError, add_movement
 from .tenant_context import company_queryset, company_required
-from .views import tenant_staff_only
+from .tenant_context import company_required
 
 
-def staff(view):
+def workshop_staff(view):
     @login_required
+    @company_required
+    @wraps(view)
     def wrapped(request, *args, **kwargs):
-        if not request.user.is_staff:
+        membership = getattr(request, "company_membership", None)
+        if membership is None or membership.role not in ("owner", "admin", "manager", "mechanic"):
             raise PermissionDenied
         return view(request, *args, **kwargs)
-    wrapped.__name__ = view.__name__
     return wrapped
 
 
-@tenant_staff_only
-@company_required
+@workshop_staff
 def service_home(request):
     appointments = company_queryset(ServiceAppointment.objects.select_related("customer", "car", "assigned_to").order_by("scheduled_at"), request)[:80]
     orders = company_queryset(ServiceOrder.objects.select_related("customer", "car", "mechanic").order_by("-created_at"), request)[:30]
     return render(request, "core/service_home.html", {"appointments": appointments, "orders": orders})
 
 
-@tenant_staff_only
-@company_required
+@workshop_staff
 def service_reports(request):
     """Operational and financial overview for the current calendar month."""
     today = timezone.localdate()
@@ -69,8 +70,7 @@ def service_reports(request):
     })
 
 
-@tenant_staff_only
-@company_required
+@workshop_staff
 def service_appointment_new(request):
     form = ServiceAppointmentForm(request.POST or None, company=request.company)
     if request.method == "POST" and form.is_valid():
@@ -113,8 +113,7 @@ def service_appointment_new(request):
     return render(request, "core/service_appointment_form.html", {"form": form})
 
 
-@tenant_staff_only
-@company_required
+@workshop_staff
 def service_order_new(request):
     form = ServiceOrderForm(request.POST or None, company=request.company)
     if request.method == "POST" and form.is_valid():
@@ -134,8 +133,7 @@ def service_order_new(request):
     return render(request, "core/service_order_form.html", {"form": form})
 
 
-@tenant_staff_only
-@company_required
+@workshop_staff
 def service_order_detail(request, pk):
     order = get_object_or_404(company_queryset(ServiceOrder.objects.select_related("customer", "car", "mechanic"), request), pk=pk)
     line_form = ServiceOrderLineForm(request.POST or None, company=request.company)
@@ -186,8 +184,7 @@ def service_order_detail(request, pk):
     })
 
 
-@tenant_staff_only
-@company_required
+@workshop_staff
 @require_POST
 @transaction.atomic
 def service_order_payment(request, pk):
@@ -254,8 +251,7 @@ def service_order_payment(request, pk):
     return redirect("service_order_detail", pk=pk)
 
 
-@tenant_staff_only
-@company_required
+@workshop_staff
 @require_POST
 def service_order_issue_parts(request, pk):
     """Списати запчастини з наряду атомарно, не допускаючи повторного списання."""
@@ -300,8 +296,7 @@ def service_order_issue_parts(request, pk):
     return redirect("service_order_detail", pk=pk)
 
 
-@tenant_staff_only
-@company_required
+@workshop_staff
 @require_POST
 def service_order_status(request, pk):
     allowed = {s[0] for s in ServiceOrder.STATUS}
