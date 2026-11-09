@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import (Count, DecimalField, ExpressionWrapper, F, Max, Q, Sum)
+from django.db.models import (Count, DecimalField, ExpressionWrapper, F, Max, Prefetch, Q, Sum)
 from django.db.models.functions import TruncDate
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -103,7 +103,13 @@ def dashboard(request):
 @staff_only
 @company_required
 def product_list(request):
-    qs = company_queryset(Product.objects.select_related("category").prefetch_related("supplier_items__supplier"), request)
+    supplier_items = company_queryset(SupplierItem.objects.select_related("supplier"), request)
+    qs = company_queryset(
+        Product.objects.select_related("category").prefetch_related(
+            Prefetch("supplier_items", queryset=supplier_items)
+        ),
+        request,
+    )
     q, cat = request.GET.get("q", "").strip(), request.GET.get("category", "")
     condition = request.GET.get("condition", "").strip()
     if condition in dict(Product.CONDITION_CHOICES):
