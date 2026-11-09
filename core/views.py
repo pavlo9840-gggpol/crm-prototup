@@ -52,6 +52,19 @@ def tenant_staff_only(view):
     return wrapper
 
 
+def tenant_cashier_only(view):
+    """Allow company managers and cashiers into POS/cash workflows, but not workshop-only members."""
+    @login_required
+    @company_required
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        membership = getattr(request, "company_membership", None)
+        if membership is None or membership.role not in ("owner", "admin", "manager", "cashier"):
+            raise PermissionDenied
+        return view(request, *args, **kwargs)
+    return wrapper
+
+
 def _jb(request):
     try:
         data = json.loads(request.body or b"{}")
@@ -374,8 +387,7 @@ def purchase_detail(request, pk):
 
 
 # ---------- POS ----------
-@login_required
-@company_required
+@tenant_cashier_only
 def pos(request):
     shift = current_shift(request.user, request.company)
     if not shift and not request.user.is_staff:
@@ -442,8 +454,7 @@ def product_json(p):
             "allow": p.allow_price_change, "stock": float(p.current_stock), "unit": p.unit}
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 def pos_search(request):
     q = request.GET.get("q", "").strip()
     if not q:
@@ -456,8 +467,7 @@ def pos_search(request):
     return JsonResponse({"results": [product_json(p) for p in res], "exact": False})
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 def pos_customer(request):
     q = request.GET.get("q", "").strip()
     cond = Q(name_lc__contains=q.lower()) | Q(phone__icontains=q)
@@ -470,8 +480,7 @@ def pos_customer(request):
     return JsonResponse({"results": [dict(_customer_json(c), phone=c.phone) for c in res]})
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 @require_POST
 def pos_customer_new(request):
     d = _jb(request)
@@ -558,8 +567,7 @@ def _clean_car(d):
     return f, None
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 @require_POST
 def pos_car_new(request):
     d = _jb(request)
@@ -597,8 +605,7 @@ def car_delete(request, pk):
     return redirect("customer_detail", pk=cid)
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 @require_POST
 def pos_change(request):
     d = _jb(request)
@@ -609,8 +616,7 @@ def pos_change(request):
     return JsonResponse(_plan_json(res))
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 @require_POST
 @transaction.atomic
 def pos_checkout(request):
@@ -640,8 +646,7 @@ def pos_checkout(request):
                          "drawer": float(cashlib.to_dec(cashlib.total(shift.drawer))) if shift else None})
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 @require_POST
 def pos_hold(request):
     try:
@@ -654,8 +659,7 @@ def pos_hold(request):
     return JsonResponse({"ok": True, "number": sale.number})
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 def held_list(request):
     qs = company_queryset(Sale.objects.filter(status=Sale.HELD).select_related("customer"), request)
     if not _can_manage_company(request):
@@ -663,8 +667,7 @@ def held_list(request):
     return render(request, "core/held_list.html", {"sales": qs})
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 @require_POST
 def held_delete(request, pk):
     s = get_object_or_404(company_queryset(Sale.objects.all(), request), pk=pk, status=Sale.HELD)
@@ -675,8 +678,7 @@ def held_delete(request, pk):
 
 
 # ---------- Sales ----------
-@login_required
-@company_required
+@tenant_cashier_only
 def sale_list(request):
     qs = done_sales(request.company).select_related("cashier", "customer")
     if not _can_manage_company(request):
@@ -697,8 +699,7 @@ def sale_list(request):
         "cashiers": get_user_model().objects.filter(company_memberships__company=request.company, company_memberships__is_active=True).distinct(), "payments": Sale.PAYMENTS, **print_bar("receipt", request.company)})
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 def sale_detail(request, pk):
     sale = get_object_or_404(company_queryset(Sale.objects.select_related("cashier", "customer"), request), pk=pk)
     if not _can_manage_company(request) and sale.cashier_id != request.user.id:
@@ -1008,8 +1009,7 @@ def _drawer_rows(counts):
     return [{"k": d, "l": cashlib.label(d), "n": counts.get(d, 0)} for d in cashlib.DENOMS]
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 @transaction.atomic
 def shift_view(request):
     shift = current_shift(request.user, request.company)
@@ -1046,8 +1046,7 @@ def shift_view(request):
     return render(request, "core/shift.html", ctx)
 
 
-@login_required
-@company_required
+@tenant_cashier_only
 @transaction.atomic
 def drawer_view(request):
     shift = current_shift(request.user, request.company)
