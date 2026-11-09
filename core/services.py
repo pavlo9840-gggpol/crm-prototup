@@ -166,6 +166,8 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
     # A cart can contain several stock products. Acquire every row lock in
     # the same order used by purchases and adjustments, regardless of cart order.
     locked_products = _lock_products(need, company=company)
+    if set(locked_products) != set(need):
+        raise StockError("Один із товарів не належить цьому магазину")
     for pk, q in need.items():
         fresh = locked_products[pk]
         if fresh.current_stock < q:
@@ -240,7 +242,7 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
             raise StockError(f"{item.product.name}: можна повернути не більше {item.returnable.normalize():f}")
         item.returned_qty += q
         item.save(update_fields=["returned_qty"])
-        SaleReturnItem.objects.create(sale_return=ret, sale_item=item, quantity=q, price=item.price)
+        SaleReturnItem.objects.create(company=company, sale_return=ret, sale_item=item, quantity=q, price=item.price)
         total += q * item.price
         pending = item.is_pending
         if mode == "stock" or (mode == "auto" and not pending):
@@ -377,7 +379,7 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
         # contain the same product more than once.
         movement = add_movement(product, q, "purchase", pur.number, user)
         p = movement.product
-        PurchaseItem.objects.create(purchase=pur, product=p, quantity=q, cost_price=cost)
+        PurchaseItem.objects.create(company=company, purchase=pur, product=p, quantity=q, cost_price=cost)
         total += q * cost
         if update_cost and p.cost_price != cost:
             PriceHistory.objects.create(company=company, product=p, field="cost_price", old_value=p.cost_price,
