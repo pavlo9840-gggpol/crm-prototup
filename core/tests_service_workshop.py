@@ -222,6 +222,31 @@ class ServiceWorkshopTests(TestCase):
         self.assertContains(response, "200,00 грн")
         self.assertContains(response, f"#{order.pk}")
 
+    def test_workshop_orders_and_parts_are_isolated_between_companies(self):
+        foreign_user = get_user_model().objects.create_user(username="foreign-workshop", password="pass")
+        foreign_company = create_test_company(foreign_user, "Foreign workshop shop")
+        foreign_customer = Customer.objects.create(company=foreign_company, name="Чужий клієнт", phone="+380501119999")
+        foreign_car = CustomerCar.objects.create(company=foreign_company, customer=foreign_customer, make="VW",
+                                                 model="Golf", year=2019, plate="BC1111AA", vin="WVWZZZ1JZXW000002")
+        foreign_product = Product.objects.create(company=foreign_company, name="Чужий фільтр", sku="FOREIGN-SVC-1",
+                                                 current_stock=10, price=100)
+        foreign_order = ServiceOrder.objects.create(company=foreign_company, customer=foreign_customer,
+                                                    car=foreign_car, created_by=foreign_user)
+        ServiceOrderLine.objects.create(company=foreign_company, order=foreign_order, kind="part",
+                                        description="Чужий фільтр", product=foreign_product, quantity=1, unit_price=100)
+
+        self.assertEqual(self.client.get(reverse("service_order_detail", args=[foreign_order.pk])).status_code, 404)
+        self.assertEqual(self.client.post(reverse("service_order_issue_parts", args=[foreign_order.pk])).status_code, 404)
+
+        own_order = ServiceOrder.objects.create(company=self.company, customer=self.customer, car=self.car,
+                                                created_by=self.staff)
+        response = self.client.post(reverse("service_order_detail", args=[own_order.pk]), {
+            "add_line": "1", "kind": "part", "description": "Чужий фільтр",
+            "product": foreign_product.pk, "quantity": "1", "unit_price": "100",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(own_order.lines.count(), 0)
+
     def test_non_staff_cannot_access_workshop(self):
         User = get_user_model()
         cashier = User.objects.create_user(username="workshop-cashier", password="pass", is_staff=False)
