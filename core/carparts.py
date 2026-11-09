@@ -6,11 +6,12 @@ from django.shortcuts import get_object_or_404, render
 from . import fitment, pricing
 from .crosses import name_profile
 from .models import (CatalogPartNumber, CustomerCar, PartFitment, PartInfo, Product, SupplierItem, norm_sku)
+from .views import tenant_cashier_only
 
 
-@login_required
+@tenant_cashier_only
 def car_parts(request):
-    car = get_object_or_404(CustomerCar, pk=request.GET["car"]) if request.GET.get("car", "").isdigit() else None
+    car = get_object_or_404(CustomerCar.objects.filter(company=request.company), pk=request.GET["car"]) if request.GET.get("car", "").isdigit() else None
     make = (car.make if car else request.GET.get("make", "")).strip()
     model = (car.model if car else request.GET.get("model", "")).strip()
     try:
@@ -43,12 +44,12 @@ def car_parts(request):
         keys.add((fit.part_number.brand.upper(), fit.part_number.sku_norm))
     norms = {n for _, n in keys}
     own = {}
-    for p in Product.objects.filter(sku_norm__in=norms, is_active=True).select_related("category"):
+    for p in Product.objects.filter(company=request.company, sku_norm__in=norms, is_active=True).select_related("category"):
         own.setdefault((p.brand.upper(), p.sku_norm), p)
     offers = {}
-    for o in SupplierItem.objects.filter(sku_norm__in=norms, available=True).select_related("supplier", "product").order_by("-cost"):
+    for o in SupplierItem.objects.filter(company=request.company, sku_norm__in=norms, available=True).select_related("supplier", "product").order_by("-cost"):
         offers[(o.brand, o.sku_norm)] = o                         # останній у циклі = найдешевший
-    rs = pricing.RuleSet()
+    rs = pricing.RuleSet(company=request.company)
     groups, labels = {}, {}
     structured_evidence = {}
     for fit in structured[:8000]:
