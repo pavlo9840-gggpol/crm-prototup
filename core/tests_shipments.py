@@ -3,6 +3,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from core.models import Customer, Shipment
+from core.tests_tenant_helpers import create_test_company
 
 
 class ShipmentWorkflowTests(TestCase):
@@ -10,6 +11,7 @@ class ShipmentWorkflowTests(TestCase):
         User = get_user_model()
         self.staff = User.objects.create_user(username="shipping-staff", password="test-pass", is_staff=True)
         self.cashier = User.objects.create_user(username="shipping-cashier", password="test-pass", is_staff=False)
+        self.company = create_test_company(self.staff, "Shipment test shop", [(self.cashier, "cashier")])
 
     def test_staff_can_create_draft_and_search_it(self):
         self.client.force_login(self.staff)
