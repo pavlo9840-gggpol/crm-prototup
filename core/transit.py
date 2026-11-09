@@ -462,7 +462,7 @@ def orders(request):
             to_order.setdefault(i.supplier.name if i.supplier else "—", []).append(line)
     return render(request, "core/orders.html", {
         "items": items, "st": st, "sup": sup, "suppliers": Supplier.objects.all(),
-        "to_order": {k: "\n".join(v) for k, v in to_order.items()}, "default_days": services.CompanySettings.get().pickup_days})
+        "to_order": {k: "\n".join(v) for k, v in to_order.items()}, "default_days": services.CompanySettings.get(getattr(request, "company", None)).pickup_days})
 
 
 @login_required
