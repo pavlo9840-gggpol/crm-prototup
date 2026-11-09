@@ -3,7 +3,10 @@
 This middleware deliberately does not silently filter ORM queries: each view/service
 must opt into company-scoped querysets before tenant isolation can be enabled safely.
 """
+from functools import wraps
+
 from django.db.models import Q
+from django.http import HttpResponseForbidden
 
 
 class CompanyContextMiddleware:
@@ -44,8 +47,16 @@ class CompanyContextMiddleware:
 def company_queryset(queryset, request, *, include_unassigned=False):
     """Explicitly scope a queryset; returns no rows when request has no active workspace."""
     company_id = getattr(getattr(request, "company", None), "pk", None)
-    if company_id is None:
+    if company_id is None or not getattr(request, "company_access", False):
         return queryset.none()
-    if include_unassigned:
-        return queryset.filter(Q(company_id=company_id) | Q(company__isnull=True))
     return queryset.filter(company_id=company_id)
+
+
+def company_required(view_func):
+    """Reject views without an active, entitled workspace."""
+    @wraps(view_func)
+    def wrapped(request, *args, **kwargs):
+        if getattr(request, "company", None) is None or not getattr(request, "company_access", False):
+            return HttpResponseForbidden("Немає доступу до активного магазину.")
+        return view_func(request, *args, **kwargs)
+    return wrapped
