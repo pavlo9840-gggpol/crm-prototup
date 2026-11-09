@@ -21,7 +21,7 @@ def norm_sku(value):
 
 
 class Category(models.Model):
-    name = models.CharField("Назва", max_length=100)
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    name = models.CharField("Назва", max_length=100)
     parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT,
                                related_name="children", verbose_name="Батьківська категорія")
 
@@ -35,7 +35,7 @@ class Category(models.Model):
 
 
 class Supplier(models.Model):
-    name = models.CharField("Назва", max_length=150)
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    name = models.CharField("Назва", max_length=150)
     contact_person = models.CharField("Контактна особа", max_length=100, blank=True)
     phone = models.CharField("Телефон", max_length=30, blank=True)
     notes = models.TextField("Примітки", blank=True)
@@ -57,7 +57,7 @@ class Supplier(models.Model):
 
 
 class Product(models.Model):
-    name = models.CharField("Назва", max_length=200)
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    name = models.CharField("Назва", max_length=200)
     sku = models.CharField("Артикул", max_length=50, db_index=True)
     barcode = models.CharField("Штрих-код", max_length=50, unique=True, null=True, blank=True)
     category = models.ForeignKey(Category, null=True, blank=True, on_delete=models.SET_NULL,
@@ -111,7 +111,7 @@ class Product(models.Model):
 
 
 class PriceHistory(models.Model):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="price_history")
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="price_history")
     field = models.CharField(max_length=10)  # price / cost_price
     old_value = models.DecimalField(max_digits=10, decimal_places=2)
     new_value = models.DecimalField(max_digits=10, decimal_places=2)
@@ -120,7 +120,7 @@ class PriceHistory(models.Model):
 
 
 class Customer(models.Model):
-    name = models.CharField("Ім'я", max_length=100)
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    name = models.CharField("Ім'я", max_length=100)
     phone = models.CharField("Телефон", max_length=30, unique=True)
     birthday = models.DateField("День народження", null=True, blank=True)
     notes = models.TextField("Примітки", blank=True)
@@ -149,7 +149,7 @@ class Customer(models.Model):
 
 
 class Shift(models.Model):
-    cashier = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="shifts")
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    cashier = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="shifts")
     opened_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(null=True, blank=True)
     opening_cash = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -167,7 +167,7 @@ class Shift(models.Model):
 
 
 class Sale(models.Model):
-    DONE, HELD = "done", "held"
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    DONE, HELD = "done", "held"
     PAYMENTS = [("cash", "Готівка"), ("card", "Картка"), ("mixed", "Змішана")]
     number = models.CharField(max_length=20, blank=True)
     status = models.CharField(max_length=10, default=DONE, db_index=True)
@@ -194,7 +194,7 @@ class Sale(models.Model):
 
 
 class SaleItem(models.Model):
-    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="items")
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
     quantity = models.DecimalField(max_digits=10, decimal_places=3)
     original_price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -244,7 +244,7 @@ class SaleItem(models.Model):
 
 
 class SaleReturn(models.Model):
-    REFUND_METHODS = [
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    REFUND_METHODS = [
         ("pending", "Очікує виплати"), ("cash", "Готівка"),
         ("card", "Картка"), ("mixed", "Змішана"),
     ]
@@ -261,14 +261,14 @@ class SaleReturn(models.Model):
 
 
 class SaleReturnItem(models.Model):
-    sale_return = models.ForeignKey(SaleReturn, on_delete=models.CASCADE, related_name="items")
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    sale_return = models.ForeignKey(SaleReturn, on_delete=models.CASCADE, related_name="items")
     sale_item = models.ForeignKey(SaleItem, on_delete=models.PROTECT)
     quantity = models.DecimalField(max_digits=10, decimal_places=3)
     price = models.DecimalField(max_digits=10, decimal_places=2)
 
 
 class Purchase(models.Model):
-    number = models.CharField(max_length=20, blank=True)
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    number = models.CharField(max_length=20, blank=True)
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT)
     created_at = models.DateTimeField(auto_now_add=True)
     user = models.ForeignKey(USER, on_delete=models.PROTECT)
@@ -280,7 +280,7 @@ class Purchase(models.Model):
 
 
 class PurchaseItem(models.Model):
-    purchase = models.ForeignKey(Purchase, on_delete=models.CASCADE, related_name="items")
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    purchase = models.ForeignKey(Purchase, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
     quantity = models.DecimalField(max_digits=10, decimal_places=3)
     cost_price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -291,7 +291,7 @@ class PurchaseItem(models.Model):
 
 
 class StockAdjustment(models.Model):
-    KINDS = [("writeoff", "Списання"), ("surplus", "Надлишок"), ("shortage", "Нестача")]
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    KINDS = [("writeoff", "Списання"), ("surplus", "Надлишок"), ("shortage", "Нестача")]
     REASONS = [("damaged", "Пошкодження"), ("expired", "Прострочення"), ("other", "Інше")]
     product = models.ForeignKey(Product, on_delete=models.PROTECT, verbose_name="Товар")
     kind = models.CharField("Тип", max_length=10, choices=KINDS)
@@ -303,7 +303,7 @@ class StockAdjustment(models.Model):
 
 
 class StockMovement(models.Model):
-    TYPES = [
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    TYPES = [
         ("purchase", "Надходження"), ("sale", "Видаток продажу"),
         ("customer_return", "Повернення від клієнта"), ("supplier_return", "Повернення постачальнику"),
         ("writeoff", "Списання"), ("surplus", "Надлишок"), ("shortage", "Нестача"),
@@ -323,7 +323,7 @@ class StockMovement(models.Model):
 
 
 class CashOperation(models.Model):
-    KINDS = [("in", "Внесення"), ("out", "Вилучення / інкасація"), ("adjust", "Корекція")]
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    KINDS = [("in", "Внесення"), ("out", "Вилучення / інкасація"), ("adjust", "Корекція")]
     shift = models.ForeignKey(Shift, on_delete=models.CASCADE, related_name="cash_ops")
     user = models.ForeignKey(USER, on_delete=models.PROTECT)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -337,7 +337,7 @@ class CashOperation(models.Model):
 
 
 class CompanySettings(models.Model):
-    name = models.CharField("Назва магазину", max_length=150, default="Мій магазин")
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    name = models.CharField("Назва магазину", max_length=150, default="Мій магазин")
     legal_name = models.CharField("Юридична назва", max_length=200, blank=True)
     tax_id = models.CharField("ЄДРПОУ / ІПН", max_length=30, blank=True)
     vat_id = models.CharField("Номер платника ПДВ", max_length=30, blank=True)
@@ -364,7 +364,7 @@ class CompanySettings(models.Model):
 
 
 class BankAccount(models.Model):
-    bank_name = models.CharField("Банк", max_length=100)
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    bank_name = models.CharField("Банк", max_length=100)
     iban = models.CharField("IBAN / рахунок", max_length=40)
     mfo = models.CharField("МФО", max_length=15, blank=True)
     holder = models.CharField("Отримувач", max_length=150, blank=True)
@@ -377,7 +377,7 @@ class BankAccount(models.Model):
 
 
 class DocTemplate(models.Model):
-    """LEGACY (v2 HTML templates). Kept so existing data is not lost; replaced by PrintTemplate."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """LEGACY (v2 HTML templates). Kept so existing data is not lost; replaced by PrintTemplate."""
     kind = models.CharField(max_length=20, unique=True)
     body = models.TextField()
     paper = models.CharField(max_length=10, default="80mm")
@@ -385,7 +385,7 @@ class DocTemplate(models.Model):
 
 
 class PrintTemplate(models.Model):
-    """Print form designed in the visual designer. layout = JSON (see core/designer.py)."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Print form designed in the visual designer. layout = JSON (see core/designer.py)."""
     doc_type = models.CharField(max_length=20, db_index=True)
     name = models.CharField(max_length=150)
     layout = models.JSONField(default=dict)
@@ -405,7 +405,7 @@ class PrintTemplate(models.Model):
 
 # ====================================================== прайси постачальників / аналоги / націнки
 class SupplierItem(models.Model):
-    """Рядок прайсу постачальника. Не є складським товаром: залишок складу не змінює."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Рядок прайсу постачальника. Не є складським товаром: залишок складу не змінює."""
     supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE, related_name="items")
     brand = models.CharField("Бренд", max_length=60, blank=True)
     sku = models.CharField("Артикул", max_length=80)
@@ -438,7 +438,7 @@ class SupplierItem(models.Model):
 
 
 class PriceImport(models.Model):
-    supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE, related_name="imports")
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE, related_name="imports")
     user = models.ForeignKey(USER, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
     file_name = models.CharField(max_length=200, blank=True)
@@ -451,7 +451,7 @@ class PriceImport(models.Model):
 
 
 class CrossRef(models.Model):
-    """Пара аналогів (за нормалізованим артикулом), симетрична."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Пара аналогів (за нормалізованим артикулом), симетрична."""
     a = models.CharField(max_length=80, db_index=True)
     b = models.CharField(max_length=80, db_index=True)
     a_raw = models.CharField(max_length=80, blank=True)
@@ -463,7 +463,7 @@ class CrossRef(models.Model):
 
 
 class MarkupTier(models.Model):
-    name = models.CharField("Назва", max_length=60)
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    name = models.CharField("Назва", max_length=60)
     percent = models.DecimalField("Націнка, %", max_digits=6, decimal_places=2, default=30)
     is_default = models.BooleanField("За замовчуванням (для клієнтів без категорії)", default=False)
 
@@ -477,7 +477,7 @@ class MarkupTier(models.Model):
 
 
 class SupplierApi(models.Model):
-    """Підключення до API / фіду постачальника: каталог підтягується у «Прайси постачальників»."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Підключення до API / фіду постачальника: каталог підтягується у «Прайси постачальників»."""
     AUTH = [("none", "Без ключа"), ("bearer", "Заголовок Authorization: Bearer <ключ>"),
             ("header", "Власний заголовок (напр. X-API-Key)"), ("query", "Параметр у посиланні (напр. ?api_key=…)")]
     FMT = [("json", "JSON"), ("xml", "XML (у т.ч. YML-фіди)"), ("csv", "Таблиця за посиланням (CSV / XLSX)")]
@@ -529,7 +529,7 @@ class SupplierApi(models.Model):
 
 # ====================================================== дані про запчастини (аналог TecDoc)
 class PartOe(models.Model):
-    """Звʼязок «деталь ↔ OE-номер». Деталі зі спільним OE-номером вважаються точними аналогами."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Звʼязок «деталь ↔ OE-номер». Деталі зі спільним OE-номером вважаються точними аналогами."""
     brand = models.CharField(max_length=60, db_index=True)
     sku_norm = models.CharField(max_length=80)
     sku = models.CharField(max_length=80, blank=True)
@@ -544,7 +544,7 @@ class PartOe(models.Model):
 
 
 class PartInfo(models.Model):
-    """Опис, характеристики, застосовність і фото деталі (ключ — бренд + артикул)."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Опис, характеристики, застосовність і фото деталі (ключ — бренд + артикул)."""
     brand = models.CharField(max_length=60)
     sku_norm = models.CharField(max_length=80)
     sku = models.CharField(max_length=80, blank=True)
@@ -578,7 +578,7 @@ class PartInfo(models.Model):
 
 
 class CrossReject(models.Model):
-    """Пара, яку людина визнала НЕ аналогами: приховується з усіх автоматичних джерел."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Пара, яку людина визнала НЕ аналогами: приховується з усіх автоматичних джерел."""
     a = models.CharField(max_length=80)
     b = models.CharField(max_length=80)
     user = models.ForeignKey(USER, null=True, on_delete=models.SET_NULL)
@@ -589,7 +589,7 @@ class CrossReject(models.Model):
 
 
 class CustomerCar(models.Model):
-    """Авто клієнта: за ним підбираються запчастини й шукається клієнт на касі."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Авто клієнта: за ним підбираються запчастини й шукається клієнт на касі."""
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="cars")
     plate = models.CharField("Держномер", max_length=20, blank=True)
     plate_norm = models.CharField(max_length=20, blank=True, db_index=True, editable=False)
@@ -619,7 +619,7 @@ class CustomerCar(models.Model):
 
 
 class Receipt(models.Model):
-    """Журнал приймання накладної постачальника (хто, коли, скільки пішло під клієнтів і скільки на склад)."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Журнал приймання накладної постачальника (хто, коли, скільки пішло під клієнтів і скільки на склад)."""
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="receipts")
     number = models.CharField("Номер накладної", max_length=60, blank=True)
     user = models.ForeignKey(USER, null=True, on_delete=models.SET_NULL)
@@ -636,7 +636,7 @@ class Receipt(models.Model):
 
 # ====================================================== правила цін, зарплата
 class PriceRule(models.Model):
-    """Правило ціни: націнка, мінімальна маржа й округлення для бренду та/або категорії.
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Правило ціни: націнка, мінімальна маржа й округлення для бренду та/або категорії.
     Найконкретніше правило перемагає: бренд + категорія, потім бренд, потім категорія, потім загальне."""
     ROUND = [(0, "без округлення"), (1, "до 1 ₴ вгору"), (5, "до 5 ₴ вгору"), (10, "до 10 ₴ вгору")]
     name = models.CharField("Назва", max_length=80)
@@ -660,7 +660,7 @@ class PriceRule(models.Model):
 
 
 class SupplierPriceChange(models.Model):
-    """Журнал змін закупівельної ціни в прайсах постачальників."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Журнал змін закупівельної ціни в прайсах постачальників."""
     item = models.ForeignKey(SupplierItem, on_delete=models.CASCADE, related_name="changes")
     old_cost = models.DecimalField(max_digits=12, decimal_places=2)
     new_cost = models.DecimalField(max_digits=12, decimal_places=2)
@@ -671,7 +671,7 @@ class SupplierPriceChange(models.Model):
 
 
 class PayPlan(models.Model):
-    """План оплати менеджера: відсоток від маржі + фіксована частина. Запис без менеджера = типовий план."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """План оплати менеджера: відсоток від маржі + фіксована частина. Запис без менеджера = типовий план."""
     user = models.OneToOneField(USER, null=True, blank=True, on_delete=models.CASCADE, related_name="pay_plan",
                                 verbose_name="Менеджер (порожньо = типовий план для всіх)")
     margin_pct = models.DecimalField("Відсоток від маржі, %", max_digits=5, decimal_places=2, default=10)
@@ -871,7 +871,7 @@ class PartFitment(models.Model):
 
 
 class Shipment(models.Model):
-    """Відправлення Нової пошти: локальна картка, ТТН і останній відомий статус."""
+    company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)\n    """Відправлення Нової пошти: локальна картка, ТТН і останній відомий статус."""
     STATUS = [
         ("draft", "Чернетка"), ("created", "Накладну створено"),
         ("in_transit", "У дорозі"), ("arrived", "Прибуло у відділення"),
@@ -928,7 +928,7 @@ class Company(models.Model):
 
     name = models.CharField("Назва магазину", max_length=150)
     slug = models.SlugField("Ідентифікатор", max_length=180, unique=True)
-    owner = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="owned_companies")
+    owner = models.ForeignKey(USER, null=True, blank=True, on_delete=models.PROTECT, related_name="owned_companies")
     plan = models.CharField(max_length=20, choices=PLANS, default="start", db_index=True)
     status = models.CharField(max_length=20, choices=STATUSES, default="trial", db_index=True)
     trial_ends_at = models.DateTimeField(null=True, blank=True)
