@@ -97,7 +97,7 @@ class SupplierForm(forms.ModelForm):
         model = Supplier
         exclude = ["company"]
 
-    def __init__(self, *a, **k):
+    def __init__(self, *a, company=None, **k):
         super().__init__(*a, **k)
         self.fields["rate_margin_pct"].required = False          # має значення за замовчуванням (0)
 
