@@ -243,8 +243,6 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
             raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
         if shift.cashier_id != user.pk and not _can_manage(user, company):
             raise StockError("Немає доступу до цієї касової зміни")
-        if shift.cashier_id != user.pk and not _can_manage(user, company):
-            raise StockError("Немає доступу до цієї касової зміни")
         locked_shift = Shift.objects.select_for_update().filter(
             pk=shift.pk, company=company, closed_at__isnull=True
         ).first()
@@ -352,6 +350,8 @@ def settle_return(user, sale_return, refund_method, refund_cash_amount=None, shi
     if cash_amount > 0:
         if shift is None:
             raise StockError("Для повернення готівки спочатку відкрийте касову зміну")
+        if shift.cashier_id != user.pk and not _can_manage(user, company):
+            raise StockError("Немає доступу до цієї касової зміни")
         locked_shift = Shift.objects.select_for_update().filter(
             pk=shift.pk, company=company, closed_at__isnull=True
         ).first()
