@@ -20,7 +20,8 @@ class PayPlanForm(forms.ModelForm):
         self.company = company
         if company is not None:
             self.fields["user"].queryset = get_user_model().objects.filter(
-                company_memberships__company=company, company_memberships__is_active=True, is_active=True
+                company_memberships__company=company, company_memberships__is_active=True,
+                company_memberships__role__in=("manager", "cashier", "mechanic"), is_active=True
             ).distinct()
 
     class Meta:
@@ -54,7 +55,8 @@ def pay_plans(request):
     plans = list(PayPlan.objects.filter(company=request.company).select_related("user").order_by("user__username"))
     covered = {p.user_id for p in plans}
     no_plan = [u for u in get_user_model().objects.filter(company_memberships__company=request.company,
-                    company_memberships__is_active=True, is_active=True).distinct() if u.pk not in covered]
+                    company_memberships__is_active=True, company_memberships__role__in=("manager", "cashier", "mechanic"),
+                    is_active=True).distinct() if u.pk not in covered]
     has_default = any(p.user_id is None for p in plans)
     return render(request, "core/pay_plans.html", {"plans": plans, "no_plan": no_plan if not has_default else [], "has_default": has_default})
 
