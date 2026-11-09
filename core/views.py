@@ -254,11 +254,13 @@ category_list = staff_only(company_required(category_list))
 supplier_list = staff_only(company_required(supplier_list))
 
 
+@staff_only
 @company_required
 def category_edit(request, pk=None):
     return simple_form(request, CategoryForm, "Категорія", "category_list", pk, Category)
 
 
+@staff_only
 @company_required
 def supplier_edit(request, pk=None):
     return simple_form(request, SupplierForm, "Постачальник", "supplier_list", pk, Supplier)
