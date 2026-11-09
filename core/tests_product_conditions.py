@@ -2,12 +2,14 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from core.forms import ProductForm
-from core.models import Category, Product
+from core.models import Category, Company, CompanyMembership, Product
 
 
 class ProductConditionTests(TestCase):
     def setUp(self):
         user = get_user_model().objects.create_superuser("products-admin", "admin@example.test", "secret")
+        self.company = Company.objects.create(name="Product conditions shop", slug="product-conditions-shop", status="active", owner=user)
+        CompanyMembership.objects.create(company=self.company, user=user, role="owner")
         self.client.force_login(user)
 
     def payload(self, **extra):
@@ -53,8 +55,8 @@ class ProductConditionTests(TestCase):
         self.assertEqual(form.cleaned_data["category"], category)
 
     def test_product_list_filters_by_condition_and_shows_photo_column(self):
-        Product.objects.create(name="Нова деталь", sku="NEW-1", brand="TEST", condition="new")
-        Product.objects.create(name="Вживана деталь", sku="USED-1", brand="TEST", condition="used")
+        Product.objects.create(company=self.company, name="Нова деталь", sku="NEW-1", brand="TEST", condition="new")
+        Product.objects.create(company=self.company, name="Вживана деталь", sku="USED-1", brand="TEST", condition="used")
         response = self.client.get("/products/?condition=used")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Вживана деталь")
