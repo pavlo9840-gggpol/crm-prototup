@@ -1,4 +1,5 @@
 from django import forms
+from django.contrib.auth import get_user_model
 from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine
 
 
@@ -12,10 +13,10 @@ class ServiceAppointmentForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["scheduled_at"].input_formats = ["%Y-%m-%dT%H:%M"]
         if company is not None:
-            from .models import Customer, CustomerCar, CompanyMembership
+            from .models import Customer, CustomerCar
             self.fields["customer"].queryset = Customer.objects.filter(company=company)
             self.fields["car"].queryset = CustomerCar.objects.filter(company=company).select_related("customer")
-            self.fields["assigned_to"].queryset = __import__("django.contrib.auth", fromlist=["get_user_model"]).get_user_model().objects.filter(
+            self.fields["assigned_to"].queryset = get_user_model().objects.filter(
                 company_memberships__company=company, company_memberships__is_active=True
             ).distinct()
         self.fields["car"].queryset = self.fields["car"].queryset.select_related("customer")
