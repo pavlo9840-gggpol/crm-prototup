@@ -499,7 +499,7 @@ class FinancialIntegrityTests(TestCase):
             balance_after=Decimal("12.000"), doc_ref="NK-TEST-42", user=self.admin,
         )
         StockMovement.objects.create(
-            product=self.product, movement_type="sale", quantity_change=Decimal("-1.000"),
+            company=self.company, product=self.product, movement_type="sale", quantity_change=Decimal("-1.000"),
             balance_after=Decimal("11.000"), doc_ref="CH-TEST-42", user=self.admin,
         )
         self.client.force_login(self.admin)
