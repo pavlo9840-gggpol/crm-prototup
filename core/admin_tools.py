@@ -22,8 +22,9 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import services
-from .models import Category, PriceHistory, Product, norm_sku
-from .views import staff_only
+from .models import Category, CompanyMembership, PriceHistory, Product, norm_sku
+from .tenant_context import company_required
+from .views import tenant_staff_only
 
 User = get_user_model()
 D0 = Decimal("0")
@@ -44,7 +45,8 @@ class UserForm(forms.Form):
     username = forms.CharField(label="Логін", max_length=150)
     first_name = forms.CharField(label="Ім'я (для відображення)", max_length=150, required=False)
     role = forms.ChoiceField(label="Роль", choices=[("cashier", "Касир (лише каса, свої продажі та зміни)"),
-                                                    ("admin", "Адміністратор (повний доступ)")])
+                                                    ("manager", "Менеджер"), ("mechanic", "Механік"),
+                                                    ("admin", "Адміністратор магазину")])
     is_active = forms.BooleanField(label="Активний (може входити)", required=False, initial=True)
     password = forms.CharField(label="Пароль", required=False, widget=forms.PasswordInput(render_value=False),
                                help_text="Мінімум 6 символів. Під час редагування залиште порожнім, щоб не змінювати.")
@@ -76,44 +78,56 @@ class UserForm(forms.Form):
         return d
 
 
-def _active_admins(exclude=None):
-    qs = User.objects.filter(is_superuser=True, is_active=True)
-    return qs.exclude(pk=exclude.pk) if exclude else qs
-
-
-@superuser_only
+@login_required
+@company_required
+@tenant_staff_only
 def user_list(request):
-    return render(request, "core/user_list.html", {"users": User.objects.order_by("-is_superuser", "username")})
+    memberships = CompanyMembership.objects.filter(company=request.company).select_related("user").order_by(
+        "-role", "user__username"
+    )
+    return render(request, "core/user_list.html", {"memberships": memberships})
 
 
-@superuser_only
+@login_required
+@company_required
+@tenant_staff_only
 def user_edit(request, pk=None):
-    obj = get_object_or_404(User, pk=pk) if pk else None
+    membership = get_object_or_404(
+        CompanyMembership.objects.select_related("user").filter(company=request.company), user_id=pk
+    ) if pk else None
+    obj = membership.user if membership else None
     me = obj is not None and obj.pk == request.user.pk
-    init = {"username": obj.username, "first_name": obj.first_name, "role": "admin" if obj.is_superuser else "cashier",
-            "is_active": obj.is_active} if obj else {"role": "cashier", "is_active": True}
+    init = {
+        "username": obj.username,
+        "first_name": obj.first_name,
+        "role": membership.role,
+        "is_active": membership.is_active,
+    } if membership else {"role": "cashier", "is_active": True}
     form = UserForm(request.POST or None, initial=init, user=obj, editing_self=me)
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
         if me:
-            role, active = ("admin" if obj.is_superuser else "cashier"), obj.is_active
+            role, active = membership.role, membership.is_active
         else:
             role, active = d["role"], d["is_active"]
-        if obj and obj.is_superuser and (role != "admin" or not active) and not _active_admins(exclude=obj).exists():
-            form.add_error(None, "Не можна позбавити системи останнього активного адміністратора")
+        if obj is None:
+            obj = User.objects.create_user(
+                username=d["username"], password=d["password"], first_name=d["first_name"],
+                is_staff=False, is_superuser=False,
+            )
+            CompanyMembership.objects.create(company=request.company, user=obj, role=role, is_active=active)
         else:
-            u = obj or User()
-            u.username, u.first_name = d["username"], d["first_name"]
-            u.is_superuser = u.is_staff = (role == "admin")
-            u.is_active = active
+            obj.username, obj.first_name = d["username"], d["first_name"]
             if d["password"]:
-                u.set_password(d["password"])
-            elif not obj:
-                u.set_unusable_password()
-            u.save()
-            messages.success(request, "Користувача збережено")
-            return redirect("user_list")
-    return render(request, "core/form.html", {"form": form, "title": "Користувач" if obj else "Новий користувач", "back": "user_list"})
+                obj.set_password(d["password"])
+            obj.save(update_fields=["username", "first_name", "password"])
+            membership.role, membership.is_active = role, active
+            membership.save(update_fields=["role", "is_active"])
+        messages.success(request, "Учасника магазину збережено")
+        return redirect("user_list")
+    return render(request, "core/form.html", {
+        "form": form, "title": "Учасник магазину" if obj else "Новий учасник магазину", "back": "user_list"
+    })
 
 
 # =============================================================== backups
@@ -215,14 +229,15 @@ def _bool(v):
     raise ValueError
 
 
-def category_by_path(path):
+def category_by_path(path, company):
     parent = None
     for part in [p.strip() for p in re.split(r"→|>|/|\\", path) if p.strip()]:
-        parent, _ = Category.objects.get_or_create(name=part[:100], parent=parent)
+        parent, _ = Category.objects.get_or_create(company=company, name=part[:100], parent=parent)
     return parent
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def product_export(request):
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="products.csv"'
@@ -232,14 +247,14 @@ def product_export(request):
     if request.GET.get("template"):
         w.writerow(["COLA05", "Кола 0.5л", "4820000000011", "Напої → Газовані напої", "пляшка", "20.00", "30.00", "10", "100", "1", "1", "0", "SACHS"])
         return resp
-    for p in Product.objects.select_related("category").order_by("name"):
+    for p in Product.objects.filter(company=request.company).select_related("category").order_by("name"):
         w.writerow([p.sku, p.name, p.barcode or "", str(p.category or ""), p.unit, f"{p.cost_price:.2f}", f"{p.price:.2f}",
                     f"{p.min_stock.normalize():f}", f"{p.current_stock.normalize():f}", int(p.is_active), int(p.is_favorite),
                     int(p.allow_price_change), p.brand])
     return resp
 
 
-def parse_csv(raw):
+def parse_csv(raw, company):
     """-> (rows, errors, fatal). rows: list of dicts ready for apply (strings for JSON-session)."""
     try:
         text = raw.decode("utf-8-sig")
@@ -257,10 +272,10 @@ def parse_csv(raw):
         return [], [], "Не знайдено колонки «Код» (SKU). Скачайте шаблон CSV та використайте його заголовки."
     rows, errors, seen_sku, seen_bc = [], [], set(), set()
     existing, by_norm = {}, {}
-    for p in Product.objects.all():
+    for p in Product.objects.filter(company=company):
         existing[(p.brand.upper(), p.sku_norm)] = p
         by_norm.setdefault(p.sku_norm, []).append(p)
-    bc_owner = {p.barcode: ((p.brand.upper(), p.sku_norm), p.sku) for p in Product.objects.exclude(barcode__isnull=True)}
+    bc_owner = {p.barcode: ((p.brand.upper(), p.sku_norm), p.sku) for p in Product.objects.filter(company=company).exclude(barcode__isnull=True)}
     for ln, rec in enumerate(rd, start=2):
         if not any(c.strip() for c in rec):
             continue
@@ -329,13 +344,15 @@ def parse_csv(raw):
 
 
 @transaction.atomic
-def apply_rows(rows, user):
+def apply_rows(rows, user, company):
     created = updated = 0
     for r in rows:
-        p = Product.objects.filter(pk=r["pk"]).first() if r.get("pk") else None
+        p = Product.objects.filter(company=company, pk=r["pk"]).first() if r.get("pk") else None
+        if r.get("pk") and p is None:
+            raise ValueError("Товар з імпорту не належить активному магазину")
         is_new = p is None
         if is_new:
-            p = Product(sku=r["sku"], name=r["name"])
+            p = Product(company=company, sku=r["sku"], name=r["name"])
         for f in ("name", "unit", "barcode", "brand"):
             if f in r:
                 setattr(p, f, r[f])
@@ -345,13 +362,13 @@ def apply_rows(rows, user):
         if "min_stock" in r:
             p.min_stock = Decimal(r["min_stock"])
         if "category" in r:
-            p.category = category_by_path(r["category"])
+            p.category = category_by_path(r["category"], company)
         for f in ("price", "cost_price"):
             if f in r:
                 new, old = Decimal(r[f]), getattr(p, f)
                 setattr(p, f, new)
                 if not is_new and old != new:
-                    PriceHistory.objects.create(product=p, field=f, old_value=old, new_value=new, changed_by=user)
+                    PriceHistory.objects.create(company=company, product=p, field=f, old_value=old, new_value=new, changed_by=user)
         if is_new:
             p.save()
             if Decimal(r.get("current_stock", "0")) > 0:
@@ -363,33 +380,40 @@ def apply_rows(rows, user):
     return created, updated
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def product_import(request):
     if request.method == "POST":
         f = request.FILES.get("file")
         if not f or f.size > 5_000_000:
             messages.error(request, "Оберіть CSV-файл (до 5 МБ)")
             return redirect("product_import")
-        rows, errors, fatal = parse_csv(f.read())
+        rows, errors, fatal = parse_csv(f.read(), request.company)
         if fatal:
             messages.error(request, fatal)
             return redirect("product_import")
         request.session["product_import"] = rows
+        request.session["product_import_company_id"] = request.company.pk
         return render(request, "core/product_import_preview.html", {
             "rows": rows[:200], "total": len(rows), "new": sum(1 for r in rows if r["new"]),
             "upd": sum(1 for r in rows if not r["new"]), "errors": errors[:200], "n_err": len(errors)})
     return render(request, "core/product_import.html", {"columns": COLUMNS})
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 @require_POST
 def product_import_apply(request):
     rows = request.session.pop("product_import", None)
+    import_company_id = request.session.pop("product_import_company_id", None)
+    if import_company_id != request.company.pk:
+        messages.error(request, "Активний магазин змінився. Завантажте CSV-файл ще раз.")
+        return redirect("product_import")
     if not rows:
         messages.error(request, "Немає даних для імпорту — завантажте файл заново")
         return redirect("product_import")
     try:
-        c, u = apply_rows(rows, request.user)
+        c, u = apply_rows(rows, request.user, request.company)
     except Exception as e:  # whole import is atomic: nothing is saved on failure
         messages.error(request, f"Імпорт скасовано, жодних змін не збережено: {e}")
         return redirect("product_import")
