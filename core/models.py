@@ -374,8 +374,11 @@ class CompanySettings(models.Model):
         verbose_name = "Налаштування фірми"
 
     @classmethod
-    def get(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
+    def get(cls, company=None):
+        if company is not None:
+            obj, _ = cls.objects.get_or_create(company=company, defaults={"name": company.name})
+        else:
+            obj, _ = cls.objects.get_or_create(pk=1)
         return obj
 
 
