@@ -186,7 +186,7 @@ def designer_home(request):
         cards.append({"key": key, "label": spec["label"], "count": len(tpls), "custom": sum(1 for t in tpls if not t.is_builtin),
                       "default": d.name if d else ""})
     old = [{"obj": o, "label": legacy.LEGACY_KINDS.get(o.kind, o.kind), "ok": o.kind in legacy.LEGACY_KINDS}
-           for o in DocTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)).order_by("kind")]
+           for o in DocTemplate.objects.filter(company=request.company).order_by("kind")]
     return render(request, "core/designer_home.html", {"cards": cards, "legacy": old})
 
 
@@ -439,7 +439,7 @@ def font_view(request, style):
 @tenant_staff_only
 @require_POST
 def legacy_convert(request, pk):
-    o = get_object_or_404(DocTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)), pk=pk)
+    o = get_object_or_404(DocTemplate.objects.filter(company=request.company), pk=pk)
     if o.kind not in legacy.LEGACY_KINDS:
         messages.error(request, "Цей тип старого шаблону не підтримується")
         return redirect("designer_home")
@@ -460,7 +460,7 @@ def legacy_convert(request, pk):
 @tenant_staff_only
 @require_POST
 def legacy_delete(request, pk=None):
-    qs = DocTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True)) if pk is None else DocTemplate.objects.filter(Q(company=request.company) | Q(company__isnull=True), pk=pk)
+    qs = DocTemplate.objects.filter(company=request.company) if pk is None else DocTemplate.objects.filter(company=request.company, pk=pk)
     n = qs.count()
     qs.delete()
     messages.success(request, f"Видалено старих шаблонів: {n}")
