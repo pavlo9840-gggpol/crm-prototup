@@ -6,7 +6,7 @@ from django.utils import timezone
 from . import cash as cashlib
 from .models import (Shift, CashOperation, Customer, Product, PurchaseItem, Sale, SaleItem, SaleReturn,
                      SaleReturnItem, StockMovement, Purchase, PriceHistory, MarkupTier,
-                     CompanySettings, norm_sku)
+                     CompanySettings, CompanyMembership, norm_sku)
 
 D0 = Decimal("0")
 
@@ -112,16 +112,29 @@ def _make_item(sale, p, q, pr, x, done):
 
 
 @transaction.atomic
+def _can_manage(user, company):
+    return CompanyMembership.objects.filter(company=company, user=user, is_active=True,
+                                            role__in=("owner", "admin", "manager")).exists()
+
+
 def save_held(user, lines, payment, customer, shift, held=None, car=None, company=None):
     company = company or (shift.company if shift else (lines[0][0].company if lines else None))
     if company is None or any(p.company_id != company.pk for p, *_ in lines):
         raise StockError("Товари належать іншому магазину або магазин не вибрано")
     if customer and customer.company_id != company.pk:
         raise StockError("Клієнт належить іншому магазину")
+    if car and (car.company_id != company.pk or not customer or car.customer_id != customer.pk):
+        raise StockError("Автомобіль не належить вибраному клієнту цього магазину")
     if shift and shift.company_id != company.pk:
         raise StockError("Касова зміна належить іншому магазину")
     if held and held.company_id != company.pk:
         raise StockError("Чернетка належить іншому магазину")
+    if held and held.cashier_id != user.pk and not _can_manage(user, company):
+        raise StockError("Немає доступу до цієї чернетки")
+    if car and (car.company_id != company.pk or not customer or car.customer_id != customer.pk):
+        raise StockError("Автомобіль не належить вибраному клієнту цього магазину")
+    if any(x and (x["si"].company_id != company.pk or x["si"].supplier.company_id != company.pk) for *_a, x in lines):
+        raise StockError("Позиція постачальника належить іншому магазину")
     sale = held or Sale(company=company, cashier=user, status=Sale.HELD)
     sale.shift, sale.customer, sale.payment_method = shift, customer, payment
     sale.car = car if customer else None
@@ -153,11 +166,11 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
         held = Sale.objects.select_for_update().filter(pk=held.pk, company=company).first()
         if held is None or held.status != Sale.HELD:
             raise StockError("Цю чернетку вже проведено або видалено. Створіть новий чек.")
-        if held.cashier_id != user.pk and not user.is_staff:
+        if held.cashier_id != user.pk and not _can_manage(user, company):
             raise StockError("Немає доступу до цієї чернетки")
     if shift is not None:
         shift = Shift.objects.select_for_update().filter(pk=shift.pk, company=company, closed_at__isnull=True).first()
-        if shift is None and not user.is_staff:
+        if shift is None:
             raise StockError("Зміну вже закрито. Відкрийте нову зміну.")
     need = {}
     for p, q, _pr, x in lines:
@@ -234,7 +247,9 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
     ret.number = f"PV-{ret.pk:06d}"
     ret.save(update_fields=["number"])
 
-    for item in sale.items.select_for_update().order_by("pk"):
+    for item in sale.items.select_for_update().filter(company=company).order_by("pk"):
+        if item.product.company_id != company.pk:
+            raise StockError("У чеку виявлено товар іншого магазину")
         q = qty_map.get(item.pk, D0)
         if q <= 0:
             continue
@@ -414,7 +429,7 @@ def apply_adjustment(user, adj_form, company=None):
 
 # ====================================================== замовлення в дорозі (товар постачальника)
 def _own(user, item):
-    return user.is_staff or item.sale.cashier_id == user.id
+    return item.sale.cashier_id == user.id or _can_manage(user, item.sale.company)
 
 
 def _check(user, item, allowed, receiving=False):
@@ -460,7 +475,7 @@ def mark_issued(user, item):
 def _unclaimed(user, item, mode):
     # Keep lock order consistent with create_return(): sale first, then its items.
     # Locking the item first here could deadlock against a simultaneous return.
-    Sale.objects.select_for_update().get(pk=item.sale_id)
+    Sale.objects.select_for_update().get(pk=item.sale_id, company=item.company_id)
     item = SaleItem.objects.select_for_update().select_related("sale").get(pk=item.pk)
     _check(user, item, (SaleItem.ARRIVED,))
     before = Product.objects.select_for_update().get(pk=item.product_id).current_stock
