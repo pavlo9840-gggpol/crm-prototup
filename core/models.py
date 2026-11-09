@@ -372,6 +372,13 @@ class CompanySettings(models.Model):
 
     class Meta:
         verbose_name = "Налаштування фірми"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company"],
+                condition=models.Q(company__isnull=False),
+                name="uniq_company_settings",
+            ),
+        ]
 
     @classmethod
     def get(cls, company=None):
