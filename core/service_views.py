@@ -15,7 +15,6 @@ from .models import Product, Shift, CashOperation
 from . import cash as cashlib
 from .services import StockError, add_movement
 from .tenant_context import company_queryset, company_required
-from .tenant_context import company_required
 
 
 def workshop_staff(view):
@@ -300,7 +299,7 @@ def service_order_issue_parts(request, pk):
 @require_POST
 def service_order_status(request, pk):
     allowed = {s[0] for s in ServiceOrder.STATUS}
-    order = get_object_or_404(ServiceOrder, pk=pk)
+    order = get_object_or_404(ServiceOrder.objects.filter(company=request.company), pk=pk)
     target = request.POST.get("status", "")
     transitions = {
         "draft": {"diagnosis", "cancelled"},
