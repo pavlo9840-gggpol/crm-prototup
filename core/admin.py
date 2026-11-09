@@ -112,3 +112,19 @@ class PartFitmentAdmin(admin.ModelAdmin):
     list_display = ("part_number", "vehicle_model", "year_from", "year_to", "engine_code", "verified", "source")
     search_fields = ("part_number__sku", "part_number__brand", "vehicle_model__name", "vehicle_model__make__name")
     list_filter = ("verified", "source", "vehicle_model__make__kind")
+
+
+@admin.register(m.Company)
+class CompanyAdmin(admin.ModelAdmin):
+    list_display = ("name", "slug", "owner", "plan", "status", "trial_ends_at", "subscription_ends_at")
+    search_fields = ("name", "slug", "owner__username")
+    list_filter = ("plan", "status")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(m.CompanyMembership)
+class CompanyMembershipAdmin(admin.ModelAdmin):
+    list_display = ("company", "user", "role", "is_active", "created_at")
+    search_fields = ("company__name", "user__username", "user__email")
+    list_filter = ("role", "is_active")
+    readonly_fields = ("created_at",)
