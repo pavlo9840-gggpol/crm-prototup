@@ -62,7 +62,7 @@ class Product(models.Model):
     company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)
     name = models.CharField("Назва", max_length=200)
     sku = models.CharField("Артикул", max_length=50, db_index=True)
-    barcode = models.CharField("Штрих-код", max_length=50, unique=True, null=True, blank=True)
+    barcode = models.CharField("Штрих-код", max_length=50, null=True, blank=True)
     category = models.ForeignKey(Category, null=True, blank=True, on_delete=models.SET_NULL,
                                  verbose_name="Категорія")
     unit = models.CharField("Одиниця виміру", max_length=20, default="шт")
@@ -89,6 +89,11 @@ class Product(models.Model):
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["company", "barcode"],
+                                    condition=Q(company__isnull=False, barcode__isnull=False) & ~Q(barcode=""),
+                                    name="uniq_company_product_barcode"),
+        ]
         verbose_name = "Товар"
         verbose_name_plural = "Товари"
 
@@ -126,7 +131,7 @@ class PriceHistory(models.Model):
 class Customer(models.Model):
     company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)
     name = models.CharField("Ім'я", max_length=100)
-    phone = models.CharField("Телефон", max_length=30, unique=True)
+    phone = models.CharField("Телефон", max_length=30)
     birthday = models.DateField("День народження", null=True, blank=True)
     notes = models.TextField("Примітки", blank=True)
     created_at = models.DateTimeField("Дата реєстрації", auto_now_add=True)
@@ -146,6 +151,10 @@ class Customer(models.Model):
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["company", "phone"], condition=Q(company__isnull=False),
+                                    name="uniq_company_customer_phone"),
+        ]
         verbose_name = "Клієнт"
         verbose_name_plural = "Клієнти"
 
