@@ -134,6 +134,14 @@ class CompanyContextTests(TestCase):
                                        number="OWN-CH", total=10, customer=own_customer)
         self.assertEqual(self.client.get(f"/sales/{own_sale.pk}/").status_code, 200)
 
+    def test_customer_phones_and_product_barcodes_are_unique_per_company(self):
+        Customer.objects.create(company=self.company, name="Клієнт А", phone="380991234567")
+        Customer.objects.create(company=self.other_company, name="Клієнт Б", phone="380991234567")
+        Product.objects.create(company=self.company, name="Деталь А", sku="BAR-A", barcode="4820001112223")
+        Product.objects.create(company=self.other_company, name="Деталь Б", sku="BAR-B", barcode="4820001112223")
+        self.assertEqual(Customer.objects.filter(phone="380991234567").count(), 2)
+        self.assertEqual(Product.objects.filter(barcode="4820001112223").count(), 2)
+
     def test_product_catalog_and_detail_are_isolated_between_workspaces(self):
         self.client.force_login(self.user)
 
