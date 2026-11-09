@@ -974,7 +974,7 @@ class CompanyMembership(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["company", "user"], name="uniq_company_user_membership"),
         ]
-        indexes = [models.Index(fields=["user", "is_active"], name="core_membership_user_active_idx")]
+        indexes = [models.Index(fields=["user", "is_active"], name="cm_user_active_idx")]
         verbose_name = "Учасник компанії"
         verbose_name_plural = "Учасники компаній"
 
