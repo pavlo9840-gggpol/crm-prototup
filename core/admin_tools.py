@@ -46,15 +46,17 @@ class UserForm(forms.Form):
     first_name = forms.CharField(label="Ім'я (для відображення)", max_length=150, required=False)
     role = forms.ChoiceField(label="Роль", choices=[("cashier", "Касир (лише каса, свої продажі та зміни)"),
                                                     ("manager", "Менеджер"), ("mechanic", "Механік"),
-                                                    ("admin", "Адміністратор магазину")])
+                                                    ("admin", "Адміністратор магазину"), ("owner", "Власник магазину")])
     is_active = forms.BooleanField(label="Активний (може входити)", required=False, initial=True)
     password = forms.CharField(label="Пароль", required=False, widget=forms.PasswordInput(render_value=False),
                                help_text="Мінімум 6 символів. Під час редагування залиште порожнім, щоб не змінювати.")
 
-    def __init__(self, *a, user=None, editing_self=False, **k):
+    def __init__(self, *a, user=None, editing_self=False, editing_owner=False, **k):
         super().__init__(*a, **k)
         self.user_obj, self.editing = user, user is not None
-        if editing_self:
+        if not self.editing:
+            self.fields["role"].choices = [choice for choice in self.fields["role"].choices if choice[0] != "owner"]
+        if editing_self or editing_owner:
             self.fields["role"].disabled = True
             self.fields["is_active"].disabled = True
             self.fields["role"].help_text = "Свою роль і активність змінити не можна."
@@ -103,7 +105,8 @@ def user_edit(request, pk=None):
         "role": membership.role,
         "is_active": membership.is_active,
     } if membership else {"role": "cashier", "is_active": True}
-    form = UserForm(request.POST or None, initial=init, user=obj, editing_self=me)
+    form = UserForm(request.POST or None, initial=init, user=obj, editing_self=me,
+                    editing_owner=bool(membership and membership.role == "owner"))
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
         if me:
