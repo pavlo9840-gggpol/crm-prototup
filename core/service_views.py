@@ -4,6 +4,7 @@ from functools import wraps
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import Http404
 from django.db import transaction
 from django.db.models import Sum, F, DecimalField, ExpressionWrapper
 from django.shortcuts import get_object_or_404, redirect, render
@@ -29,7 +30,6 @@ def workshop_staff(view):
     return wrapped
 
 
-@workshop_staff
 def workshop_cashier(view):
     @login_required
     @company_required
@@ -37,6 +37,19 @@ def workshop_cashier(view):
     def wrapped(request, *args, **kwargs):
         membership = getattr(request, "company_membership", None)
         if membership is None or membership.role not in ("owner", "admin", "manager", "cashier"):
+            raise PermissionDenied
+        return view(request, *args, **kwargs)
+    return wrapped
+
+
+def workshop_manager(view):
+    """Company owners, admins and managers only; mechanics cannot access reports."""
+    @login_required
+    @company_required
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        membership = getattr(request, "company_membership", None)
+        if membership is None or membership.role not in ("owner", "admin", "manager"):
             raise PermissionDenied
         return view(request, *args, **kwargs)
     return wrapped
@@ -58,8 +71,7 @@ def service_home(request):
     return render(request, "core/service_home.html", {"appointments": appointments, "orders": orders})
 
 
-@tenant_staff_only
-@company_required
+@workshop_manager
 def service_reports(request):
     """Operational and financial overview for the current calendar month."""
     today = timezone.localdate()
