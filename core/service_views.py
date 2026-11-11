@@ -61,6 +61,7 @@ def _require_assigned_mechanic(request, order):
         raise Http404
 
 
+@workshop_staff
 def service_home(request):
     appointments = company_queryset(ServiceAppointment.objects.select_related("customer", "car", "assigned_to").order_by("scheduled_at"), request)
     orders = company_queryset(ServiceOrder.objects.select_related("customer", "car", "mechanic").order_by("-created_at"), request)
