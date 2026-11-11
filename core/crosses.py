@@ -24,9 +24,10 @@ def pair(a, b):
     return tuple(sorted((a, b)))
 
 
-def rejected(qn):
+def rejected(qn, company=None):
     out = set()
-    for a, b in CrossReject.objects.filter(Q(a=qn) | Q(b=qn)).values_list("a", "b"):
+    qs = CrossReject.objects.filter(Q(a=qn) | Q(b=qn))
+    for a, b in qs.values_list("a", "b"):
         out.add(b if a == qn else a)
     return out
 
@@ -106,7 +107,7 @@ def name_profile(name, brand=""):
     return {"type": typ, "veh": veh, "pos": pos}
 
 
-def name_candidates(brand, sku_norm, name):
+def name_candidates(brand, sku_norm, name, company=None):
     """Кандидати в аналоги за назвою: той самий тип деталі, збіг ознак авто й позиції. Лише підказка (до 40 балів)."""
     me = name_profile(name, brand)
     if not me["type"] or len(me["veh"]) < 2:
@@ -117,7 +118,10 @@ def name_candidates(brand, sku_norm, name):
         cond &= Q(name_lc__contains=t)
     out = {}
     for model, brand_of in ((SupplierItem, lambda o: o.brand), (Product, lambda o: o.brand.upper())):
-        for o in model.objects.filter(cond)[:300]:
+        qs = model.objects.filter(cond)
+        if company is not None:
+            qs = qs.filter(company=company)
+        for o in qs[:300]:
             b, n = brand_of(o), o.sku_norm
             if (b, n) == (brand, sku_norm) or n == sku_norm:
                 continue
@@ -134,23 +138,29 @@ def name_candidates(brand, sku_norm, name):
 
 
 # ---------------------------------------------------------------- детальний розрахунок для картки
-def _part_names(norms):
-    """{(бренд, артикул_норм): {name, sku}} за нормалізованими артикулами з усіх джерел."""
+def _part_names(norms, company=None):
+    """{(бренд, артикул_норм): {name, sku}} за нормалізованими артикулами з доступних джерел."""
     parts = {}
-    for p in Product.objects.filter(sku_norm__in=norms):
+    products = Product.objects.filter(sku_norm__in=norms)
+    supplier_items = SupplierItem.objects.filter(sku_norm__in=norms)
+    oe_rows = PartOe.objects.filter(sku_norm__in=norms)
+    if company is not None:
+        products = products.filter(company=company)
+        supplier_items = supplier_items.filter(company=company)
+    for p in products:
         parts[(p.brand.upper(), p.sku_norm)] = {"name": p.name, "sku": p.sku}
-    for i in SupplierItem.objects.filter(sku_norm__in=norms):
+    for i in supplier_items:
         parts.setdefault((i.brand, i.sku_norm), {"name": i.name, "sku": i.sku})
-    for o in PartOe.objects.filter(sku_norm__in=norms):
+    for o in oe_rows:
         parts.setdefault((o.brand, o.sku_norm), {"name": "", "sku": o.sku or o.sku_norm})
     return parts
 
 
-def analogs(brand, sku_norm, limit=40, with_names=False):
+def analogs(brand, sku_norm, limit=40, with_names=False, company=None):
     """Аналоги деталі: рівень, оцінка довіри 0-100, докази, залишок на складі та пропозиції постачальників."""
     brand = (brand or "").upper()
     me = (brand, sku_norm)
-    rej = rejected(sku_norm)
+    rej = rejected(sku_norm, company=company)
     ev = {}                                          # (бренд, норм) -> список (вид, вага, текст)
 
     def add(key, kind, weight, text):
@@ -174,7 +184,7 @@ def analogs(brand, sku_norm, limit=40, with_names=False):
         for a, b in CrossRef.objects.filter(Q(a__in=list(direct)) | Q(b__in=list(direct))).values_list("a", "b"):
             hop2.update((a, b))
     hop2 -= set(direct) | {sku_norm}
-    parts = _part_names(set(direct) | hop2)
+    parts = _part_names(set(direct) | hop2, company=company)
     srcname = {"manual": "Підтверджено вручну", "api": "Кросс із API постачальника", "import": "Кросс із файлу"}
     for n, srcs in direct.items():
         for k in [k for k in parts if k[1] == n] or [("", n)]:
@@ -185,15 +195,18 @@ def analogs(brand, sku_norm, limit=40, with_names=False):
         for k in [k for k in parts if k[1] == n] or [("", n)]:
             add(k, "chain", WEIGHT["chain"], "Через ланцюжок кросів")
 
-    names = _part_names({k[1] for k in ev} | {sku_norm})
+    names = _part_names({k[1] for k in ev} | {sku_norm}, company=company)
     if with_names:
         mine = names.get(me, {}).get("name") or ""
         if not mine:
-            p = Product.objects.filter(sku_norm=sku_norm, brand__iexact=brand).first()
+            product_qs = Product.objects.filter(sku_norm=sku_norm, brand__iexact=brand)
+            if company is not None:
+                product_qs = product_qs.filter(company=company)
+            p = product_qs.first()
             mine = p.name if p else ""
-        for key, sim in name_candidates(brand, sku_norm, mine).items():
+        for key, sim in name_candidates(brand, sku_norm, mine, company=company).items():
             add(key, "name", round(40 * sim), f"Збіг за назвою ({round(sim * 100)}%): той самий тип, авто й позиція")
-        names = _part_names({k[1] for k in ev} | {sku_norm})
+        names = _part_names({k[1] for k in ev} | {sku_norm}, company=company)
 
     rows = []
     for (b, n), items in ev.items():
@@ -205,8 +218,12 @@ def analogs(brand, sku_norm, limit=40, with_names=False):
             lvl, score = "manual", 100
         info = names.get((b, n), {})
         prods = Product.objects.filter(sku_norm=n, brand__iexact=b)
+        offers = SupplierItem.objects.filter(sku_norm=n, brand=b, available=True)
+        if company is not None:
+            prods = prods.filter(company=company)
+            offers = offers.filter(company=company)
         prod = prods.first()
-        offer = SupplierItem.objects.filter(sku_norm=n, brand=b, available=True).select_related("supplier").order_by("cost").first()
+        offer = offers.select_related("supplier").order_by("cost").first()
         rows.append({"brand": b, "sku": info.get("sku") or n, "sku_norm": n, "name": info.get("name") or (prod.name if prod else ""),
                      "level": lvl, "label": LABEL[lvl], "score": score, "evidence": [t for _, _, t in sorted(items, key=lambda x: -x[1])],
                      "shared": sorted(shared.get((b, n), [])), "stock": prods.aggregate(s=Sum("current_stock"))["s"] or 0,

@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from core.models import Customer, MarkupTier, Product, Purchase, Receipt, Sale, SaleItem, StockMovement, Supplier, SupplierItem
 from core.tests_transit import xlsx_bytes
+from core.tests_tenant_helpers import create_test_company
 
 D = Decimal
 HEAD = ["Бренд", "Артикул", "Назва", "Кількість", "Ціна"]
@@ -19,24 +20,28 @@ HEAD = ["Бренд", "Артикул", "Назва", "Кількість", "Ц�
 class ReceivingTest(TestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
-        U.objects.create_user("anna", password="x")
-        U.objects.create_user("petro", password="x")
-        self.adm, self.anna, self.petro = self.client, self.client_class(), self.client_class()
+        admin_user = U.objects.create_superuser("admin", "", "x")
+        anna_user = U.objects.create_user("anna", password="x", is_staff=True)
+        petro_user = U.objects.create_user("petro", password="x", is_staff=True)
+        cashier_user = U.objects.create_user("cashier", password="x", is_staff=False)
+        self.company = create_test_company(admin_user, "Receiving test shop",
+                                           [(anna_user, "manager"), (petro_user, "manager"), (cashier_user, "cashier")])
+        self.adm, self.anna, self.petro, self.cashier = self.client, self.client_class(), self.client_class(), self.client_class()
         self.adm.login(username="admin", password="x")
         self.anna.login(username="anna", password="x")
         self.petro.login(username="petro", password="x")
-        for c in (self.anna, self.petro):
+        self.cashier.login(username="cashier", password="x")
+        for c in (self.anna, self.petro, self.cashier):
             c.post("/shift/", {"action": "open", "cash": "0"})
-        self.sup = Supplier.objects.create(name="Busmarket")
+        self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
         self.bil = self.si("BILSTEIN", "19-152615", 1000, "Амортизатор задній")
         self.sol = self.si("SOLGY", "112021", 500, "Кран печі")
-        MarkupTier.objects.create(name="Роздріб", percent=30, is_default=True)
-        self.c1 = Customer.objects.create(name="Іван", phone="1")
-        self.c2 = Customer.objects.create(name="Олена", phone="2")
+        MarkupTier.objects.create(company=self.company, name="Роздріб", percent=30, is_default=True)
+        self.c1 = Customer.objects.create(company=self.company, name="Іван", phone="1")
+        self.c2 = Customer.objects.create(company=self.company, name="Олена", phone="2")
 
     def si(self, brand, sku, cost, name=""):
-        return SupplierItem.objects.create(supplier=self.sup, brand=brand, sku=sku, sku_norm="".join(c for c in sku if c.isalnum()).upper(),
+        return SupplierItem.objects.create(company=self.company, supplier=self.sup, brand=brand, sku=sku, sku_norm="".join(c for c in sku if c.isalnum()).upper(),
                                            cost=cost, name=name)
 
     def order(self, client, si, qty, customer=None, price=1300):
@@ -59,6 +64,25 @@ class ReceivingTest(TestCase):
 
     def refresh(self, *items):
         return [SaleItem.objects.get(pk=i.pk) for i in items]
+
+    def test_invoice_parser_rejects_invalid_or_negative_purchase_cost(self):
+        from core.receiving import parse_lines
+
+        lines, bad = parse_lines([
+            {"brand": "BILSTEIN", "sku": "GOOD-1", "qty": "1", "cost": "125,50"},
+            {"brand": "BILSTEIN", "sku": "BAD-1", "qty": "1", "cost": "not-a-price"},
+            {"brand": "BILSTEIN", "sku": "NEG-1", "qty": "1", "cost": "-25"},
+            {"brand": "BILSTEIN", "sku": "ZERO-1", "qty": "1", "cost": "0"},
+            {"brand": "BILSTEIN", "sku": "EMPTY-1", "qty": "1", "cost": ""},
+        ])
+
+        self.assertEqual([line["sku"] for line in lines], ["GOOD-1", "ZERO-1", "EMPTY-1"])
+        self.assertEqual(lines[0]["cost"], D("125.50"))
+        self.assertEqual(lines[1]["cost"], D("0.00"))
+        self.assertEqual(lines[2]["cost"], D("0.00"))
+        self.assertEqual(len(bad), 2)
+        self.assertIn("некоректна закупівельна ціна", bad[0][2])
+        self.assertIn("не може бути від'ємною", bad[1][2])
 
     # ---------------- головний сценарій
     def test_full_invoice_matches_orders_fifo_and_stocks_the_rest(self):
@@ -142,9 +166,9 @@ class ReceivingTest(TestCase):
         resp, _ = self.invoice([["BILSTEIN", "19-152615", "", 1, 1000]], client=self.anna)       # приймає anna, замовлення petro
         self.assertEqual(SaleItem.objects.get(pk=petro_item.pk).fulfil_status, "arrived")
         self.assertContains(self.anna.get("/receive/"), "ДГ-1")
-        self.assertNotContains(self.petro.get("/receive/"), "ДГ-1")                              # журнал: лише свої (не адмін)
+        self.assertContains(self.petro.get("/receive/"), "ДГ-1")                              # працівники бачать спільний журнал приймань
         self.assertContains(self.adm.get("/receive/"), "ДГ-1")
-        other = Supplier.objects.create(name="Other")
+        other = Supplier.objects.create(company=self.company, name="Other")
         f = SimpleUploadedFile("i.xlsx", xlsx_bytes([HEAD, ["BILSTEIN", "19-152615", "", 1, 1]]))
         r = self.adm.post("/receive/preview/", {"supplier": other.pk, "file": f})
         self.assertEqual(r.context["plan"]["totals"]["matched"], 0)                              # чужому постачальнику не зараховується
@@ -163,3 +187,47 @@ class ReceivingTest(TestCase):
         self.assertTrue(any("заміна" in w for w in warns))
         self.assertEqual(r.context["plan"]["rows"][0]["stock_qty"], 1)
         self.assertEqual(SaleItem.objects.get(pk=a.pk).fulfil_status, "ordered")
+
+
+    def test_same_supplier_invoice_number_cannot_be_received_twice(self):
+        self.invoice([["BILSTEIN", "19-152615", "", 1, 1000]], number="INV-UNIQUE")
+        self.assertEqual(Receipt.objects.filter(supplier=self.sup, number="INV-UNIQUE").count(), 1)
+        self.assertFalse(Product.objects.filter(sku="NEW-DOUBLE").exists())
+
+        response, _ = self.invoice([["MEYLE", "NEW-DOUBLE", "Не має бути оприбутковано", 2, 50]],
+                                   number="INV-UNIQUE")
+        self.assertContains(response, "уже прийнято")
+        self.assertEqual(Receipt.objects.filter(supplier=self.sup, number="INV-UNIQUE").count(), 1)
+        self.assertFalse(Product.objects.filter(sku="NEW-DOUBLE").exists())
+
+    def test_cashier_cannot_preview_or_apply_supplier_receiving(self):
+        # Cashiers must not reach the receiving UI or mutate stock through direct POSTs.
+        product_before = Product.objects.count()
+        receipt_before = Receipt.objects.count()
+        movement_before = StockMovement.objects.count()
+        self.assertEqual(self.cashier.get("/receive/").status_code, 403)
+
+        preview = self.cashier.post(
+            "/receive/preview/",
+            {"supplier": self.sup.pk, "paste": "MEYLE;DENIED-1;Forbidden part;3;10"},
+        )
+        apply = self.cashier.post(
+            "/receive/apply/",
+            {
+                "supplier": self.sup.pk,
+                "paste": "MEYLE;DENIED-1;Forbidden part;3;10",
+                "header_row": "0",
+                "col_brand": "0",
+                "col_sku": "1",
+                "col_name": "2",
+                "col_qty": "3",
+                "col_cost": "4",
+            },
+        )
+
+        self.assertEqual(preview.status_code, 403)
+        self.assertEqual(apply.status_code, 403)
+        self.assertEqual(Product.objects.count(), product_before)
+        self.assertEqual(Receipt.objects.count(), receipt_before)
+        self.assertEqual(StockMovement.objects.count(), movement_before)
+        self.assertFalse(Product.objects.filter(sku="DENIED-1").exists())

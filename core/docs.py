@@ -106,9 +106,9 @@ def vat_parts(total, rate):
     return vat, total - vat
 
 
-def base_ctx():
-    c = CompanySettings.get()
-    acc = BankAccount.objects.first()
+def base_ctx(company=None):
+    c = CompanySettings.get(company)
+    acc = BankAccount.objects.filter(company=company).first() if company is not None else BankAccount.objects.first()
     logo = None
     if c.logo:
         try:
@@ -132,7 +132,7 @@ def _rows(pairs):
 
 
 def sale_ctx(sale):
-    ctx = base_ctx()
+    ctx = base_ctx(sale.company)
     items = _rows([{"name": i.product.name, "sku": i.product.sku, "barcode": i.product.barcode or "",
                     "unit": i.product.unit, "qty": qty(i.quantity), "price": money(i.price),
                     "total": money(i.line_total)} for i in sale.items.select_related("product")])
@@ -156,7 +156,7 @@ def sale_ctx(sale):
 
 
 def purchase_ctx(p):
-    ctx = base_ctx()
+    ctx = base_ctx(p.company)
     items = _rows([{"name": i.product.name, "sku": i.product.sku, "barcode": i.product.barcode or "",
                     "unit": i.product.unit, "qty": qty(i.quantity), "price": money(i.cost_price),
                     "total": money(i.line_total)} for i in p.items.select_related("product")])
@@ -172,7 +172,7 @@ def purchase_ctx(p):
 
 
 def writeoff_ctx(a):
-    ctx = base_ctx()
+    ctx = base_ctx(a.company)
     cost = a.product.cost_price
     ctx["items"] = _rows([{"name": a.product.name, "sku": a.product.sku, "unit": a.product.unit,
                            "qty": qty(a.quantity), "price": money(cost), "total": money(a.quantity * cost)}])
@@ -182,10 +182,10 @@ def writeoff_ctx(a):
     return ctx
 
 
-def stock_report_ctx(user, params):
+def stock_report_ctx(user, params, company=None):
     from django.db.models import F, Q
-    ctx = base_ctx()
-    qs = Product.objects.select_related("category").filter(is_active=True)
+    ctx = base_ctx(company)
+    qs = Product.objects.select_related("category").filter(is_active=True, company=company)
     filt = []
     q, cat, st = params.get("q", "").strip(), params.get("category", ""), params.get("status", "")
     if q:
@@ -214,9 +214,9 @@ def stock_report_ctx(user, params):
     return ctx
 
 
-def movement_report_ctx(user, params):
-    ctx = base_ctx()
-    qs = StockMovement.objects.select_related("product", "user")
+def movement_report_ctx(user, params, company=None):
+    ctx = base_ctx(company)
+    qs = StockMovement.objects.select_related("product", "user").filter(company=company)
     filt = []
     from datetime import date
     for key, lookup, label in (("from", "created_at__date__gte", "з"), ("to", "created_at__date__lte", "по")):
@@ -238,7 +238,7 @@ def movement_report_ctx(user, params):
 
 
 def pricetag_ctx(p):
-    ctx = base_ctx()
+    ctx = base_ctx(p.company)
     ctx["items"] = []
     ctx["doc"] = {"name": p.name, "sku": p.sku, "barcode": p.barcode or p.sku, "price": money(p.price), "unit": p.unit,
                   "category": str(p.category or ""), "date": f"{timezone.localdate():%d.%m.%Y}", "currency": "₴"}
@@ -308,24 +308,24 @@ def load(doc_type, request):
     """Return a list of contexts for the requested documents."""
     user, ids = request.user, parse_ids(request)
     if doc_type in ("receipt", "sale_invoice"):
-        qs = Sale.objects.filter(status=Sale.DONE).select_related("cashier", "customer")
-        if not user.is_staff:
+        qs = Sale.objects.filter(company=request.company, status=Sale.DONE).select_related("cashier", "customer")
+        if getattr(getattr(request, "company_membership", None), "role", "") not in ("owner", "admin", "manager"):
             qs = qs.filter(cashier=user)
         out = [sale_ctx(s) for s in _by_ids(qs, ids)]
     elif doc_type == "purchase":
-        out = [purchase_ctx(p) for p in _by_ids(Purchase.objects.select_related("supplier", "user"), ids)]
+        out = [purchase_ctx(p) for p in _by_ids(Purchase.objects.filter(company=request.company).select_related("supplier", "user"), ids)]
     elif doc_type == "writeoff":
-        out = [writeoff_ctx(a) for a in _by_ids(StockAdjustment.objects.select_related("product", "user"), ids)]
+        out = [writeoff_ctx(a) for a in _by_ids(StockAdjustment.objects.filter(company=request.company).select_related("product", "user"), ids)]
     elif doc_type == "pricetag":
         try:
             copies = max(1, min(100, int(request.GET.get("copies", 1))))
         except ValueError:
             copies = 1
-        out = [pricetag_ctx(p) for p in _by_ids(Product.objects.select_related("category"), ids) for _ in range(copies)]
+        out = [pricetag_ctx(p) for p in _by_ids(Product.objects.filter(company=request.company).select_related("category"), ids) for _ in range(copies)]
     elif doc_type == "stock_report":
-        out = [stock_report_ctx(user, request.GET)]
+        out = [stock_report_ctx(user, request.GET, request.company)]
     elif doc_type == "movement_report":
-        out = [movement_report_ctx(user, request.GET)]
+        out = [movement_report_ctx(user, request.GET, request.company)]
     else:
         raise Http404
     if not out:

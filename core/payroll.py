@@ -10,7 +10,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Sum
 
-from .models import PayPlan, Sale, SaleItem
+from .models import CompanyMembership, PayPlan, Sale, SaleItem
 
 D0 = Decimal("0")
 DEC = DecimalField(max_digits=16, decimal_places=2)
@@ -36,22 +36,25 @@ def _agg(qs):
     return out
 
 
-def compute(d1, d2, include_pending=False, only_user=None):
-    base = SaleItem.objects.filter(sale__status=Sale.DONE, returned_qty__lt=F("quantity"))
+def compute(d1, d2, include_pending=False, only_user=None, company=None):
+    base = SaleItem.objects.filter(company=company, sale__company=company, sale__status=Sale.DONE,
+                                   returned_qty__lt=F("quantity")) if company is not None else SaleItem.objects.none()
     if only_user is not None:
         base = base.filter(sale__cashier=only_user)
     earned = _agg(base.filter(earned_at__date__gte=d1, earned_at__date__lte=d2))
     pending = _agg(base.filter(earned_at__isnull=True, source=SaleItem.SUPPLIER, fulfil_status__in=[SaleItem.ORDERED, SaleItem.ARRIVED]))
-    plans = {p.user_id: p for p in PayPlan.objects.all()}
+    plans = {p.user_id: p for p in PayPlan.objects.filter(company=company)} if company is not None else {}
     default = plans.get(None)
     frac = months_fraction(d1, d2)
     User = get_user_model()
     ids = set(earned) | set(pending) | {u for u in plans if u is not None}
     if default and only_user is None:                  # типовий план (з фіксованою частиною) діє й для тих, хто нічого не продав
-        ids |= set(User.objects.filter(is_active=True, is_staff=False).values_list("pk", flat=True))
+        ids |= set(User.objects.filter(company_memberships__company=company, company_memberships__is_active=True,
+                                              company_memberships__role__in=("manager", "cashier", "mechanic"), is_active=True).distinct().values_list("pk", flat=True))
     if only_user is not None:
         ids = {only_user.pk}
-    users = {u.pk: u for u in User.objects.filter(pk__in=ids)}
+    users = {u.pk: u for u in User.objects.filter(pk__in=ids, company_memberships__company=company,
+                                                          company_memberships__is_active=True).distinct()}
     rows = []
     for uid in ids:
         u = users.get(uid)

@@ -1,0 +1,63 @@
+{% extends "core/base.html" %}
+{% block title %}Каталог автозапчастин{% endblock %}
+{% block content %}
+<h2>Єдиний каталог автозапчастин</h2>
+<p class="muted">Довідник автомобілів, артикули, OE-номери та підтверджена застосовність. Каталог не створює складських товарів і не змінює ціни.</p>
+<div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px">
+  <div class="card"><small class="muted">Марок</small><h3>{{ n_makes }}</h3></div>
+  <div class="card"><small class="muted">Моделей</small><h3>{{ n_models }}</h3></div>
+  <div class="card"><small class="muted">Артикулів каталогу</small><h3>{{ n_parts }}</h3></div>
+  <div class="card"><small class="muted">Зв'язків застосовності</small><h3>{{ n_fitments }}</h3></div>
+</div>
+<form class="filter" method="get">
+  <label>Тип транспорту
+    <select name="kind">
+      <option value="car" {% if kind == "car" %}selected{% endif %}>Легковий</option>
+      <option value="van" {% if kind == "van" %}selected{% endif %}>Фургон</option>
+      <option value="truck" {% if kind == "truck" %}selected{% endif %}>Вантажівка</option>
+      <option value="motorcycle" {% if kind == "motorcycle" %}selected{% endif %}>Мотоцикл</option>
+      <option value="moped" {% if kind == "moped" %}selected{% endif %}>Мопед</option>
+      <option value="bus" {% if kind == "bus" %}selected{% endif %}>Автобус</option>
+    </select>
+  </label>
+  <label>Марка
+    <select name="make" onchange="this.form.model.value='';this.form.submit()">
+      <option value="">Оберіть марку</option>
+      {% for m in makes %}<option value="{{ m.pk }}" {% if make_id == m.pk|stringformat:"s" %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Модель
+    <select name="model">
+      <option value="">Усі моделі / без фільтра авто</option>
+      {% for m in models %}<option value="{{ m.pk }}" {% if model_id == m.pk|stringformat:"s" %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Рік <input name="year" type="number" min="1886" max="2200" value="{{ year }}" style="width:90px"></label>
+  <label>Артикул / OE / назва <input name="q" value="{{ query }}" placeholder="напр. 06A115561B"></label>
+  <button class="btn">Знайти</button>
+</form>
+{% if not n_models and not searched %}
+  <div class="card"><h3>Довідник ще не імпортовано</h3><p>Після розгортання запусти команду <code>python manage.py import_vehiclesdb</code>. Вона завантажить відкритий довідник VehiclesDB (CC BY 4.0) і безпечно оновлюватиме його без дублікатів.</p></div>
+{% elif searched %}
+  <p class="muted">Знайдено: {{ rows|length }} позицій. Результати сумісності показуються лише за наявними записами застосовності; відсутність результату не означає несумісність.</p>
+  {% if rows %}
+  <div class="table-wrap"><table>
+    <tr><th>Бренд</th><th>Артикул</th><th>Деталь</th><th>Сумісність / джерело</th><th class="n">Склад</th><th class="n">Ціна</th><th>Постачальник</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td><b>{{ r.brand }}</b></td>
+      <td><a href="{% url 'part_card' %}?b={{ r.brand|urlencode }}&s={{ r.sku }}">{{ r.sku }}</a></td>
+      <td>{{ r.name|default:"—" }}{% if r.verified %}<span class="tag ok">Перевірено</span>{% else %}<span class="tag warning">Потребує перевірки</span>{% endif %}</td>
+      <td><small class="muted">{{ r.source }}</small>{% if r.fitments %}<br>{% endif %}{% for f in r.fitments %}{{ f.vehicle_model.make.name }} {{ f.vehicle_model.name }}{% if f.year_from %} · {{ f.year_from }}{% endif %}{% if f.year_to %}–{{ f.year_to }}{% endif %} <small class="muted">({{ f.source.name }}{% if f.verified %}, підтверджено{% endif %})</small>{% if not forloop.last %}<br>{% endif %}{% empty %}<span class="muted">Сумісність не внесена</span>{% endfor %}</td>
+      <td class="n">{% if r.stock > 0 %}{{ r.stock|floatformat:"-3" }}{% else %}—{% endif %}</td>
+      <td class="n">{% if r.price %}{{ r.price }} ₴{% else %}—{% endif %}</td>
+      <td>{% if r.offer %}{{ r.offer.supplier.name }} · {{ r.offer.cost }} ₴{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<div class="card">За цими умовами позицій не знайдено. Перевір артикул або обери іншу модифікацію.</div>{% endif %}
+{% else %}
+  <div class="card"><p>Обери марку й модель або введи артикул/OE-номер. Довідник авто і каталог запчастин — окремі набори даних: сам імпорт моделей не створює сумісність.</p><p><a href="{{ attribution_url }}" target="_blank" rel="noopener noreferrer">{{ attribution }}</a></p></div>
+{% endif %}
+<p class="muted" style="margin-top:14px"><a href="{{ attribution_url }}" target="_blank" rel="noopener noreferrer">{{ attribution }}</a> · {{ n_sources }} джерел у реєстрі.</p>
+{% endblock %}

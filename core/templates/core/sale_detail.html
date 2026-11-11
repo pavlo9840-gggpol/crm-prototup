@@ -4,6 +4,29 @@
 {% for i in items %}<tr><td>{{ i.product.name }}<td class="n">{{ i.quantity|floatformat:"-3" }}<td class="n">{{ i.price }}{% if i.price != i.original_price %} <small>(було {{ i.original_price }})</small>{% endif %}<td class="n">{{ i.line_total|floatformat:2 }}<td class="n">{{ i.returned_qty|floatformat:"-3" }}
 {% if user.is_staff %}<td><input type="number" step="0.001" min="0" max="{{ i.returnable }}" name="ret_{{ i.pk }}" style="width:80px">{% endif %}</tr>{% endfor %}
 <tr><th colspan="3">Разом<th class="n">{{ sale.total }} ₴<th><th></tr></table>
-{% if user.is_staff %}<p><button class="btn red">Оформити повернення</button></p>{% endif %}</form>
-{% if returns %}<h3>Повернення</h3><ul>{% for r in returns %}<li>{{ r.number }} — {{ r.created_at|date:"d.m.Y H:i" }} — {{ r.total }} ₴</li>{% endfor %}</ul>{% endif %}
+{% if user.is_staff %}
+<p><label>Спосіб повернення коштів
+<select name="refund_method" id="refund-method">
+<option value="card">На картку</option><option value="cash">Готівкою з каси</option><option value="mixed">Змішано</option>
+</select></label>
+<label id="refund-cash-wrap" hidden>Сума готівкою, ₴
+<input type="number" name="refund_cash_amount" min="0.01" step="0.01" value="" style="width:120px">
+</label></p>
+<p><button class="btn red">Оформити повернення</button></p>
+<script>
+document.getElementById("refund-method").addEventListener("change", function () {
+  document.getElementById("refund-cash-wrap").hidden = this.value !== "mixed";
+});
+</script>
+{% endif %}</form>
+{% if returns %}<h3>Повернення</h3><ul>{% for r in returns %}<li>{{ r.number }} — {{ r.created_at|date:"d.m.Y H:i" }} — {{ r.total }} ₴
+({{ r.get_refund_method_display }}; готівка {{ r.cash_amount }} ₴, картка {{ r.card_amount }} ₴)
+{% if r.refund_method == "pending" and user.is_staff %}
+<form method="post" action="{% url 'sale_return_settle' sale.pk r.pk %}" style="display:inline-flex;gap:6px;align-items:center">
+{% csrf_token %}
+<select name="refund_method"><option value="card">На картку</option><option value="cash">Готівкою з каси</option><option value="mixed">Змішано</option></select>
+<input type="number" name="refund_cash_amount" min="0.01" step="0.01" placeholder="Готівка для змішаної виплати" style="width:190px">
+<button class="btn">Зафіксувати виплату</button>
+</form>
+{% endif %}</li>{% endfor %}</ul>{% endif %}
 <p><a class="btn" target="_blank" href="{% url 'print_docs' 'receipt' %}?ids={{ sale.pk }}">🖨 Друк чека</a> {% if user.is_staff %}<a class="btn gray" target="_blank" href="{% url 'print_docs' 'sale_invoice' %}?ids={{ sale.pk }}">Накладна</a>{% endif %} <a class="btn green" href="{% url 'pos' %}">Нова покупка</a></p>{% endblock %}

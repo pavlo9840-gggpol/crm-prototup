@@ -9,11 +9,21 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from . import payroll
-from .models import PayPlan
-from .views import get_date, simple_form, staff_only
+from .models import CompanyMembership, PayPlan
+from .views import get_date, simple_form, tenant_staff_only
+from .tenant_context import company_required
 
 
 class PayPlanForm(forms.ModelForm):
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+        if company is not None:
+            self.fields["user"].queryset = get_user_model().objects.filter(
+                company_memberships__company=company, company_memberships__is_active=True,
+                company_memberships__role__in=("manager", "cashier", "mechanic"), is_active=True
+            ).distinct()
+
     class Meta:
         model = PayPlan
         fields = ["user", "margin_pct", "fixed_monthly", "note"]
@@ -32,33 +42,42 @@ class PayPlanForm(forms.ModelForm):
 
     def clean(self):
         d = super().clean()
-        if "user" in d and d["user"] is None:                     # типовий план може бути лише один
-            dup = PayPlan.objects.filter(user__isnull=True).exclude(pk=self.instance.pk)
+        if "user" in d and d["user"] is None:                     # типовий план може бути лише один у магазині
+            dup = PayPlan.objects.filter(company=self.company, user__isnull=True).exclude(pk=self.instance.pk)
             if dup.exists():
                 self.add_error("user", "Типовий план уже існує: змініть його або оберіть конкретного менеджера")
+        elif d.get("user") and self.company is not None:
+            dup = PayPlan.objects.filter(company=self.company, user=d["user"]).exclude(pk=self.instance.pk)
+            if dup.exists():
+                self.add_error("user", "Для цього працівника вже є план оплати в цьому магазині")
         return d
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def pay_plans(request):
-    plans = list(PayPlan.objects.select_related("user").order_by("user__username"))
+    plans = list(PayPlan.objects.filter(company=request.company).select_related("user").order_by("user__username"))
     covered = {p.user_id for p in plans}
-    no_plan = [u for u in get_user_model().objects.filter(is_active=True) if u.pk not in covered]
+    no_plan = [u for u in get_user_model().objects.filter(company_memberships__company=request.company,
+                    company_memberships__is_active=True, company_memberships__role__in=("manager", "cashier", "mechanic"),
+                    is_active=True).distinct() if u.pk not in covered]
     has_default = any(p.user_id is None for p in plans)
     return render(request, "core/pay_plans.html", {"plans": plans, "no_plan": no_plan if not has_default else [], "has_default": has_default})
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def pay_plan_edit(request, pk=None):
     return simple_form(request, PayPlanForm, "План оплати", "pay_plans", pk, PayPlan)
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def payroll_view(request):
     today = timezone.localdate()
     d1, d2 = get_date(request, "from", today.replace(day=1)), get_date(request, "to", today)
     incl = bool(request.GET.get("pending"))
-    rows, totals = payroll.compute(d1, d2, include_pending=incl)
+    rows, totals = payroll.compute(d1, d2, include_pending=incl, company=request.company)
     if request.GET.get("csv"):
         resp = HttpResponse(content_type="text/csv; charset=utf-8-sig")
         resp["Content-Disposition"] = f'attachment; filename="payroll_{d1}_{d2}.csv"'

@@ -3,7 +3,7 @@ import re
 import uuid
 
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -11,17 +11,20 @@ from . import currency, receiving
 from .models import CompanySettings, Currency, Receipt, Supplier
 from .services import StockError
 from .transit import MAX_FILE, TableError, _tmp_dir, _tmp_path, guess_columns, read_table
+from .views import tenant_staff_only
+from .tenant_context import company_queryset, company_required
 
 FIELDS = [("sku", "Артикул *"), ("brand", "Бренд"), ("qty", "Кількість *"), ("cost", "Ціна закупівлі"), ("name", "Назва")]
 
 
-@login_required
+@tenant_staff_only
+@company_required
 def receive_home(request):
-    qs = Receipt.objects.select_related("supplier", "user", "purchase")
-    if not request.user.is_staff:
+    qs = company_queryset(Receipt.objects.select_related("supplier", "user", "purchase"), request)
+    if getattr(request.company_membership, "role", "") not in ("owner", "admin", "manager"):
         qs = qs.filter(user=request.user)
-    return render(request, "core/receive.html", {"suppliers": Supplier.objects.all(), "journal": qs[:20], "currencies": Currency.objects.all(),
-                                                 "days": CompanySettings.get().pickup_days})
+    return render(request, "core/receive.html", {"suppliers": company_queryset(Supplier.objects.all(), request), "journal": qs[:20], "currencies": Currency.objects.all(),
+                                                 "days": CompanySettings.get(request.company).pickup_days})
 
 
 def _records(request, rows, hdr, cols):
@@ -71,11 +74,12 @@ def _cols(request, rows, hdr, fresh):
     return headers, cols, ncol
 
 
-@login_required
+@tenant_staff_only
+@company_required
 @require_POST
 def receive_preview(request):
     try:
-        sup = get_object_or_404(Supplier, pk=request.POST.get("supplier") or 0)
+        sup = get_object_or_404(company_queryset(Supplier.objects.all(), request), pk=request.POST.get("supplier") or 0)
         fresh = bool(request.FILES.get("file") or (request.POST.get("paste") or "").strip())
         token, fname, rows = _read(request)
         hdr = request.POST.get("header_row")
@@ -93,16 +97,19 @@ def receive_preview(request):
     options = [{"i": i, "label": f"{chr(65 + i) if i < 26 else i + 1}: {h or '—'}"} for i, h in enumerate(headers)]
     return render(request, "core/receive_preview.html", {
         "sup": sup, "token": token, "fname": fname, "hdr": hdr, "inv_cur": inv_cur, "rate": rate, "currencies": Currency.objects.all(), "number": request.POST.get("number", ""),
-        "days": request.POST.get("days") or CompanySettings.get().pickup_days, "options": options,
+        "days": request.POST.get("days") or CompanySettings.get(request.company).pickup_days, "options": options,
         "fields": [{"key": k, "label": lbl, "sel": cols.get(k)} for k, lbl in FIELDS], "plan": pl, "bad": bad,
         "can_apply": bool(pl["totals"]["matched"] or pl["totals"]["stock_lines"])})
 
 
-@login_required
+@tenant_staff_only
+@company_required
 @require_POST
+@transaction.atomic
 def receive_apply(request):
     try:
-        sup = get_object_or_404(Supplier, pk=request.POST.get("supplier") or 0)
+        # Серіалізуємо приймання по постачальнику, щоб два паралельні запити не пройшли перевірку одночасно.
+        sup = get_object_or_404(company_queryset(Supplier.objects.select_for_update(), request), pk=request.POST.get("supplier") or 0)
         token, fname, rows = _read(request)
         hdr = max(0, int(request.POST.get("header_row") or 0))
         cols = {k: int(request.POST[f"col_{k}"]) for k, _ in FIELDS if request.POST.get(f"col_{k}", "") != ""}
@@ -111,7 +118,15 @@ def receive_apply(request):
             raise ValueError("Кількість днів відліку: від 1 до 365")
         _code, rate = _inv_rate(request, sup)
         lines, _bad = receiving.parse_lines(_records(request, rows, hdr, cols), rate)
-        rec = receiving.execute(request.user, sup, request.POST.get("number", ""), days, lines)
+        # Захист від повторного оприбуткування тієї самої накладної новим завантаженням.
+        # Порожній номер дозволяємо, оскільки частина постачальників його не надає.
+        number = (request.POST.get("number") or "").strip()[:60]
+        if number and Receipt.objects.filter(company=request.company, supplier=sup, number=number).exists():
+            raise StockError(
+                f"Накладну «{number}» від постачальника «{sup.name}» уже прийнято. "
+                "Перевірте журнал приймань, щоб не оприбуткувати товар повторно."
+            )
+        rec = receiving.execute(request.user, sup, number, days, lines)
     except (TableError, ValueError, StockError, currency.RateError) as e:
         messages.error(request, str(e))
         return redirect("receive_home")

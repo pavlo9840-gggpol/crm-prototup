@@ -6,9 +6,11 @@ from functools import wraps
 from urllib.parse import urlencode
 
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import (Count, DecimalField, ExpressionWrapper, F, Max, Q, Sum)
+from django.db import transaction
+from django.db.models import (Count, DecimalField, ExpressionWrapper, F, Max, Prefetch, Q, Sum)
 from django.db.models.functions import TruncDate
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -19,9 +21,10 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, Sale, SaleItem, Shift, StockMovement, Supplier, SupplierItem)
+                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan)
 from .models import norm_plate, norm_sku
 from .services import StockError
+from .tenant_context import company_queryset, company_required
 
 D0 = Decimal("0")
 DEC = DecimalField(max_digits=14, decimal_places=2)
@@ -34,6 +37,31 @@ def staff_only(view):
         if not request.user.is_staff:
             raise PermissionDenied
         return view(request, *a, **k)
+    return wrapper
+
+
+def tenant_staff_only(view):
+    """Allow company owners/admins/managers without requiring global Django is_staff."""
+    @login_required
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        membership = getattr(request, "company_membership", None)
+        if membership is None or membership.role not in ("owner", "admin", "manager"):
+            raise PermissionDenied
+        return view(request, *args, **kwargs)
+    return wrapper
+
+
+def tenant_cashier_only(view):
+    """Allow company managers and cashiers into POS/cash workflows, but not workshop-only members."""
+    @login_required
+    @company_required
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        membership = getattr(request, "company_membership", None)
+        if membership is None or membership.role not in ("owner", "admin", "manager", "cashier"):
+            raise PermissionDenied
+        return view(request, *args, **kwargs)
     return wrapper
 
 
@@ -59,23 +87,33 @@ def get_date(request, key, default):
         return default
 
 
-def done_sales():
-    return Sale.objects.filter(status=Sale.DONE)
+def _can_manage_company(request):
+    membership = getattr(request, "company_membership", None)
+    return bool(membership and membership.role in ("owner", "admin", "manager"))
 
 
-def current_shift(user):
-    return Shift.objects.filter(cashier=user, closed_at__isnull=True).first()
+def done_sales(company=None):
+    qs = Sale.objects.filter(status=Sale.DONE)
+    return qs.filter(company=company) if company is not None else qs.none()
+
+
+def current_shift(user, company=None):
+    qs = Shift.objects.filter(cashier=user, closed_at__isnull=True)
+    if company is not None:
+        qs = qs.filter(company=company)
+    return qs.first()
 
 
 # ---------- Dashboard ----------
 @login_required
+@company_required
 def dashboard(request):
-    if not request.user.is_staff:
+    if not _can_manage_company(request):
         return redirect("pos")
     today = timezone.localdate()
-    today_sales = done_sales().filter(created_at__date=today)
-    month_sales = done_sales().filter(created_at__year=today.year, created_at__month=today.month)
-    week = {r["day"]: r["s"] for r in done_sales().filter(created_at__date__gte=today - timedelta(days=6))
+    today_sales = done_sales(request.company).filter(created_at__date=today)
+    month_sales = done_sales(request.company).filter(created_at__year=today.year, created_at__month=today.month)
+    week = {r["day"]: r["s"] for r in done_sales(request.company).filter(created_at__date__gte=today - timedelta(days=6))
             .annotate(day=TruncDate("created_at")).values("day").annotate(s=Sum("total"))}
     days = [today - timedelta(days=i) for i in range(6, -1, -1)]
     mx = max([week.get(d, D0) for d in days] + [Decimal("1")])
@@ -84,23 +122,33 @@ def dashboard(request):
         "today_total": today_sales.aggregate(s=Sum("total"))["s"] or D0,
         "today_count": today_sales.count(),
         "month_total": month_sales.aggregate(s=Sum("total"))["s"] or D0,
-        "low_count": Product.objects.filter(is_active=True, current_stock__lte=F("min_stock")).count(),
-        "last_sales": done_sales().select_related("cashier")[:10],
-        "last_moves": StockMovement.objects.select_related("product")[:10],
+        "low_count": company_queryset(Product.objects.filter(is_active=True, current_stock__lte=F("min_stock")), request).count(),
+        "last_sales": done_sales(request.company).select_related("cashier")[:10],
+        "last_moves": company_queryset(StockMovement.objects.select_related("product"), request)[:10],
         "bars": bars,
-        "waiting_orders": SaleItem.objects.filter(source=SaleItem.SUPPLIER, sale__status=Sale.DONE,
+        "waiting_orders": company_queryset(SaleItem.objects.filter(company=request.company, sale__company=request.company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE,), request).filter(
                                                   fulfil_status__in=[SaleItem.ORDERED, SaleItem.ARRIVED]).count(),
-        "overdue_orders": SaleItem.objects.filter(source=SaleItem.SUPPLIER, sale__status=Sale.DONE,
-                                                  fulfil_status=SaleItem.ARRIVED, pickup_deadline__lt=today).count(),
+        "overdue_orders": company_queryset(SaleItem.objects.filter(company=request.company, sale__company=request.company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE,
+                                                  fulfil_status=SaleItem.ARRIVED, pickup_deadline__lt=today), request).count(),
     }
     return render(request, "core/dashboard.html", ctx)
 
 
 # ---------- Products / categories / suppliers ----------
-@staff_only
+@tenant_staff_only
+@company_required
 def product_list(request):
-    qs = Product.objects.select_related("category")
+    supplier_items = company_queryset(SupplierItem.objects.select_related("supplier"), request)
+    qs = company_queryset(
+        Product.objects.select_related("category").prefetch_related(
+            Prefetch("supplier_items", queryset=supplier_items)
+        ),
+        request,
+    )
     q, cat = request.GET.get("q", "").strip(), request.GET.get("category", "")
+    condition = request.GET.get("condition", "").strip()
+    if condition in dict(Product.CONDITION_CHOICES):
+        qs = qs.filter(condition=condition)
     if q:
         qn = norm_sku(q)
         cond = Q(name_lc__contains=q.lower()) | Q(sku__icontains=q) | Q(barcode__icontains=q) | Q(brand__icontains=q)
@@ -109,39 +157,43 @@ def product_list(request):
         qs = qs.filter(cond)
     if cat:
         ids = [int(cat)] if cat.isdigit() else []
-        ids += list(Category.objects.filter(parent_id__in=ids).values_list("id", flat=True))
+        ids += list(company_queryset(Category.objects.filter(parent_id__in=ids), request).values_list("id", flat=True))
         qs = qs.filter(category_id__in=ids)
     sort = request.GET.get("sort", "name")
     if sort.lstrip("-") in ("name", "current_stock", "price", "cost_price", "sku", "brand"):
         qs = qs.order_by(sort)
     from .designer_views import print_bar
     return render(request, "core/product_list.html",
-                  {"products": qs, "categories": Category.objects.all(), "q": q, "cat": cat, **print_bar("pricetag")})
+                  {"products": qs, "categories": company_queryset(Category.objects.all(), request), "q": q, "cat": cat, "condition": condition, **print_bar("pricetag", request.company)})
 
 
-def all_brands():
-    """Бренди зі складу та з прайсів постачальників (для підказок у формі)."""
-    names = set(Product.objects.exclude(brand="").values_list("brand", flat=True).distinct())
-    names |= set(SupplierItem.objects.exclude(brand="").values_list("brand", flat=True).distinct()[:3000])
+def all_brands(request):
+    """Бренди лише з активного магазину та його прайсів постачальників."""
+    names = set(company_queryset(Product.objects.exclude(brand=""), request).values_list("brand", flat=True).distinct())
+    names |= set(company_queryset(SupplierItem.objects.exclude(brand=""), request).values_list("brand", flat=True).distinct()[:3000])
     return sorted(names)[:3000]
 
 
 PREFILL = ("brand", "sku", "name", "category", "unit", "cost_price", "price")
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def product_edit(request, pk=None):
-    obj = get_object_or_404(Product, pk=pk) if pk else None
-    old = Product.objects.get(pk=pk) if pk else None
+    obj = get_object_or_404(company_queryset(Product.objects.all(), request), pk=pk) if pk else None
+    old_prices = {field: getattr(obj, field) for field in ("price", "cost_price")} if obj else None
     initial = {k: request.GET[k] for k in PREFILL if request.GET.get(k)} if (not obj and request.method == "GET") else {}
-    form = ProductForm(request.POST or None, request.FILES or None, instance=obj, initial=initial)
+    form = ProductForm(request.POST or None, request.FILES or None, instance=obj, initial=initial, company=request.company)
     if request.method == "POST" and form.is_valid():
-        p = form.save()
-        if old:
-            for f in ("price", "cost_price"):
-                if getattr(old, f) != getattr(p, f):
-                    PriceHistory.objects.create(product=p, field=f, old_value=getattr(old, f),
-                                                new_value=getattr(p, f), changed_by=request.user)
+        p = form.save(commit=False)
+        p.company = request.company
+        p.save()
+        form.save_m2m()
+        if old_prices is not None:
+            for field, old_value in old_prices.items():
+                if old_value != getattr(p, field):
+                    PriceHistory.objects.create(company=request.company, product=p, field=field, old_value=old_value,
+                                                new_value=getattr(p, field), changed_by=request.user)
         else:
             init = form.cleaned_data.get("initial_stock")
             if init and init > 0:
@@ -149,21 +201,23 @@ def product_edit(request, pk=None):
         if p.auto_price and pricing.reprice_product(p, request.user):
             messages.info(request, "Автоціна: ціну продажу перераховано за правилами цін")
         messages.success(request, f"Товар «{p.brand} {p.sku}» збережено")
-        if request.POST.get("again") and not old:          # швидке додавання серії: бренд і категорія лишаються
+        if request.POST.get("again") and old_prices is None:          # швидке додавання серії: бренд і категорія лишаються
             q = {"brand": p.brand, "unit": p.unit}
             if p.category_id:
                 q["category"] = p.category_id
             return redirect(reverse("product_new") + "?" + urlencode(q))
         return redirect("product_list")
     history = obj.price_history.select_related("changed_by")[:20] if obj else []
-    tiers = [{"id": t.pk, "name": t.name, "pct": float(t.percent)} for t in MarkupTier.objects.all()]
-    dt = MarkupTier.objects.filter(is_default=True).first()
+    tiers = [{"id": t.pk, "name": t.name, "pct": float(t.percent)}
+             for t in MarkupTier.objects.filter(company=request.company)]
+    dt = MarkupTier.objects.filter(company=request.company, is_default=True).first()
     return render(request, "core/product_form.html", {
-        "form": form, "obj": obj, "history": history, "brands": all_brands(), "tiers": tiers,
+        "form": form, "obj": obj, "history": history, "brands": all_brands(request), "tiers": tiers,
         "default_pct": float(dt.percent) if dt else 30.0})
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def product_lookup(request):
     """Підказки під час введення бренду й артикула: дубль на складі, пропозиції постачальників, дані про деталь."""
     from . import crosses
@@ -173,12 +227,13 @@ def product_lookup(request):
     if len(sn) < 2:
         return JsonResponse({"empty": True})
     exclude = request.GET.get("pk") or 0
-    same = Product.objects.filter(sku_norm=sn).exclude(pk=exclude)
+    same = company_queryset(Product.objects.filter(sku_norm=sn), request).exclude(pk=exclude)
     dup = same.filter(brand__iexact=brand).first() if brand else same.filter(brand="").first()
     others = [{"brand": p.brand or "—", "name": p.name, "url": reverse("product_edit", args=[p.pk])}
               for p in same.exclude(pk=dup.pk if dup else 0)[:5]]
-    pct = services.tier_pct(None)
-    offers_qs = SupplierItem.objects.filter(sku_norm=sn).select_related("supplier").order_by("-available", "cost")
+    default_tier = MarkupTier.objects.filter(company=request.company, is_default=True).first()
+    pct = default_tier.percent if default_tier else D0
+    offers_qs = company_queryset(SupplierItem.objects.filter(sku_norm=sn), request).select_related("supplier").order_by("-available", "cost")
     if brand:
         offers_qs = offers_qs.filter(brand=brand)
     offers = [{"id": o.pk, "brand": o.brand, "sku": o.sku, "name": o.name, "supplier": o.supplier.name, "cost": float(o.cost),
@@ -193,102 +248,156 @@ def product_lookup(request):
     if info or PartOe.objects.filter(brand=ib, sku_norm=sn).exists() or offers:
         data["info"] = {"description": (info.description[:260] if info else ""), "image": info.image_url if info else "",
                         "oe": PartOe.objects.filter(brand=ib, sku_norm=sn).count(),
-                        "analogs": len(crosses.analogs(ib, sn, limit=50))}
+                        "analogs": len(crosses.analogs(ib, sn, limit=50, company=request.company))}
     return JsonResponse(data)
 
 
-@staff_only
 def simple_form(request, model_form, title, back, pk=None, model=None):
-    obj = get_object_or_404(model, pk=pk) if pk else None
-    form = model_form(request.POST or None, instance=obj)
+    scoped = company_queryset(model.objects.all(), request) if request.company is not None else model.objects.all()
+    obj = get_object_or_404(scoped, pk=pk) if pk else None
+    form_kwargs = {"instance": obj}
+    if model in (Category, Supplier, Customer, PriceRule, PayPlan):
+        form_kwargs["company"] = request.company
+    form = model_form(request.POST or None, **form_kwargs)
     if request.method == "POST" and form.is_valid():
-        form.save()
+        record = form.save(commit=False)
+        record.company = request.company
+        record.save()
+        if model is MarkupTier and record.is_default:
+            MarkupTier.objects.filter(company=request.company).exclude(pk=record.pk).update(is_default=False)
+        form.save_m2m()
         messages.success(request, "Збережено")
         return redirect(back)
     return render(request, "core/form.html", {"form": form, "title": title, "back": back})
 
 
 def category_list(request):
-    return render(request, "core/simple_list.html", {"title": "Категорії", "items": Category.objects.all(),
+    return render(request, "core/simple_list.html", {"title": "Категорії", "items": company_queryset(Category.objects.all(), request),
                                                     "add": "category_new", "edit": "category_edit"})
 
 
 def supplier_list(request):
-    return render(request, "core/simple_list.html", {"title": "Постачальники", "items": Supplier.objects.all(),
-                                                    "add": "supplier_new", "edit": "supplier_edit"})
+    qs = company_queryset(Supplier.objects.all(), request)
+    q = (request.GET.get("q") or "").strip()[:120]
+    active = (request.GET.get("active") or "").strip()
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(contact_person__icontains=q) | Q(phone__icontains=q))
+    if active == "1":
+        qs = qs.filter(is_active=True)
+    elif active == "0":
+        qs = qs.filter(is_active=False)
+    return render(request, "core/simple_list.html", {
+        "title": "Постачальники", "items": qs, "add": "supplier_new", "edit": "supplier_edit",
+        "q": q, "active": active, "total_count": qs.count(),
+    })
 
 
-category_list = staff_only(category_list)
-supplier_list = staff_only(supplier_list)
+category_list = tenant_staff_only(company_required(category_list))
+supplier_list = tenant_staff_only(company_required(supplier_list))
 
 
+@tenant_staff_only
+@company_required
 def category_edit(request, pk=None):
     return simple_form(request, CategoryForm, "Категорія", "category_list", pk, Category)
 
 
+@tenant_staff_only
+@company_required
 def supplier_edit(request, pk=None):
     return simple_form(request, SupplierForm, "Постачальник", "supplier_list", pk, Supplier)
 
 
 # ---------- Purchases ----------
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def purchase_list(request):
-    qs = Purchase.objects.select_related("supplier")
+    qs = company_queryset(Purchase.objects.select_related("supplier"), request)
+    q = request.GET.get("q", "").strip()
+    supplier_id = request.GET.get("supplier", "").strip()
     d1, d2 = get_date(request, "from", None), get_date(request, "to", None)
     if d1:
         qs = qs.filter(created_at__date__gte=d1)
     if d2:
         qs = qs.filter(created_at__date__lte=d2)
-    if request.GET.get("supplier"):
-        qs = qs.filter(supplier_id=request.GET["supplier"])
+    if supplier_id.isdigit():
+        qs = qs.filter(supplier_id=int(supplier_id))
+    if q:
+        qs = qs.filter(Q(number__icontains=q) | Q(supplier__name__icontains=q))
+    summary = qs.aggregate(total=Sum("total"), count=Count("pk"))
     from .designer_views import print_bar
-    return render(request, "core/purchase_list.html", {"purchases": qs[:300], "suppliers": Supplier.objects.all(), **print_bar("purchase")})
+    return render(request, "core/purchase_list.html", {
+        "purchases": qs[:300], "suppliers": company_queryset(Supplier.objects.all(), request),
+        "selected_supplier": supplier_id, "q": q,
+        "summary_total": summary["total"] or D0, "summary_count": summary["count"],
+        **print_bar("purchase", request.company)})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def purchase_new(request):
     if request.method == "POST":
         sid, new_name = request.POST.get("supplier"), request.POST.get("new_supplier", "").strip()
         lines = []
-        for pid, q, c in zip(request.POST.getlist("product"), request.POST.getlist("qty"),
-                             request.POST.getlist("cost")):
-            p, q, c = Product.objects.filter(pk=pid or 0).first(), dec(q), dec(c)
-            if p and q and q > 0 and c is not None and c >= 0:
-                lines.append((p, q, c))
+        product_ids = request.POST.getlist("product")
+        quantities = request.POST.getlist("qty")
+        costs = request.POST.getlist("cost")
         try:
+            if not (len(product_ids) == len(quantities) == len(costs)):
+                raise StockError("Дані рядків закупівлі неповні. Оновіть сторінку й повторіть.")
+            for index, (pid, raw_q, raw_cost) in enumerate(zip(product_ids, quantities, costs), start=1):
+                # Empty extra rows are normal in the form; partially filled rows are not.
+                if not any(str(value or "").strip() for value in (pid, raw_q, raw_cost)):
+                    continue
+                p = company_queryset(Product.objects.all(), request).filter(pk=pid or 0).first()
+                q, cost = dec(raw_q), dec(raw_cost)
+                if p is None:
+                    raise StockError(f"Рядок {index}: оберіть товар зі списку.")
+                if q is None or q <= 0:
+                    raise StockError(f"Рядок {index}: кількість має бути більшою за нуль.")
+                if cost is None or cost < 0:
+                    raise StockError(f"Рядок {index}: закупівельна ціна не може бути від'ємною.")
+                lines.append((p, q, cost))
             if not lines:
                 raise StockError("Додайте хоча б один товар")
-            supplier = Supplier.objects.create(name=new_name) if new_name else Supplier.objects.filter(pk=sid or 0).first()
-            if not supplier:
-                raise StockError("Оберіть або створіть постачальника")
-            pur = services.create_purchase(request.user, supplier, lines, bool(request.POST.get("update_cost")))
+            if new_name and sid:
+                raise StockError("Оберіть наявного постачальника або введіть назву нового, не обидва варіанти.")
+            with transaction.atomic():
+                supplier = Supplier.objects.create(company=request.company, name=new_name) if new_name else company_queryset(Supplier.objects.filter(is_active=True), request).filter(pk=sid or 0).first()
+                if not supplier:
+                    raise StockError("Оберіть активного постачальника або введіть назву нового.")
+                pur = services.create_purchase(request.user, supplier, lines, bool(request.POST.get("update_cost")), company=request.company)
             messages.success(request, f"Накладну {pur.number} проведено")
             return redirect("purchase_detail", pk=pur.pk)
         except StockError as e:
             messages.error(request, str(e))
     return render(request, "core/purchase_form.html", {
-        "suppliers": Supplier.objects.filter(is_active=True),
-        "products": Product.objects.filter(is_active=True)})
+        "suppliers": company_queryset(Supplier.objects.filter(is_active=True), request),
+        "products": company_queryset(Product.objects.filter(is_active=True), request)})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def purchase_detail(request, pk):
     return render(request, "core/purchase_detail.html",
-                  {"p": get_object_or_404(Purchase.objects.select_related("supplier"), pk=pk)})
+                  {"p": get_object_or_404(company_queryset(Purchase.objects.select_related("supplier"), request), pk=pk)})
 
 
 # ---------- POS ----------
-@login_required
+@tenant_cashier_only
 def pos(request):
-    shift = current_shift(request.user)
+    shift = current_shift(request.user, request.company)
     if not shift and not request.user.is_staff:
         messages.info(request, "Спочатку відкрийте зміну")
         return redirect("shift")
     init = {"cart": [], "customer": None, "resume_id": None}
     rid = request.GET.get("resume")
     if rid:
-        held = get_object_or_404(Sale, pk=rid, status=Sale.HELD)
-        if held.cashier_id != request.user.id and not request.user.is_staff:
+        held = get_object_or_404(company_queryset(Sale.objects.all(), request), pk=rid, status=Sale.HELD)
+        if held.cashier_id != request.user.id and not _can_manage_company(request):
             raise PermissionDenied
         init["resume_id"] = held.pk
         init["payment"] = held.payment_method
@@ -296,7 +405,7 @@ def pos(request):
             init["customer"] = _customer_json(held.customer)
             init["car"] = _car_json(held.car) if held.car_id else None
         init["cart"] = [_cart_line_json(i) for i in held.items.select_related("product", "supplier_item__supplier")]
-    cats = {c.pk: c for c in Category.objects.all()}
+    cats = {c.pk: c for c in company_queryset(Category.objects.all(), request)}
 
     def root(cid):
         while cid and cats[cid].parent_id:
@@ -305,15 +414,15 @@ def pos(request):
     products = [{"id": p.pk, "n": p.name, "s": p.sku, "b": p.barcode or "", "p": float(p.price), "a": p.allow_price_change,
                  "st": float(p.current_stock), "c": root(p.category_id), "f": p.is_favorite, "u": p.unit,
                  "k": float(p.cost_price), "br": p.brand}
-                for p in Product.objects.filter(is_active=True).exclude(from_supplier=True, current_stock__lte=0)]
+                for p in company_queryset(Product.objects.filter(is_active=True).exclude(from_supplier=True, current_stock__lte=0), request)]
     init["products"] = products
-    init["tiers"] = [{"id": t.pk, "name": t.name, "pct": float(t.percent)} for t in MarkupTier.objects.all()]
-    dt = MarkupTier.objects.filter(is_default=True).first()
+    init["tiers"] = [{"id": t.pk, "name": t.name, "pct": float(t.percent)} for t in company_queryset(MarkupTier.objects.all(), request)]
+    dt = company_queryset(MarkupTier.objects.filter(is_default=True), request).first()
     init["default_pct"] = float(dt.percent) if dt else 0
     init["cats"] = [{"id": c.pk, "name": c.name} for c in cats.values() if not c.parent_id]
     init["denoms"] = [{"k": d, "l": cashlib.label(d)} for d in cashlib.DENOMS]
     init["drawer"] = float(cashlib.to_dec(cashlib.total(shift.drawer))) if shift else None
-    cs = CompanySettings.get()
+    cs = CompanySettings.get(request.company)
     init["auto_print"], init["auto_print_format"] = cs.auto_print, cs.auto_print_format
     return render(request, "core/pos.html", {"init": init, "shift": shift})
 
@@ -324,7 +433,7 @@ def _car_json(car):
 
 
 def _customer_json(c):
-    return {"id": c.pk, "name": c.name, "pct": float(services.tier_pct(c)), "tier": c.markup_tier_id,
+    return {"id": c.pk, "name": c.name, "pct": float(services.tier_pct(c, company=c.company)), "tier": c.markup_tier_id,
             "cars": [_car_json(x) for x in c.cars.all()[:20]]}
 
 
@@ -334,7 +443,7 @@ def _cart_line_json(i):
     si = i.supplier_item if i.source == SaleItem.SUPPLIER else None
     if si:
         return dict(base, key=f"s{si.pk}", si=si.pk, allow=True, name=f"{si.brand} {si.sku} {si.name}".strip(),
-                    rl=pricing.rule_json(pricing.RuleSet().for_(si.brand, i.product.category_id)),
+                    rl=pricing.rule_json(pricing.RuleSet(company=i.product.company).for_(si.brand, i.product.category_id)),
                     sup=si.supplier.name, avail=float(si.qty_avail) if si.qty_avail is not None else None)
     return dict(base, key=f"p{i.product_id}", allow=i.product.allow_price_change,
                 name=f"{i.product.brand} {i.product.name}".strip())
@@ -345,12 +454,12 @@ def product_json(p):
             "allow": p.allow_price_change, "stock": float(p.current_stock), "unit": p.unit}
 
 
-@login_required
+@tenant_cashier_only
 def pos_search(request):
     q = request.GET.get("q", "").strip()
     if not q:
         return JsonResponse({"results": [], "exact": False})
-    qs = Product.objects.filter(is_active=True)
+    qs = company_queryset(Product.objects.filter(is_active=True), request)
     exact = qs.filter(Q(barcode=q) | Q(sku__iexact=q)).first()
     if exact:
         return JsonResponse({"results": [product_json(exact)], "exact": True})
@@ -358,7 +467,7 @@ def pos_search(request):
     return JsonResponse({"results": [product_json(p) for p in res], "exact": False})
 
 
-@login_required
+@tenant_cashier_only
 def pos_customer(request):
     q = request.GET.get("q", "").strip()
     cond = Q(name_lc__contains=q.lower()) | Q(phone__icontains=q)
@@ -367,39 +476,39 @@ def pos_customer(request):
         cond |= Q(cars__plate_norm__contains=pn)
     if len(q) >= 5:
         cond |= Q(cars__vin__icontains=q)
-    res = Customer.objects.filter(cond).distinct().prefetch_related("cars")[:8] if q else []
+    res = company_queryset(Customer.objects.filter(cond), request).distinct().prefetch_related("cars")[:8] if q else []
     return JsonResponse({"results": [dict(_customer_json(c), phone=c.phone) for c in res]})
 
 
-@login_required
+@tenant_cashier_only
 @require_POST
 def pos_customer_new(request):
     d = _jb(request)
     name, phone = d.get("name", "").strip(), d.get("phone", "").strip()
     if not name or not phone:
         return JsonResponse({"error": "Потрібні ім'я і телефон"}, status=400)
-    c, _ = Customer.objects.get_or_create(phone=phone, defaults={"name": name})
+    c, _ = Customer.objects.get_or_create(company=request.company, phone=phone, defaults={"name": name})
     return JsonResponse(_customer_json(c))
 
 
 def _parse_cart(request):
     d = _jb(request)
     lines = []
-    customer = Customer.objects.filter(pk=d.get("customer_id") or 0).select_related("markup_tier").first()
+    customer = company_queryset(Customer.objects.select_related("markup_tier"), request).filter(pk=d.get("customer_id") or 0).first()
     for it in d.get("items", []):
         q = dec(it.get("qty"))
         if it.get("si"):                       # позиція з прайсу постачальника: ціна = закупівельна + націнка
-            si = SupplierItem.objects.select_related("supplier").filter(pk=it["si"], available=True).first()
+            si = company_queryset(SupplierItem.objects.select_related("supplier"), request).filter(pk=it["si"], available=True).first()
             if not si or not q or q <= 0:
                 raise StockError("Позиції немає в актуальному прайсі постачальника")
             p = services.ensure_product(si)
-            listp = pricing.list_price(si.cost, si.brand, p.category_id, customer)[0]
+            listp = pricing.list_price(si.cost, si.brand, p.category_id, customer, rs=pricing.RuleSet(company=request.company))[0]
             price = dec(it.get("price"), listp)
             if price is None or price < 0:
                 price = listp
             lines.append((p, q, price, {"si": si, "list": listp}))
             continue
-        p = Product.objects.filter(pk=it.get("id"), is_active=True).first()
+        p = company_queryset(Product.objects.filter(is_active=True), request).filter(pk=it.get("id")).first()
         if not p or not q or q <= 0:
             raise StockError("Некоректний рядок чека")
         price = p.price
@@ -411,10 +520,14 @@ def _parse_cart(request):
     pay = d.get("payment") if d.get("payment") in ("cash", "card", "mixed") else "cash"
     held = None
     if d.get("resume_id"):
-        held = Sale.objects.filter(pk=d["resume_id"], status=Sale.HELD).first()
+        held = company_queryset(Sale.objects.filter(status=Sale.HELD), request).filter(pk=d["resume_id"]).first()
+        if held is None:
+            raise StockError("Чернетка вже проведена або видалена. Оновіть касу та створіть чек заново.")
+        if held.cashier_id != request.user.id and not _can_manage_company(request):
+            raise PermissionDenied
     car = None
     if customer and d.get("car_id"):
-        car = CustomerCar.objects.filter(pk=d["car_id"], customer=customer).first()
+        car = CustomerCar.objects.filter(pk=d["car_id"], customer=customer, company=request.company).first()
     return lines, pay, customer, held, car
 
 
@@ -454,62 +567,67 @@ def _clean_car(d):
     return f, None
 
 
-@login_required
+@tenant_cashier_only
 @require_POST
 def pos_car_new(request):
     d = _jb(request)
-    cust = get_object_or_404(Customer, pk=d.get("customer_id") or 0)
+    cust = get_object_or_404(company_queryset(Customer.objects.all(), request), pk=d.get("customer_id") or 0)
     f, err = _clean_car(d)
     if err:
         return JsonResponse({"error": err}, status=400)
-    car = CustomerCar.objects.create(customer=cust, **f)
+    car = CustomerCar.objects.create(company=request.company, customer=cust, **f)
     return JsonResponse(_car_json(car))
 
 
 @login_required
+@company_required
 @require_POST
 def car_add(request, pk):
-    cust = get_object_or_404(Customer, pk=pk)
+    cust = get_object_or_404(company_queryset(Customer.objects.all(), request), pk=pk)
     f, err = _clean_car(request.POST)
     if err:
         messages.error(request, err)
     else:
-        CustomerCar.objects.create(customer=cust, **f)
+        CustomerCar.objects.create(company=request.company, customer=cust, **f)
         messages.success(request, "Авто додано")
-    return redirect("customer_detail", pk=pk) if request.user.is_staff else redirect("pos")
+    return redirect("customer_detail", pk=pk) if _can_manage_company(request) else redirect("pos")
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def car_delete(request, pk):
-    car = get_object_or_404(CustomerCar, pk=pk)
+    car = get_object_or_404(CustomerCar.objects.filter(company=request.company), pk=pk)
     cid = car.customer_id
     car.delete()
     messages.success(request, "Авто видалено")
     return redirect("customer_detail", pk=cid)
 
 
-@login_required
+@tenant_cashier_only
 @require_POST
 def pos_change(request):
     d = _jb(request)
-    shift = current_shift(request.user)
+    shift = current_shift(request.user, request.company)
     pay, card, received, counts = _payment_inputs(d)
     total_kop = cashlib.to_kop(dec(d.get("total"), D0))
     res = cashlib.compute_payment(total_kop, pay, card, received, counts, cashlib.clean(shift.drawer) if shift else None)
     return JsonResponse(_plan_json(res))
 
 
-@login_required
+@tenant_cashier_only
 @require_POST
+@transaction.atomic
 def pos_checkout(request):
-    shift = current_shift(request.user)
-    if not shift and not request.user.is_staff:
+    # Serialize checkouts in the same cash shift before reading/updating its drawer.
+    shift = Shift.objects.select_for_update().filter(company=request.company, cashier=request.user, closed_at__isnull=True).first()
+    if not shift:
         return JsonResponse({"error": "Зміну не відкрито"}, status=400)
     try:
         lines, pay, customer, held, car = _parse_cart(request)
         merged = services.merge_lines(lines)
-        total_kop = sum(cashlib.to_kop(q * pr) for _, q, pr, _x in merged)
+        total_kop = cashlib.to_kop(sum((q * pr for _, q, pr, _x in merged), D0))
         pm, card, received, counts = _payment_inputs(_jb(request))
         res = cashlib.compute_payment(total_kop, pm, card, received, counts,
                                       cashlib.clean(shift.drawer) if shift else None)
@@ -519,51 +637,51 @@ def pos_checkout(request):
                 "change": cashlib.to_dec(res["change"]), "drawer": res["drawer_after"],
                 "detail": {"plan": {cashlib.label(k): n for k, n in res["plan"].items()},
                            "rounding": float(cashlib.to_dec(res["rounding"]))}}
-        sale = services.finalize_sale(request.user, lines, pm, customer, shift, held, info, car=car)
+        sale = services.finalize_sale(request.user, lines, pm, customer, shift, held, info, car=car, company=request.company)
     except StockError as e:
         return JsonResponse({"error": str(e)}, status=400)
-    shift = current_shift(request.user)
+    shift = current_shift(request.user, request.company)
     return JsonResponse({"ok": True, "id": sale.pk, "number": sale.number, "total": float(sale.total),
                          "change": float(sale.change_given), "plan": _plan_json(res)["plan"],
                          "drawer": float(cashlib.to_dec(cashlib.total(shift.drawer))) if shift else None})
 
 
-@login_required
+@tenant_cashier_only
 @require_POST
 def pos_hold(request):
     try:
         lines, pay, customer, held, car = _parse_cart(request)
         if not lines:
             raise StockError("Чек порожній")
-        sale = services.save_held(request.user, lines, pay, customer, current_shift(request.user), held, car=car)
+        sale = services.save_held(request.user, lines, pay, customer, current_shift(request.user, request.company), held, car=car, company=request.company)
     except StockError as e:
         return JsonResponse({"error": str(e)}, status=400)
     return JsonResponse({"ok": True, "number": sale.number})
 
 
-@login_required
+@tenant_cashier_only
 def held_list(request):
-    qs = Sale.objects.filter(status=Sale.HELD).select_related("customer")
-    if not request.user.is_staff:
+    qs = company_queryset(Sale.objects.filter(status=Sale.HELD).select_related("customer"), request)
+    if not _can_manage_company(request):
         qs = qs.filter(cashier=request.user)
     return render(request, "core/held_list.html", {"sales": qs})
 
 
-@login_required
+@tenant_cashier_only
 @require_POST
 def held_delete(request, pk):
-    s = get_object_or_404(Sale, pk=pk, status=Sale.HELD)
-    if s.cashier_id != request.user.id and not request.user.is_staff:
+    s = get_object_or_404(company_queryset(Sale.objects.all(), request), pk=pk, status=Sale.HELD)
+    if s.cashier_id != request.user.id and not _can_manage_company(request):
         raise PermissionDenied
     s.delete()
     return redirect("held_list")
 
 
 # ---------- Sales ----------
-@login_required
+@tenant_cashier_only
 def sale_list(request):
-    qs = done_sales().select_related("cashier", "customer")
-    if not request.user.is_staff:
+    qs = done_sales(request.company).select_related("cashier", "customer")
+    if not _can_manage_company(request):
         qs = qs.filter(cashier=request.user)
     d1, d2 = get_date(request, "from", None), get_date(request, "to", None)
     if d1:
@@ -572,45 +690,84 @@ def sale_list(request):
         qs = qs.filter(created_at__date__lte=d2)
     if request.GET.get("payment"):
         qs = qs.filter(payment_method=request.GET["payment"])
-    if request.user.is_staff and request.GET.get("cashier"):
+    if _can_manage_company(request) and request.GET.get("cashier"):
         qs = qs.filter(cashier_id=request.GET["cashier"])
     from django.contrib.auth import get_user_model
     from .designer_views import print_bar
     return render(request, "core/sale_list.html", {
         "sales": qs.annotate(qty=Sum("items__quantity"))[:300],
-        "cashiers": get_user_model().objects.all(), "payments": Sale.PAYMENTS, **print_bar("receipt")})
+        "cashiers": get_user_model().objects.filter(company_memberships__company=request.company, company_memberships__is_active=True).distinct(), "payments": Sale.PAYMENTS, **print_bar("receipt", request.company)})
+
+
+@tenant_cashier_only
+def sale_detail(request, pk):
+    sale = get_object_or_404(company_queryset(Sale.objects.select_related("cashier", "customer"), request), pk=pk)
+    if not _can_manage_company(request) and sale.cashier_id != request.user.id:
+        raise PermissionDenied
+    return render(request, "core/sale_detail.html", {"sale": sale, "items": sale.items.filter(company=request.company).select_related("product"),
+                                                     "returns": sale.returns.filter(company=request.company)})
 
 
 @login_required
-def sale_detail(request, pk):
-    sale = get_object_or_404(Sale.objects.select_related("cashier", "customer"), pk=pk)
-    if not request.user.is_staff and sale.cashier_id != request.user.id:
-        raise PermissionDenied
-    return render(request, "core/sale_detail.html", {"sale": sale, "items": sale.items.select_related("product"),
-                                                     "returns": sale.returns.all()})
-
-
-@staff_only
+@company_required
+@tenant_staff_only
 @require_POST
+@transaction.atomic
 def sale_return(request, pk):
-    sale = get_object_or_404(Sale, pk=pk, status=Sale.DONE)
+    sale = get_object_or_404(company_queryset(Sale.objects.all(), request), pk=pk, status=Sale.DONE)
     qty_map = {}
-    for item in sale.items.all():
+    for item in sale.items.filter(company=request.company):
         q = dec(request.POST.get(f"ret_{item.pk}", "0"), D0)
         if q and q > 0:
             qty_map[item.pk] = q
     try:
-        ret = services.create_return(request.user, sale, qty_map)
-        messages.success(request, f"Повернення {ret.number} на суму {ret.total} ₴ проведено")
+        ret = services.create_return(
+            request.user, sale, qty_map,
+            refund_method=request.POST.get("refund_method", "card"),
+            refund_cash_amount=dec(request.POST.get("refund_cash_amount"), None),
+            shift=current_shift(request.user, request.company), company=request.company,
+        )
+        messages.success(
+            request,
+            f"Повернення {ret.number} на суму {ret.total} ₴ проведено. "
+            f"Готівка: {ret.cash_amount} ₴, картка: {ret.card_amount} ₴",
+        )
+    except StockError as e:
+        messages.error(request, str(e))
+    return redirect("sale_detail", pk=pk)
+
+
+
+@login_required
+@company_required
+@tenant_staff_only
+@require_POST
+@transaction.atomic
+def sale_return_settle(request, pk, return_pk):
+    ret = get_object_or_404(company_queryset(SaleReturn.objects.all(), request), pk=return_pk, sale_id=pk, sale__company=request.company)
+    try:
+        settled = services.settle_return(
+            request.user, ret,
+            refund_method=request.POST.get("refund_method", ""),
+            refund_cash_amount=dec(request.POST.get("refund_cash_amount"), None),
+            shift=current_shift(request.user, request.company), company=request.company,
+        )
+        messages.success(
+            request,
+            f"Виплату за повернення {settled.number} зафіксовано: "
+            f"готівка {settled.cash_amount} ₴, картка {settled.card_amount} ₴",
+        )
     except StockError as e:
         messages.error(request, str(e))
     return redirect("sale_detail", pk=pk)
 
 
 # ---------- Inventory ----------
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def inventory(request):
-    qs = Product.objects.select_related("category").filter(is_active=True)
+    qs = company_queryset(Product.objects.select_related("category").filter(is_active=True), request)
     q, cat, st = request.GET.get("q", ""), request.GET.get("category", ""), request.GET.get("status", "")
     if q:
         qs = qs.filter(Q(name_lc__contains=q.lower()) | Q(sku__icontains=q) | Q(barcode__icontains=q))
@@ -622,17 +779,19 @@ def inventory(request):
         qs = qs.filter(current_stock__gt=0, current_stock__lte=F("min_stock"))
     elif st == "ok":
         qs = qs.filter(current_stock__gt=F("min_stock"))
-    return render(request, "core/inventory.html", {"products": qs, "categories": Category.objects.all(),
+    return render(request, "core/inventory.html", {"products": qs, "categories": company_queryset(Category.objects.all(), request),
                                                    "q": q, "cat": cat, "st": st})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def inventory_adjust(request):
     form = AdjustForm(request.POST or None)
-    form.fields["product"].queryset = Product.objects.filter(is_active=True)
+    form.fields["product"].queryset = company_queryset(Product.objects.filter(is_active=True), request)
     if request.method == "POST" and form.is_valid():
         try:
-            services.apply_adjustment(request.user, form)
+            services.apply_adjustment(request.user, form, company=request.company)
             messages.success(request, "Коригування проведено")
             return redirect("inventory_movements")
         except StockError as e:
@@ -640,40 +799,63 @@ def inventory_adjust(request):
     return render(request, "core/form.html", {"form": form, "title": "Коригування запасів", "back": "inventory"})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def inventory_movements(request):
-    qs = StockMovement.objects.select_related("product", "user")
-    if request.GET.get("product"):
-        qs = qs.filter(product_id=request.GET["product"])
-    if request.GET.get("type"):
-        qs = qs.filter(movement_type=request.GET["type"])
+    qs = company_queryset(StockMovement.objects.select_related("product", "user"), request)
+    q = request.GET.get("q", "").strip()
+    product_id = request.GET.get("product", "").strip()
+    movement_type = request.GET.get("type", "").strip()
+    if product_id.isdigit():
+        qs = qs.filter(product_id=int(product_id))
+    valid_types = {value for value, _label in StockMovement.TYPES}
+    if movement_type in valid_types:
+        qs = qs.filter(movement_type=movement_type)
+    if q:
+        qs = qs.filter(Q(product__name__icontains=q) | Q(product__sku__icontains=q)
+                       | Q(doc_ref__icontains=q) | Q(note__icontains=q) | Q(user__username__icontains=q))
     d1, d2 = get_date(request, "from", None), get_date(request, "to", None)
     if d1:
         qs = qs.filter(created_at__date__gte=d1)
     if d2:
         qs = qs.filter(created_at__date__lte=d2)
-    return render(request, "core/movements.html", {"moves": qs[:300], "products": Product.objects.all(),
-                                                   "types": StockMovement.TYPES})
+    if d1 and d2 and d1 > d2:
+        qs = qs.none()
+    count = qs.count()
+    return render(request, "core/movements.html", {
+        "moves": qs[:300], "movement_count": count, "products": company_queryset(Product.objects.all(), request),
+        "types": StockMovement.TYPES, "q": q, "selected_product": product_id,
+        "selected_type": movement_type, "date_from": request.GET.get("from", ""),
+        "date_to": request.GET.get("to", ""),
+    })
 
 
 # ---------- Customers ----------
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def customer_list(request):
-    qs = Customer.objects.annotate(last=Max("sales__created_at", filter=Q(sales__status="done")))
+    qs = company_queryset(Customer.objects.annotate(last=Max("sales__created_at", filter=Q(sales__company=request.company, sales__status="done"))), request)
     q = request.GET.get("q", "").strip()
     if q:
         qs = qs.filter(Q(name_lc__contains=q.lower()) | Q(phone__icontains=q))
     return render(request, "core/customer_list.html", {"customers": qs, "q": q})
 
 
+@login_required
+@company_required
+@tenant_staff_only
 def customer_edit(request, pk=None):
     return simple_form(request, CustomerForm, "Клієнт", "customer_list", pk, Customer)
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def customer_detail(request, pk):
-    c = get_object_or_404(Customer, pk=pk)
-    sales = c.sales.filter(status="done").prefetch_related("items__product")
+    c = get_object_or_404(company_queryset(Customer.objects.all(), request), pk=pk)
+    sales = c.sales.filter(company=request.company, status="done").prefetch_related("items__product")
     return render(request, "core/customer_detail.html", {"c": c, "sales": sales})
 
 
@@ -681,25 +863,40 @@ def customer_detail(request, pk):
 NET = ExpressionWrapper(F("quantity") - F("returned_qty"), output_field=DEC)
 
 
-def _items(d1, d2):
-    return SaleItem.objects.filter(sale__status="done", sale__created_at__date__range=(d1, d2))
+def _items(d1, d2, company):
+    return SaleItem.objects.filter(company=company, sale__company=company, sale__status="done",
+                                   sale__created_at__date__range=(d1, d2))
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def report_daily(request):
     d = get_date(request, "date", timezone.localdate())
-    sales = done_sales().filter(created_at__date=d)
+    sales = done_sales(request.company).filter(created_at__date=d)
     split = sales.aggregate(c=Sum("cash_amount"), k=Sum("card_amount"))
-    items = (_items(d, d).values("product__name", "product__sku")
+    total = sales.aggregate(s=Sum("total"))["s"] or D0
+    return_qs = SaleReturn.objects.filter(company=request.company, created_at__date=d)
+    return_split = return_qs.aggregate(c=Sum("cash_amount"), k=Sum("card_amount"))
+    returns_total = return_qs.aggregate(s=Sum("total"))["s"] or D0
+    returns_cash, returns_card = return_split["c"] or D0, return_split["k"] or D0
+    pending_returns = return_qs.filter(refund_method="pending").aggregate(s=Sum("total"))["s"] or D0
+    items = (_items(d, d, request.company).values("product__name", "product__sku")
              .annotate(q=Sum("quantity"), s=Sum(ExpressionWrapper(F("quantity") * F("price"), output_field=DEC)))
              .order_by("-s"))
     return render(request, "core/report_daily.html", {
-        "d": d, "total": sales.aggregate(s=Sum("total"))["s"] or D0, "count": sales.count(),
-        "units": _items(d, d).aggregate(s=Sum("quantity"))["s"] or D0,
-        "cash": split["c"] or D0, "card": split["k"] or D0, "items": items})
+        "d": d, "total": total, "returns_total": returns_total, "net_total": total - returns_total,
+        "count": sales.count(),
+        "units": _items(d, d, request.company).aggregate(s=Sum("quantity"))["s"] or D0,
+        "cash": (split["c"] or D0) - returns_cash,
+        "card": (split["k"] or D0) - returns_card,
+        "returns_cash": returns_cash, "returns_card": returns_card,
+        "pending_returns": pending_returns, "items": items})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def report_monthly(request):
     today = timezone.localdate()
     try:
@@ -711,36 +908,61 @@ def report_monthly(request):
     prev_first = prev_last.replace(day=1)
 
     def agg(f):
-        qs = done_sales().filter(created_at__year=f.year, created_at__month=f.month)
-        return qs, qs.aggregate(s=Sum("total"))["s"] or D0
-    qs, total = agg(first)
-    _, prev_total = agg(prev_first)
+        qs = done_sales(request.company).filter(created_at__year=f.year, created_at__month=f.month)
+        gross = qs.aggregate(s=Sum("total"))["s"] or D0
+        return_qs = SaleReturn.objects.filter(company=request.company, created_at__year=f.year, created_at__month=f.month)
+        returned = return_qs.aggregate(s=Sum("total"))["s"] or D0
+        return qs, gross - returned, gross, returned
+    qs, total, gross_total, returns_total = agg(first)
+    _, prev_total, _, _ = agg(prev_first)
+    month_returns = SaleReturn.objects.filter(company=request.company, created_at__year=first.year, created_at__month=first.month)
+    return_split = month_returns.aggregate(c=Sum("cash_amount"), k=Sum("card_amount"))
+    returns_cash, returns_card = return_split["c"] or D0, return_split["k"] or D0
+    pending_returns = month_returns.filter(refund_method="pending").aggregate(s=Sum("total"))["s"] or D0
+    sale_split = qs.aggregate(c=Sum("cash_amount"), k=Sum("card_amount"))
+    cash_net = (sale_split["c"] or D0) - returns_cash
+    card_net = (sale_split["k"] or D0) - returns_card
     days = qs.annotate(day=TruncDate("created_at")).values("day").annotate(s=Sum("total"), n=Count("id")).order_by("day")
     nd = max(len(days), 1)
     pct = ((total - prev_total) / prev_total * 100) if prev_total else None
     return render(request, "core/report_monthly.html", {
-        "first": first, "total": total, "avg": total / nd, "count": qs.count(), "days": days,
-        "prev_total": prev_total, "diff": total - prev_total, "pct": pct})
+        "first": first, "total": total, "gross_total": gross_total, "returns_total": returns_total,
+        "avg": total / nd, "count": qs.count(), "days": days,
+        "prev_total": prev_total, "diff": total - prev_total, "pct": pct,
+        "cash_net": cash_net, "card_net": card_net,
+        "returns_cash": returns_cash, "returns_card": returns_card,
+        "pending_returns": pending_returns})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def report_top(request):
     today = timezone.localdate()
     d1, d2 = get_date(request, "from", today.replace(day=1)), get_date(request, "to", today)
     n = int(request.GET.get("n", 10)) if request.GET.get("n", "10").isdigit() else 10
-    base = (_items(d1, d2).values("product__name", "product__sku")
+    base = (_items(d1, d2, request.company).values("product__name", "product__sku")
             .annotate(q=Sum(NET), s=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)), n=Count("sale", distinct=True)))
     return render(request, "core/report_top.html", {"d1": d1, "d2": d2, "n": n,
                                                     "by_sum": base.order_by("-s")[:n], "by_qty": base.order_by("-q")[:n]})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def report_profit(request):
     today = timezone.localdate()
     d1, d2 = get_date(request, "from", today.replace(day=1)), get_date(request, "to", today)
-    rows = list(_items(d1, d2).values("product__name", "product__sku").annotate(
-        q=Sum(NET), rev=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
-        cost=Sum(ExpressionWrapper(NET * F("cost_price"), output_field=DEC))).order_by("-rev"))
+    # Margin is realized only after the item is handed over to the customer.
+    # Supplier-order sales remain in revenue reports, but are not counted as earned
+    # profit until fulfilment sets earned_at; returns reduce both net revenue and cost.
+    # Profit belongs to the period when the item was handed to the customer,
+    # not the earlier date when the sale/order was first created.
+    rows = list(SaleItem.objects.filter(
+        company=request.company, sale__company=request.company, sale__status=Sale.DONE, earned_at__date__range=(d1, d2)
+    ).values("product__name", "product__sku").annotate(
+            q=Sum(NET), rev=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
+            cost=Sum(ExpressionWrapper(NET * F("cost_price"), output_field=DEC))).order_by("-rev"))
     for r in rows:
         r["margin"] = (r["rev"] or D0) - (r["cost"] or D0)
         r["pct"] = r["margin"] / r["rev"] * 100 if r["rev"] else D0
@@ -749,21 +971,23 @@ def report_profit(request):
                                                        "cost": cost, "margin": rev - cost})
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def report_stock(request):
-    value = Product.objects.aggregate(v=Sum(ExpressionWrapper(F("current_stock") * F("cost_price"), output_field=DEC)))["v"] or D0
-    summary = StockMovement.objects.values("movement_type").annotate(s=Sum("quantity_change"), n=Count("id"))
+    value = company_queryset(Product.objects.all(), request).aggregate(v=Sum(ExpressionWrapper(F("current_stock") * F("cost_price"), output_field=DEC)))["v"] or D0
+    summary = company_queryset(StockMovement.objects.all(), request).values("movement_type").annotate(s=Sum("quantity_change"), n=Count("id"))
     names = dict(StockMovement.TYPES)
     for r in summary:
         r["label"] = names.get(r["movement_type"], r["movement_type"])
     return render(request, "core/report_stock.html", {
         "value": value, "summary": summary,
-        "low": Product.objects.filter(is_active=True, current_stock__lte=F("min_stock"))})
+        "low": company_queryset(Product.objects.filter(is_active=True, current_stock__lte=F("min_stock")), request)})
 
 
 # ---------- Shifts ----------
 def shift_summary(shift):
-    qs = done_sales().filter(shift=shift)
+    qs = done_sales(shift.company).filter(shift=shift)
     a = qs.aggregate(t=Sum("total"), c=Sum("cash_amount"), k=Sum("card_amount"), ch=Sum("change_given"))
     return {"total": a["t"] or D0, "count": qs.count(), "cash": a["c"] or D0, "card": a["k"] or D0,
             "expected": cashlib.to_dec(cashlib.total(shift.drawer))}
@@ -785,17 +1009,23 @@ def _drawer_rows(counts):
     return [{"k": d, "l": cashlib.label(d), "n": counts.get(d, 0)} for d in cashlib.DENOMS]
 
 
-@login_required
+@tenant_cashier_only
+@transaction.atomic
 def shift_view(request):
-    shift = current_shift(request.user)
+    shift = current_shift(request.user, request.company)
     if request.method == "POST":
+        # Serialize open/close actions for this cashier and refresh the shift under lock.
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        shift = Shift.objects.select_for_update().filter(
+            company=request.company, cashier=request.user, closed_at__isnull=True
+        ).first()
         action = request.POST.get("action")
         if action == "open" and not shift:
             counts = _counts_from_post(request, "c_", {})
             cash_total = cashlib.to_dec(cashlib.total(counts))
             if not counts and dec(request.POST.get("cash")):
                 cash_total = dec(request.POST.get("cash"), D0)
-            Shift.objects.create(cashier=request.user, opening_cash=cash_total,
+            Shift.objects.create(company=request.company, cashier=request.user, opening_cash=cash_total,
                                  opening_counts=cashlib.store(counts), drawer=cashlib.store(counts))
             return redirect("pos")
         if action == "close" and shift:
@@ -808,17 +1038,23 @@ def shift_view(request):
             summ = shift_summary(shift)
             summ["counted"] = cashlib.to_dec(cashlib.total(counted))
             return render(request, "core/shift.html", {"closed": shift, "summary": summ})
-    last = Shift.objects.filter(cashier=request.user, closed_at__isnull=False).first()
+    last = Shift.objects.filter(company=request.company, cashier=request.user, closed_at__isnull=False).first()
     prefill = (last.closing_counted if last and last.closing_counted is not None else (last.drawer if last else {}))
     ctx = {"shift": shift, "summary": shift_summary(shift) if shift else None,
-           "history": Shift.objects.filter(cashier=request.user)[:10]}
+           "history": Shift.objects.filter(company=request.company, cashier=request.user)[:10]}
     ctx["rows"] = _drawer_rows(shift.drawer if shift else prefill)
     return render(request, "core/shift.html", ctx)
 
 
-@login_required
+@tenant_cashier_only
+@transaction.atomic
 def drawer_view(request):
-    shift = current_shift(request.user)
+    shift = current_shift(request.user, request.company)
+    if request.method == "POST":
+        # A checkout and a drawer adjustment must never overwrite each other's counts.
+        shift = Shift.objects.select_for_update().filter(
+            company=request.company, cashier=request.user, closed_at__isnull=True
+        ).first()
     if not shift:
         messages.info(request, "Спочатку відкрийте зміну")
         return redirect("shift")
@@ -828,8 +1064,13 @@ def drawer_view(request):
         if new is not None and new != old:
             delta_kop = cashlib.total(new) - cashlib.total(old)
             kind = request.POST.get("kind", "adjust")
+            if kind not in ("in", "out", "adjust"):
+                kind = "adjust"
+            if (kind == "in" and delta_kop < 0) or (kind == "out" and delta_kop > 0):
+                messages.error(request, "Тип касової операції не відповідає зміні суми. Перевірте купюри та повторіть.")
+                return redirect("drawer")
             CashOperation.objects.create(
-                shift=shift, user=request.user, kind=kind if kind in ("in", "out", "adjust") else "adjust",
+                company=request.company, shift=shift, user=request.user, kind=kind,
                 amount=cashlib.to_dec(delta_kop), note=request.POST.get("note", "")[:200],
                 detail={str(k): new.get(k, 0) - old.get(k, 0) for k in cashlib.DENOMS if new.get(k, 0) != old.get(k, 0)})
             shift.drawer = cashlib.store(new)
@@ -838,25 +1079,33 @@ def drawer_view(request):
         return redirect("drawer")
     return render(request, "core/drawer.html", {"shift": shift, "rows": _drawer_rows(shift.drawer),
                                                 "total": cashlib.to_dec(cashlib.total(shift.drawer)),
-                                                "ops": shift.cash_ops.all()[:20]})
+                                                "ops": shift.cash_ops.filter(company=request.company)[:20]})
 
 # ---------- Settings ----------
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def settings_home(request):
     return redirect("designer_home")
 
 
-@staff_only
+@login_required
+@company_required
+@tenant_staff_only
 def company_settings(request):
     from django.forms import modelformset_factory
     AccFS = modelformset_factory(BankAccount, fields=["bank_name", "iban", "mfo", "holder", "currency", "note", "is_default"],
                                  extra=1, can_delete=True)
-    obj = CompanySettings.get()
+    company = request.company
+    obj = CompanySettings.get(company)
+    account_qs = BankAccount.objects.filter(company=company)
     form = CompanyForm(request.POST or None, request.FILES or None, instance=obj)
-    fs = AccFS(request.POST or None, queryset=BankAccount.objects.all())
+    fs = AccFS(request.POST or None, queryset=account_qs)
     if request.method == "POST" and form.is_valid() and fs.is_valid():
         form.save()
         for inst in fs.save(commit=False):
+            if company:
+                inst.company = company
             inst.save()
         for inst in fs.deleted_objects:
             inst.delete()
