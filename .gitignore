@@ -4,3 +4,4 @@ venv/
 __pycache__/
 db.sqlite3
 .env
+\n# Publisher secrets: never commit or ship the license signing key\nautozapaz-license-private.pem\n*license-private*.pem\n*.license-private.pem\n
