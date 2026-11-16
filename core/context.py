@@ -37,7 +37,7 @@ STAFF_NAV = [
     ("Керування", [
         ("Зарплата менеджерів", "payroll"), ("Плани оплати", "pay_plans"),
         ("Дизайнер бланків", "designer_home"), ("Фірма та рахунки", "company_settings"),
-        ("Користувачі", "user_list"), ("Резервні копії", "backup"),
+        ("Користувачі", "user_list"), ("Ліцензія", "activate_license"), ("Резервні копії", "backup"),
     ]),
 ]
 CASHIER_NAV = [
