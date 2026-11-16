@@ -26,7 +26,7 @@ def company_fk(model, company_model):
 def company_scoped_models(company_model):
     result = []
     for model in apps.get_models(include_auto_created=False):
-        if model._meta.app_label != "core" or model is company_model:
+        if model._meta.app_label != "core" or model is company_model or model.__name__ == "CompanyMembership":
             continue
         field = company_fk(model, company_model)
         if field:
@@ -95,6 +95,8 @@ class Command(BaseCommand):
         alias = options["database"]
         if alias not in connections:
             raise CommandError(f"Невідома база даних: {alias}")
+        if options["as_json"] and options["apply"]:
+            raise CommandError("--json призначений для read-only аудиту; не поєднуйте його з --apply.")
         if options["apply"] and not options["backup"]:
             raise CommandError("Для --apply обов'язково вкажіть --backup /шлях/до/backup.sqlite3.")
         if not options["apply"] and options["backup"]:
@@ -230,7 +232,8 @@ class Command(BaseCommand):
             return
 
         if not options["apply"]:
-            self.stdout.write("Режим перевірки: база не змінювалася. Для застосування потрібні --apply та --backup.")
+            if not options["as_json"]:
+                self.stdout.write("Режим перевірки: база не змінювалася. Для застосування потрібні --apply та --backup.")
             return
 
         if connections[alias].vendor != "sqlite":
