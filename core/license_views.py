@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from .licensing import LicenseError, verify_license_token
+from .licensing import LicenseError, get_installation_id, verify_license_token
 from .models import CompanyMembership, LicenseActivation
 
 
@@ -22,7 +22,8 @@ def activate_license(request):
     if request.method == "POST":
         token = request.POST.get("license_key", "")
         try:
-            claims = verify_license_token(token)
+            installation_id = get_installation_id()
+            claims = verify_license_token(token, expected_installation_id=installation_id)
             active_users = CompanyMembership.objects.filter(company=request.company, is_active=True).values("user_id").distinct().count()
             if active_users > claims["max_users"]:
                 raise LicenseError(
@@ -51,4 +52,5 @@ def activate_license(request):
     return render(request, "core/license_activation.html", {
         "activation": current,
         "today": timezone.localdate(),
+        "installation_id": get_installation_id(),
     })
