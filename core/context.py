@@ -113,6 +113,8 @@ def layout(request):
                 ]
             if title == "Керування" and not u.is_superuser:
                 items = [(label, name) for label, name in items if name != "backup"]
+            if not items:
+                continue
             rows = [{"label": lbl, "name": name, "active": name == cur} for lbl, name in items]
             groups.append({
                 "title": title, "icon": ICONS.get(title, "•"), "items": rows,
