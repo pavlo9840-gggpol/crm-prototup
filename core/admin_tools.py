@@ -117,10 +117,10 @@ def user_edit(request, pk=None):
             from .licensing import get_active_license
             active_license = get_active_license()
             active_members = CompanyMembership.objects.filter(company=request.company, is_active=True).count()
-            if active_license and active_members >= active_license.max_users:
+            if active_license and active_members >= active_license["max_users"]:
                 messages.error(
                     request,
-                    f"Досягнуто ліміт ліцензії: {active_license.max_users} активних користувачів."
+                    f"Досягнуто ліміт ліцензії: {active_license['max_users']} активних користувачів."
                 )
                 return redirect("user_list")
             obj = User.objects.create_user(
