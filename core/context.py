@@ -131,12 +131,20 @@ def layout(request):
         except Exception:
             chip = []
 
+    cashier_items = (
+        MECHANIC_NAV if membership and membership.role == "mechanic"
+        else CASHIER_NAV if active_company and company_access and not can_manage_company else []
+    )
+    if active_license:
+        cashier_items = [
+            (label, name) for label, name in cashier_items
+            if not NAV_FEATURES.get(name)
+            or feature_is_enabled(active_license, NAV_FEATURES[name])
+        ]
+
     return {
         "nav_groups": groups,
-        "cashier_nav": (
-            MECHANIC_NAV if membership and membership.role == "mechanic"
-            else CASHIER_NAV if active_company and company_access and not can_manage_company else []
-        ),
+        "cashier_nav": cashier_items,
         "can_manage_company": can_manage_company,
         "cur_url": cur,
         "company_name": CompanySettings.get(active_company).name if active_company else "",
