@@ -17,6 +17,17 @@
 
 До випуску реальних ключів потрібно створити пару ключів, безпечно зберегти приватний ключ поза GitHub і зафіксувати відкритий ключ у релізній конфігурації. Тестовий відкритий ключ не є ключем комерційного видавця.
 
+Приклад роботи видавця (виконувати на довіреному комп'ютері, не на ПК клієнта):
+
+```bash
+python scripts/generate_license_keys.py --private-key /secure/autozapaz-license-private.pem
+# Скопіювати надрукований відкритий ключ у змінну AUTOZAPAZ_LICENSE_PUBLIC_KEY релізу.
+python scripts/issue_license.py --private-key /secure/autozapaz-license-private.pem --customer "Магазин" --plan start --days 365 --max-users 2 --max-workstations 1
+```
+
+Скрипт шифрує приватний ключ паролем. Для випуску ключів пароль вводиться інтерактивно або передається через AUTOZAPAZ_LICENSE_KEY_PASSWORD. Не зберігати пароль у репозиторії, інсталяторі чи разом із резервними копіями клієнта.
+
+
 ### Поточна реалізація в коді
 
 - Формат ключа: AZ1.<payload>.<signature>, payload і підпис кодуються Base64 URL-safe.
