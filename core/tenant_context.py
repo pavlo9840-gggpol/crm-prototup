@@ -165,6 +165,10 @@ class WorkstationLimitMiddleware:
             if session_key:
                 LicenseWorkstationSession.objects.filter(session_key=session_key).delete()
             return self.get_response(request)
+        # Owners must be able to replace/upgrade an exhausted license from a
+        # second browser even when all licensed seats are currently occupied.
+        if request.path.startswith(("/activate/", "/setup/", "/login/", "/static/", "/media/")):
+            return self.get_response(request)
 
         claims = getattr(request, "active_license", None)
         if claims is None:
