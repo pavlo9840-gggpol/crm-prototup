@@ -27,18 +27,36 @@ def parse_ids(value):
     return ids
 
 
+def _condition_without_company_null_checks(condition, company_field):
+    """Evaluate partial unique conditions as if NULL-owned rows were assigned to a store."""
+    if condition is None:
+        return None
+    result = Q()
+    result.connector = condition.connector
+    result.negated = condition.negated
+    for child in condition.children:
+        if isinstance(child, Q):
+            result.children.append(_condition_without_company_null_checks(child, company_field))
+        else:
+            lookup, _value = child
+            root = lookup.split("__", 1)[0]
+            if root in {company_field.name, company_field.attname}:
+                continue
+            result.children.append(child)
+    return result
+
+
 def unique_company_collisions(model, company_field, company_ids, alias):
-    """Return exact DB-constraint collisions between the stores being consolidated."""
+    """Find exact unique-key collisions, including unassigned rows that will move."""
     candidates = []
     seen = set()
     for constraint in model._meta.constraints:
         fields = getattr(constraint, "fields", None)
         if fields and company_field.name in fields:
-            key_fields = [name for name in fields if name != company_field.name]
-            condition = getattr(constraint, "condition", None)
-            candidates.append((constraint.name, key_fields, condition))
+            candidates.append((constraint.name, [
+                name for name in fields if name != company_field.name
+            ], getattr(constraint, "condition", None)))
             seen.add(tuple(fields))
-
     for unique_group in model._meta.unique_together:
         if company_field.name in unique_group and tuple(unique_group) not in seen:
             candidates.append(("unique_together", [
@@ -46,26 +64,36 @@ def unique_company_collisions(model, company_field, company_ids, alias):
             ], None))
 
     collisions = []
+    base = model.objects.using(alias).filter(
+        Q(**{f"{company_field.attname}__in": company_ids})
+        | Q(**{f"{company_field.attname}__isnull": True})
+    )
     for constraint_name, key_names, condition in candidates:
-        qs = model.objects.using(alias).filter(**{
-            f"{company_field.attname}__in": company_ids
-        })
-        if condition is not None:
-            qs = qs.filter(condition)
-
         key_attnames = [model._meta.get_field(name).attname for name in key_names]
+        if condition is None:
+            qs = base
+        else:
+            adjusted = _condition_without_company_null_checks(condition, company_field)
+            # Existing rows obey the real partial condition; NULL-owned rows
+            # are evaluated with company predicates removed because they will
+            # receive the target company before the unique index is checked.
+            qs = (
+                base.filter(**{f"{company_field.attname}__isnull": False}).filter(condition)
+                | base.filter(**{f"{company_field.attname}__isnull": True}).filter(adjusted)
+            )
         grouped = defaultdict(list)
         selected = ["pk", company_field.attname, *key_attnames]
         for row in qs.values_list(*selected).iterator():
             pk, company_id, *values = row
-            # SQL unique constraints generally treat NULL values as distinct.
             if any(value is None for value in values):
                 continue
             grouped[tuple(values)].append({"id": pk, "company_id": company_id})
 
         for key, records in grouped.items():
-            distinct_companies = {record["company_id"] for record in records}
-            if len(distinct_companies) > 1:
+            company_counts = defaultdict(int)
+            for record in records:
+                company_counts[record["company_id"]] += 1
+            if len(company_counts) > 1 or company_counts.get(None, 0) > 1:
                 collisions.append({
                     "constraint": constraint_name,
                     "key_fields": key_names,
@@ -77,9 +105,10 @@ def unique_company_collisions(model, company_field, company_ids, alias):
 
 def external_reference_mismatches(model, source_company_field, company_ids, alias, company_model):
     """Rows in selected stores pointing to related objects in a store outside the merge."""
-    qs = model.objects.using(alias).filter(**{
-        f"{source_company_field.attname}__in": company_ids
-    })
+    qs = model.objects.using(alias).filter(
+        Q(**{f"{source_company_field.attname}__in": company_ids})
+        | Q(**{f"{source_company_field.attname}__isnull": True})
+    )
     mismatches = []
     for relation in model._meta.fields:
         if not isinstance(relation, ForeignKey) or relation.remote_field.model == company_model:
@@ -217,6 +246,9 @@ class Command(BaseCommand):
                 ).count()
                 for company_id in selected_ids
             }
+            per_store["unassigned"] = model.objects.using(alias).filter(
+                **{f"{field.attname}__isnull": True}
+            ).count()
             count = sum(per_store.values())
             total_rows += count
             if count:
@@ -328,7 +360,8 @@ class Command(BaseCommand):
             moved_rows = {}
             for model, field in scoped:
                 changed = model.objects.using(alias).filter(
-                    **{f"{field.attname}__in": source_ids}
+                    Q(**{f"{field.attname}__in": source_ids})
+                    | Q(**{f"{field.attname}__isnull": True})
                 ).update(**{field.attname: target_id})
                 if changed:
                     moved_rows[model._meta.label] = changed
