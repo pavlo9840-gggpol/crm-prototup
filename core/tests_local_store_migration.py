@@ -13,9 +13,13 @@ class LocalStoreMigrationCommandTests(TestCase):
     def setUp(self):
         User = get_user_model()
         self.owner = User.objects.create_user(username="migration-owner", password="secret")
-        self.store = Company.objects.create(
-            name="Основний магазин", slug="migration-main", owner=self.owner, status="active"
-        )
+        # Migration 0026 creates the legacy local-store row before test users
+        # exist. Reuse it so these tests start from one realistic old install.
+        self.store = Company.objects.order_by("pk").first()
+        self.store.name = "Основний магазин"
+        self.store.owner = self.owner
+        self.store.status = "active"
+        self.store.save(update_fields=["name", "owner", "status"])
         CompanyMembership.objects.create(company=self.store, user=self.owner, role="owner", is_active=True)
 
     def run_audit(self, **kwargs):
@@ -111,6 +115,7 @@ class LocalStoreMigrationCommandTests(TestCase):
     @patch("core.management.commands.migrate_to_local_store.create_sqlite_backup")
     def test_first_local_store_is_created_for_one_unambiguous_active_user(self, backup):
         backup.return_value = Path("/tmp/autozapaz-test-backup.sqlite3")
+        Category.objects.filter(company=self.store).update(company=None)
         self.store.delete()
         product = Product.objects.create(name="Підшипник", sku="BEARING-1", company=None)
 
@@ -126,6 +131,7 @@ class LocalStoreMigrationCommandTests(TestCase):
 
     @patch("core.management.commands.migrate_to_local_store.create_sqlite_backup")
     def test_first_local_store_refuses_to_guess_roles_for_multiple_users(self, backup):
+        Category.objects.filter(company=self.store).update(company=None)
         self.store.delete()
         get_user_model().objects.create_user(username="second-unassigned", password="secret")
 
@@ -137,6 +143,7 @@ class LocalStoreMigrationCommandTests(TestCase):
 
     @patch("core.management.commands.migrate_to_local_store.create_sqlite_backup")
     def test_duplicate_unassigned_unique_keys_block_first_store_creation(self, backup):
+        Category.objects.filter(company=self.store).update(company=None)
         self.store.delete()
         CompanySettings.objects.create(company=None, name="Старі налаштування А")
         CompanySettings.objects.create(company=None, name="Старі налаштування Б")
