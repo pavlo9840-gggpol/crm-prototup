@@ -159,6 +159,8 @@ class WorkstationLimitMiddleware:
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             return self.get_response(request)
+        if not getattr(request, "company_access", False):
+            return self.get_response(request)
 
         session_key = request.session.session_key
         if request.path.startswith("/logout/"):
