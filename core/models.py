@@ -1,4 +1,5 @@
 import re
+import uuid
 from decimal import Decimal
 from django.conf import settings
 from django.db import models
@@ -1078,3 +1079,18 @@ class LicenseActivation(models.Model):
 
     def __str__(self):
         return f"{self.license_id} · {self.get_plan_display()}"
+
+
+class InstallationIdentity(models.Model):
+    """Stable identity for one local AutoZapaz installation."""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    installation_id = models.UUIDField("Код інсталяції", default=uuid.uuid4, unique=True, editable=False)
+    created_at = models.DateTimeField("Створено", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Ідентифікатор інсталяції"
+        verbose_name_plural = "Ідентифікатор інсталяції"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
