@@ -2,6 +2,7 @@
 """Publisher-only helper. Generate an Ed25519 keypair outside the customer build."""
 import argparse
 import base64
+from getpass import getpass
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
@@ -17,11 +18,16 @@ def main():
     if path.exists():
         parser.error(f"Refusing to overwrite existing private key: {path}")
 
+    password = getpass("Private-key encryption password: ")
+    confirm = getpass("Confirm password: ")
+    if len(password) < 12 or password != confirm:
+        parser.error("Use a matching private-key password of at least 12 characters.")
+
     private_key = Ed25519PrivateKey.generate()
     private_bytes = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
+        encryption_algorithm=serialization.BestAvailableEncryption(password.encode("utf-8")),
     )
     public_bytes = private_key.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
