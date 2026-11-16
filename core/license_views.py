@@ -23,7 +23,7 @@ def activate_license(request):
         token = request.POST.get("license_key", "")
         try:
             claims = verify_license_token(token)
-            active_users = CompanyMembership.objects.filter(is_active=True).values("user_id").distinct().count()
+            active_users = CompanyMembership.objects.filter(company=request.company, is_active=True).values("user_id").distinct().count()
             if active_users > claims["max_users"]:
                 raise LicenseError(
                     f"У ліцензії дозволено {claims['max_users']} користувач(ів), "
