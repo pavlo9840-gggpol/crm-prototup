@@ -35,7 +35,6 @@ class CompanyContextTests(TestCase):
 
         self.assertEqual(request.company, self.company)
         self.assertTrue(request.company_access)
-        self.assertEqual(request.session["active_company_id"], self.company.pk)
         rows = company_queryset(Product.objects.all(), request)
         self.assertQuerySetEqual(rows.order_by("pk"), [self.own_product], transform=lambda row: row)
 
@@ -52,16 +51,18 @@ class CompanyContextTests(TestCase):
         request = self.request_for(self.user, {"active_company_id": self.company.pk})
 
         self.assertIsNotNone(request.company)
-        self.assertFalse(request.company_access)
-        self.assertFalse(company_queryset(Product.objects.all(), request).exists())
+        self.assertTrue(request.company_access)
+        self.assertTrue(company_queryset(Product.objects.all(), request).filter(pk=self.own_product.pk).exists())
 
     def test_multiple_memberships_require_explicit_selection(self):
         CompanyMembership.objects.create(company=self.other_company, user=self.user, role="manager")
         request = self.request_for(self.user)
 
         self.assertIsNone(request.company)
+        self.assertTrue(request.company_conflict)
         selected = self.request_for(self.user, {"active_company_id": self.other_company.pk})
-        self.assertEqual(selected.company, self.other_company)
+        self.assertIsNone(selected.company)
+        self.assertTrue(selected.company_conflict)
 
     def test_company_settings_are_separate_per_workspace(self):
         own_settings = CompanySettings.get(self.company)
@@ -73,34 +74,11 @@ class CompanyContextTests(TestCase):
         self.assertEqual(CompanySettings.get(self.other_company).name, self.other_company.name)
         self.assertNotEqual(own_settings.pk, other_settings.pk)
 
-    def test_company_switch_requires_membership_and_sets_session(self):
-        CompanyMembership.objects.create(company=self.other_company, user=self.user, role="manager")
+    def test_workspace_creation_and_switching_routes_are_removed(self):
         self.client.force_login(self.user)
-
-        response = self.client.post("/workspace/select/", {"company_id": self.other_company.pk})
-
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(self.client.session["active_company_id"], self.other_company.pk)
-
-    def test_company_switch_rejects_non_member(self):
-        self.client.force_login(self.user)
-
-        response = self.client.post("/workspace/select/", {"company_id": self.other_company.pk})
-
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(self.client.session["active_company_id"], self.company.pk)
-
-    def test_workspace_onboarding_creates_owner_membership_and_selects_workspace(self):
-        self.client.force_login(self.other_user)
-
-        response = self.client.post("/workspace/new/", {"name": "Новий магазин"})
-
-        self.assertEqual(response.status_code, 302)
-        company = Company.objects.get(name="Новий магазин")
-        membership = CompanyMembership.objects.get(company=company, user=self.other_user)
-        self.assertEqual(membership.role, "owner")
-        self.assertEqual(self.client.session["active_company_id"], company.pk)
-        self.assertTrue(company.has_access)
+        self.assertEqual(self.client.post("/workspace/select/", {"company_id": self.other_company.pk}).status_code, 404)
+        self.assertEqual(self.client.post("/workspace/new/", {"name": "Новий магазин"}).status_code, 404)
+        self.assertFalse(Company.objects.filter(name="Новий магазин").exists())
 
     def test_pos_sales_and_cash_records_cannot_cross_company_boundaries(self):
         own_customer = Customer.objects.create(company=self.company, name="Клієнт А", phone="380111111")
