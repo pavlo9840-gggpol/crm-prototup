@@ -12,9 +12,7 @@ PRO_FEATURES = frozenset({
 PLAN_FEATURES = {
     "start": frozenset(),
     "pro": PRO_FEATURES,
-    "business": PRO_FEATURES | frozenset({
-        "service_workshop", "advanced_audit", "multi_warehouse", "advanced_integrations",
-    }),
+    "business": PRO_FEATURES | frozenset({"service_workshop"}),
 }
 FEATURE_LABELS = {
     "supplier_api": "API постачальників",
@@ -42,6 +40,7 @@ NAV_FEATURES = {
     "price_review": "advanced_pricing",
     "payroll": "payroll",
     "pay_plans": "payroll",
+    "manager_sales": "advanced_analytics",
     "service_home": "service_workshop",
 }
 PATH_FEATURES = (
@@ -55,6 +54,7 @@ PATH_FEATURES = (
     ("/price-review/", "advanced_pricing"),
     ("/payroll/", "payroll"),
     ("/pay-plans/", "payroll"),
+    ("/my-sales/", "advanced_analytics"),
     ("/shipments/", "nova_poshta"),
     ("/service/", "service_workshop"),
 )
