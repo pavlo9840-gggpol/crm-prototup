@@ -122,6 +122,34 @@ class LegacyStoreMergeCommandTests(TestCase):
         self.assertEqual(CompanySettings.objects.count(), 2)
 
     @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
+    def test_second_active_owner_blocks_merge(self, backup):
+        other = get_user_model().objects.create_user(username="merge-extra-owner", password="secret")
+        CompanyMembership.objects.create(
+            company=self.source, user=other, role="owner", is_active=True
+        )
+
+        with self.assertRaises(CommandError):
+            self.run_merge(apply=True, backup="/tmp/autozapaz-merge-backup.sqlite3")
+
+        backup.assert_not_called()
+        self.assertEqual(Company.objects.count(), 2)
+
+    @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
+    def test_duplicate_product_barcode_blocks_merge(self, backup):
+        Product.objects.create(
+            company=self.target, name="Товар А", sku="PART-A", barcode="482000001"
+        )
+        Product.objects.create(
+            company=self.source, name="Товар Б", sku="PART-B", barcode="482000001"
+        )
+
+        with self.assertRaises(CommandError):
+            self.run_merge(apply=True, backup="/tmp/autozapaz-merge-backup.sqlite3")
+
+        backup.assert_not_called()
+        self.assertEqual(Product.objects.count(), 2)
+
+    @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
     def test_conflicting_staff_roles_block_merge(self, backup):
         CompanyMembership.objects.filter(company=self.target, user=self.owner).update(role="manager")
         CompanyMembership.objects.filter(company=self.source, user=self.owner).update(role="cashier")
