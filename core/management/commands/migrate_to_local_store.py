@@ -79,6 +79,18 @@ def company_unique_key_collisions(model, company_field, store_id, alias):
 
         key_names = [field.name for field in key_fields]
         key_attnames = [field.attname for field in key_fields]
+        if not key_fields:
+            null_count = null_qs.count()
+            duplicate_in_target = target_qs.exists()
+            if null_count and (null_count > 1 or duplicate_in_target):
+                collisions.append({
+                    "constraint": constraint.name,
+                    "key": {},
+                    "null_rows": null_count,
+                    "already_in_store": duplicate_in_target,
+                })
+            continue
+
         grouped = {}
         for values in null_qs.values_list(*key_attnames).iterator():
             grouped[values] = grouped.get(values, 0) + 1
