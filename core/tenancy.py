@@ -1,7 +1,5 @@
 """Single local-store initialization helpers (not SaaS workspace creation)."""
 from django.db import transaction
-from django.utils.text import slugify
-
 from .models import Company, CompanyMembership
 
 
