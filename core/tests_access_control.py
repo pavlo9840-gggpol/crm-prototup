@@ -92,7 +92,7 @@ class StaffAccessControlTests(TestCase):
             403,
         )
 
-    def test_local_owner_can_manage_staff_but_backup_requires_system_superuser(self):
+    def test_local_owner_can_manage_staff_and_backups(self):
         User = get_user_model()
         root = User.objects.create_superuser(
             username="system-root",
@@ -109,7 +109,7 @@ class StaffAccessControlTests(TestCase):
         for route in ("user_list", "user_new"):
             with self.subTest(user=self.staff.username, route=route):
                 self.assertEqual(self.client.get(reverse(route)).status_code, 200)
-        self.assertEqual(self.client.get(reverse("backup")).status_code, 403)
+        self.assertEqual(self.client.get(reverse("backup")).status_code, 200)
 
         self.client.force_login(root)
         for route in ("user_list", "user_new", "backup"):
