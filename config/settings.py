@@ -1,7 +1,8 @@
+import os
 from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "change-me-in-production"
-DEBUG = True
+DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = ["*"]
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
@@ -16,6 +17,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "core.tenant_context.InstallationSetupMiddleware",
     "core.tenant_context.CompanyContextMiddleware",
+    "core.tenant_context.LicenseRequiredMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
@@ -45,3 +47,8 @@ LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/login/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+AUTOZAPAZ_LICENSE_PUBLIC_KEY = os.environ.get("AUTOZAPAZ_LICENSE_PUBLIC_KEY", "")
+LICENSE_ENFORCEMENT_ENABLED = os.environ.get(
+    "AUTOZAPAZ_REQUIRE_LICENSE", "0" if DEBUG else "1"
+) == "1"
