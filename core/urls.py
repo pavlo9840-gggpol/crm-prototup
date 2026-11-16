@@ -14,10 +14,11 @@ from . import views as v
 from . import shipping_views as sh
 from . import service_views as svc
 from . import setup_views
+from . import license_views
 
 urlpatterns = [
     path("setup/", setup_views.installation_setup, name="installation_setup"),
-    path("activate/", __import__("core.license_views", fromlist=["activate_license"]).activate_license, name="activate_license"),
+    path("activate/", license_views.activate_license, name="activate_license"),
     path("login/", auth.LoginView.as_view(template_name="core/login.html"), name="login"),
     path("service/", svc.service_home, name="service_home"),
     path("service/reports/", svc.service_reports, name="service_reports"),
