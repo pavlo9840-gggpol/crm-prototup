@@ -46,7 +46,9 @@ def tenant_staff_only(view):
     @wraps(view)
     def wrapper(request, *args, **kwargs):
         membership = getattr(request, "company_membership", None)
-        if membership is None or membership.role not in ("owner", "admin", "manager"):
+        if not request.user.is_superuser and (
+            membership is None or membership.role not in ("owner", "admin", "manager")
+        ):
             raise PermissionDenied
         return view(request, *args, **kwargs)
     return wrapper
