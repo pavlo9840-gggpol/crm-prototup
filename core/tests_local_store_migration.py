@@ -108,6 +108,18 @@ class LocalStoreMigrationCommandTests(TestCase):
 
         backup.assert_not_called()
 
+    @patch("core.management.commands.migrate_to_local_store.create_sqlite_backup")
+    def test_duplicate_unassigned_unique_keys_block_first_store_creation(self, backup):
+        self.store.delete()
+        CompanySettings.objects.create(company=None, name="Старі налаштування А")
+        CompanySettings.objects.create(company=None, name="Старі налаштування Б")
+
+        with self.assertRaises(CommandError):
+            self.run_audit(apply=True, backup="/tmp/autozapaz-test-backup.sqlite3")
+
+        backup.assert_not_called()
+        self.assertEqual(Company.objects.count(), 0)
+
     def test_json_report_is_machine_readable(self):
         import json
         output = StringIO()
