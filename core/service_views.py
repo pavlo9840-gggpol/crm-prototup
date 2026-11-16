@@ -24,7 +24,9 @@ def workshop_staff(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
         membership = getattr(request, "company_membership", None)
-        if membership is None or membership.role not in ("owner", "admin", "manager", "mechanic"):
+        if not request.user.is_superuser and (
+            membership is None or membership.role not in ("owner", "admin", "manager", "mechanic")
+        ):
             raise PermissionDenied
         return view(request, *args, **kwargs)
     return wrapped
@@ -36,7 +38,9 @@ def workshop_cashier(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
         membership = getattr(request, "company_membership", None)
-        if membership is None or membership.role not in ("owner", "admin", "manager", "cashier"):
+        if not request.user.is_superuser and (
+            membership is None or membership.role not in ("owner", "admin", "manager", "cashier")
+        ):
             raise PermissionDenied
         return view(request, *args, **kwargs)
     return wrapped
@@ -49,7 +53,9 @@ def workshop_manager(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
         membership = getattr(request, "company_membership", None)
-        if membership is None or membership.role not in ("owner", "admin", "manager"):
+        if not request.user.is_superuser and (
+            membership is None or membership.role not in ("owner", "admin", "manager")
+        ):
             raise PermissionDenied
         return view(request, *args, **kwargs)
     return wrapped
