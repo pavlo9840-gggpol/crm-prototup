@@ -22,7 +22,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import services
-from .models import Category, CompanyMembership, PriceHistory, Product, norm_sku
+from .models import Category, CompanyMembership, LicenseWorkstationSession, PriceHistory, Product, norm_sku
 from .tenant_context import company_required
 
 User = get_user_model()
@@ -139,6 +139,8 @@ def user_edit(request, pk=None):
             obj.save(update_fields=["username", "first_name", "password"])
             membership.role, membership.is_active = role, active
             membership.save(update_fields=["role", "is_active"])
+            if not active:
+                LicenseWorkstationSession.objects.filter(user=obj).delete()
         messages.success(request, "Учасника магазину збережено")
         return redirect("user_list")
     return render(request, "core/form.html", {
