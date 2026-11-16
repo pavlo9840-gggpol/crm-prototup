@@ -113,16 +113,20 @@ def user_edit(request, pk=None):
             role, active = membership.role, membership.is_active
         else:
             role, active = d["role"], d["is_active"]
+        from .licensing import get_active_license
+        active_license = get_active_license()
+        active_members = CompanyMembership.objects.filter(company=request.company, is_active=True).count()
+        is_new_active_member = obj is None and active
+        is_reactivating_member = bool(membership and not membership.is_active and active)
+        if active_license and active_members >= active_license["max_users"] and (
+            is_new_active_member or is_reactivating_member
+        ):
+            messages.error(
+                request,
+                f"Досягнуто ліміт ліцензії: {active_license['max_users']} активних користувачів."
+            )
+            return redirect("user_list")
         if obj is None:
-            from .licensing import get_active_license
-            active_license = get_active_license()
-            active_members = CompanyMembership.objects.filter(company=request.company, is_active=True).count()
-            if active_license and active_members >= active_license["max_users"]:
-                messages.error(
-                    request,
-                    f"Досягнуто ліміт ліцензії: {active_license['max_users']} активних користувачів."
-                )
-                return redirect("user_list")
             obj = User.objects.create_user(
                 username=d["username"], password=d["password"], first_name=d["first_name"],
                 is_staff=False, is_superuser=False,
