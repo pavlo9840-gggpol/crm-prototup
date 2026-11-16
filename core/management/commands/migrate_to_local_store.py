@@ -14,7 +14,6 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connections, transaction
 from django.db.models import F, Q
 from django.db.models.fields.related import ForeignKey
-from django.utils.text import slugify
 
 
 def company_fk(model, company_model):
@@ -46,14 +45,12 @@ def cross_company_reference_mismatches(model, source_company_field, alias, compa
         if not target_company_field:
             continue
         target_lookup = f"{relation.name}__{target_company_field.attname}"
+        # NULL ownership is normalized to the one local store by the
+        # apply phase. Only two different, explicit store IDs are ambiguous.
         mismatch = (
-            (Q(**{f"{source_attname}__isnull": True}) & Q(**{f"{target_lookup}__isnull": False}))
-            | (Q(**{f"{source_attname}__isnull": False}) & Q(**{f"{target_lookup}__isnull": True}))
-            | (
-                Q(**{f"{source_attname}__isnull": False})
-                & Q(**{f"{target_lookup}__isnull": False})
-                & ~Q(**{source_attname: F(target_lookup)})
-            )
+            Q(**{f"{source_attname}__isnull": False})
+            & Q(**{f"{target_lookup}__isnull": False})
+            & ~Q(**{source_attname: F(target_lookup)})
         )
         total += model.objects.using(alias).filter(mismatch).count()
     return total
@@ -133,6 +130,9 @@ class Command(BaseCommand):
                 Membership.objects.using(alias).filter(company_id=stores[0].pk, is_active=True)
                 .values_list("user_id", flat=True)
             )
+            # A store owner can be safely attached as owner during apply.
+            if stores[0].owner_id:
+                member_ids.add(stores[0].owner_id)
             active_users_without_role = list(
                 User.objects.using(alias).filter(is_active=True, is_superuser=False)
                 .exclude(pk__in=member_ids).values_list("username", flat=True)
@@ -167,9 +167,18 @@ class Command(BaseCommand):
                 "company_owner_id": store.owner_id,
                 "active_owner_membership_user_ids": owner_memberships,
             }
-            if store.owner_id and owner_memberships != [store.owner_id]:
-                blockers.append("Власник у Company не збігається з єдиною активною роллю owner.")
-            if not store.owner_id and len(owner_memberships) != 1:
+            if store.owner_id:
+                if owner_memberships and owner_memberships != [store.owner_id]:
+                    blockers.append("У магазині є інша активна роль owner, ніж власник у Company.")
+                owner_membership = Membership.objects.using(alias).filter(
+                    company_id=store.pk, user_id=store.owner_id
+                ).first()
+                if owner_membership and (owner_membership.role != "owner" or not owner_membership.is_active):
+                    blockers.append("Обліковий запис власника має несумісну або неактивну роль працівника.")
+                owner_user = User.objects.using(alias).filter(pk=store.owner_id).first()
+                if not owner_user or not owner_user.is_active:
+                    blockers.append("Власник магазину відсутній або неактивний.")
+            elif len(owner_memberships) != 1:
                 blockers.append("Неможливо однозначно визначити власника локального магазину.")
 
         report = {
@@ -263,6 +272,14 @@ class Command(BaseCommand):
                     company_id=store.pk, user_id=store.owner_id,
                     defaults={"role": "owner", "is_active": True},
                 )
+            else:
+                owner_id = list(
+                    Membership.objects.using(alias).filter(
+                        company_id=store.pk, role="owner", is_active=True
+                    ).values_list("user_id", flat=True)
+                )[0]
+                store.owner_id = owner_id
+                store.save(update_fields=["owner"])
 
         self.stdout.write(self.style.SUCCESS(f"Локальний магазин нормалізовано. Backup: {backup_path}"))
         self.stdout.write(json.dumps({"store_id": store.pk, "updated_rows": updated}, ensure_ascii=False, indent=2))
