@@ -13,6 +13,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from django.conf import settings
 from django.utils import timezone
 
+from .license_entitlements import FEATURE_LABELS, PLAN_LIMITS, enabled_features
+
 
 class LicenseError(ValueError):
     pass
@@ -106,13 +108,19 @@ def verify_license_token(token, *, now=None, expected_installation_id=None):
 
     max_users = claims.get("max_users", 1)
     max_workstations = claims.get("max_workstations", 1)
-    if type(max_users) is not int or not 1 <= max_users <= 10000:
-        raise LicenseError("Некоректний ліміт користувачів у ліцензії.")
-    if type(max_workstations) is not int or not 1 <= max_workstations <= 1000:
-        raise LicenseError("Некоректний ліміт робочих місць у ліцензії.")
+    limits = PLAN_LIMITS[plan]
+    if type(max_users) is not int or not 1 <= max_users <= limits["max_users"]:
+        raise LicenseError(
+            f"Тариф {plan.upper()} дозволяє не більше {limits['max_users']} користувачів."
+        )
+    if type(max_workstations) is not int or not 1 <= max_workstations <= limits["max_workstations"]:
+        raise LicenseError(
+            f"Тариф {plan.upper()} дозволяє не більше {limits['max_workstations']} робочих місць."
+        )
     features = claims.get("features", [])
-    if not isinstance(features, list) or any(not isinstance(x, str) or len(x) > 80 for x in features):
-        raise LicenseError("Некоректний перелік модулів у ліцензії.")
+    if (not isinstance(features, list)
+            or any(not isinstance(x, str) or x not in FEATURE_LABELS for x in features)):
+        raise LicenseError("У ліцензії вказано невідомий або некоректний модуль.")
 
     return {
         "license_id": license_id.strip(),
@@ -123,6 +131,7 @@ def verify_license_token(token, *, now=None, expected_installation_id=None):
         "max_users": max_users,
         "max_workstations": max_workstations,
         "features": sorted(set(features)),
+        "enabled_features": sorted(enabled_features({"plan": plan, "features": features})),
         "customer": str(claims.get("customer", ""))[:200],
     }
 
