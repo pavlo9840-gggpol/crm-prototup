@@ -121,6 +121,11 @@ class LocalLicenseEnforcementTests(TestCase):
         self.assertEqual(blocked.status_code, 403)
         self.assertContains(blocked, "дозволено одночасно", status_code=403)
 
+        # A new browser can still open activation to enter an upgraded key.
+        activation_page = second.get("/activate/")
+        self.assertEqual(activation_page.status_code, 200)
+        self.assertEqual(LicenseWorkstationSession.objects.count(), 1)
+
         first.post("/logout/")
         allowed_after_logout = second.get("/users/")
         self.assertNotEqual(allowed_after_logout.status_code, 403)
