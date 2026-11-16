@@ -41,11 +41,13 @@ class CompanyContextMiddleware:
                 request.company_conflict = True
             elif user.is_superuser:
                 stores = Company.objects.order_by("pk")
-                if stores.count() == 1:
+                if stores.exists():
+                    # Recovery administrators may open the first legacy store
+                    # to perform controlled cleanup; ordinary staff are blocked
+                    # when their account is attached to multiple stores.
                     request.company = stores.first()
                     request.company_access = True
-                elif stores.count() > 1:
-                    request.company_conflict = True
+                    request.company_conflict = stores.count() > 1
 
         return self.get_response(request)
 
