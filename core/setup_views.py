@@ -57,6 +57,10 @@ def installation_setup(request):
         return redirect("dashboard")
 
     form = InstallationSetupForm(request.POST or None)
+    if user_count:
+        form.fields["username"].required = False
+        form.fields["password"].required = False
+        form.fields["password_confirm"].required = False
     if request.method == "POST" and form.is_valid():
         data = form.cleaned_data
         with transaction.atomic():
