@@ -21,6 +21,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--private-key", required=True)
     parser.add_argument("--customer", default="")
+    parser.add_argument("--installation-id", required=True, help="UUID shown on the customer activation screen")
     parser.add_argument("--plan", choices=("start", "pro", "business"), required=True)
     parser.add_argument("--days", type=int, default=0, help="0 = perpetual")
     parser.add_argument("--max-users", type=int, default=1)
@@ -30,6 +31,10 @@ def main():
 
     if args.days < 0 or args.max_users < 1 or args.max_workstations < 1:
         parser.error("days must be >= 0 and user/workstation limits must be >= 1")
+    try:
+        installation_id = str(uuid.UUID(args.installation_id))
+    except ValueError:
+        parser.error("--installation-id must be a valid UUID")
 
     key_data = Path(args.private_key).expanduser().read_bytes()
     password = os.environ.get("AUTOZAPAZ_LICENSE_KEY_PASSWORD") or getpass("Private-key password: ")
@@ -41,6 +46,7 @@ def main():
     claims = {
         "version": 1,
         "license_id": str(uuid.uuid4()),
+        "installation_id": installation_id,
         "customer": args.customer,
         "plan": args.plan,
         "issued_at": now.isoformat(),
