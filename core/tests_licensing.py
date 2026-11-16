@@ -28,6 +28,7 @@ class OfflineLicenseValidationTests(SimpleTestCase):
         claims = {
             "version": 1,
             "license_id": "test-license-001",
+            "installation_id": "12345678-1234-5678-1234-567812345678",
             "plan": "pro",
             "issued_at": now.isoformat(),
             "expires_at": (now + timedelta(days=30)).isoformat(),
@@ -44,6 +45,7 @@ class OfflineLicenseValidationTests(SimpleTestCase):
         with self.settings(AUTOZAPAZ_LICENSE_PUBLIC_KEY=self.public_key):
             claims = verify_license_token(self.make_token())
         self.assertEqual(claims["license_id"], "test-license-001")
+        self.assertEqual(claims["installation_id"], "12345678-1234-5678-1234-567812345678")
         self.assertEqual(claims["plan"], "pro")
         self.assertEqual(claims["max_users"], 5)
         self.assertEqual(claims["features"], ["supplier_api", "vehicle_catalogue"])
@@ -67,6 +69,19 @@ class OfflineLicenseValidationTests(SimpleTestCase):
                 verify_license_token(self.make_token(plan="enterprise"))
             with self.assertRaises(LicenseError):
                 verify_license_token(self.make_token(max_users=0))
+
+    def test_key_for_another_installation_is_rejected(self):
+        with self.settings(AUTOZAPAZ_LICENSE_PUBLIC_KEY=self.public_key):
+            with self.assertRaisesRegex(LicenseError, "іншої інсталяції"):
+                verify_license_token(
+                    self.make_token(),
+                    expected_installation_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                )
+
+    def test_license_without_installation_binding_is_rejected(self):
+        with self.settings(AUTOZAPAZ_LICENSE_PUBLIC_KEY=self.public_key):
+            with self.assertRaisesRegex(LicenseError, "не прив'язана"):
+                verify_license_token(self.make_token(installation_id=None))
 
     def test_missing_publisher_public_key_fails_closed(self):
         with self.settings(AUTOZAPAZ_LICENSE_PUBLIC_KEY=""):
