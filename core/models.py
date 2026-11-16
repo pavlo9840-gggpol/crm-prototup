@@ -980,7 +980,7 @@ class Shipment(models.Model):
 from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine, ServicePayment  # noqa: E402,F401
 
 
-# ====================================================== SaaS tenant identity
+# ====================================================== Local store identity
 class Company(models.Model):
     """The single local store for this installation; not a SaaS tenant."""
     PLANS = [
@@ -1017,7 +1017,7 @@ class Company(models.Model):
 
 
 class CompanyMembership(models.Model):
-    """Explicit user-to-workspace membership; roles are scoped to one company."""
+    """Local staff role assignment for the one installed store."""
     ROLES = [
         ("owner", "Власник"), ("admin", "Адміністратор"),
         ("manager", "Менеджер"), ("cashier", "Касир"),
@@ -1036,8 +1036,8 @@ class CompanyMembership(models.Model):
             models.UniqueConstraint(fields=["company", "user"], name="uniq_company_user_membership"),
         ]
         indexes = [models.Index(fields=["user", "is_active"], name="cm_user_active_idx")]
-        verbose_name = "Учасник компанії"
-        verbose_name_plural = "Учасники компаній"
+        verbose_name = "Роль працівника"
+        verbose_name_plural = "Ролі працівників"
 
     def __str__(self):
         return f"{self.user} · {self.company} ({self.get_role_display()})"
