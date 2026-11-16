@@ -109,6 +109,33 @@ class LocalStoreMigrationCommandTests(TestCase):
         backup.assert_not_called()
 
     @patch("core.management.commands.migrate_to_local_store.create_sqlite_backup")
+    def test_first_local_store_is_created_for_one_unambiguous_active_user(self, backup):
+        backup.return_value = Path("/tmp/autozapaz-test-backup.sqlite3")
+        self.store.delete()
+        product = Product.objects.create(name="Підшипник", sku="BEARING-1", company=None)
+
+        self.run_audit(apply=True, backup="/tmp/autozapaz-test-backup.sqlite3")
+
+        created = Company.objects.get()
+        self.assertEqual(created.owner_id, self.owner.pk)
+        self.assertTrue(CompanyMembership.objects.filter(
+            company=created, user=self.owner, role="owner", is_active=True
+        ).exists())
+        product.refresh_from_db()
+        self.assertEqual(product.company_id, created.pk)
+
+    @patch("core.management.commands.migrate_to_local_store.create_sqlite_backup")
+    def test_first_local_store_refuses_to_guess_roles_for_multiple_users(self, backup):
+        self.store.delete()
+        get_user_model().objects.create_user(username="second-unassigned", password="secret")
+
+        with self.assertRaises(CommandError):
+            self.run_audit(apply=True, backup="/tmp/autozapaz-test-backup.sqlite3")
+
+        backup.assert_not_called()
+        self.assertEqual(Company.objects.count(), 0)
+
+    @patch("core.management.commands.migrate_to_local_store.create_sqlite_backup")
     def test_duplicate_unassigned_unique_keys_block_first_store_creation(self, backup):
         self.store.delete()
         CompanySettings.objects.create(company=None, name="Старі налаштування А")
