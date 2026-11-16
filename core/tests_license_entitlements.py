@@ -113,16 +113,16 @@ class LocalLicenseEnforcementTests(TestCase):
         first.force_login(self.user)
         second.force_login(self.user)
 
-        first_response = first.get("/activate/")
+        first_response = first.get("/users/")
         self.assertNotEqual(first_response.status_code, 403)
         self.assertEqual(LicenseWorkstationSession.objects.count(), 1)
 
-        blocked = second.get("/activate/")
+        blocked = second.get("/users/")
         self.assertEqual(blocked.status_code, 403)
         self.assertContains(blocked, "дозволено одночасно", status_code=403)
 
         first.post("/logout/")
-        allowed_after_logout = second.get("/activate/")
+        allowed_after_logout = second.get("/users/")
         self.assertNotEqual(allowed_after_logout.status_code, 403)
         self.assertEqual(LicenseWorkstationSession.objects.count(), 1)
 
@@ -131,10 +131,10 @@ class LocalLicenseEnforcementTests(TestCase):
         second = Client()
         first.force_login(self.user)
         second.force_login(self.user)
-        first.get("/activate/")
+        first.get("/users/")
         LicenseWorkstationSession.objects.update(
             last_seen=timezone.now() - timedelta(minutes=16)
         )
-        response = second.get("/activate/")
+        response = second.get("/users/")
         self.assertNotEqual(response.status_code, 403)
         self.assertEqual(LicenseWorkstationSession.objects.count(), 1)
