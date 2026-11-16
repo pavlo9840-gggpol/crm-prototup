@@ -56,6 +56,47 @@ def cross_company_reference_mismatches(model, source_company_field, alias, compa
     return total
 
 
+def company_unique_key_collisions(model, company_field, store_id, alias):
+    """Find uniqueness collisions that would appear when NULL store IDs are filled."""
+    collisions = []
+    for constraint in model._meta.constraints:
+        fields = getattr(constraint, "fields", None)
+        if not fields or company_field.name not in fields:
+            continue
+        key_fields = [model._meta.get_field(name) for name in fields if name != company_field.name]
+        null_qs = model.objects.using(alias).filter(**{f"{company_field.name}__isnull": True})
+        target_qs = model.objects.using(alias).filter(**{company_field.name: store_id})
+
+        # Respect the existing partial unique constraints on barcode and payroll rows.
+        if constraint.name == "uniq_company_product_barcode":
+            null_qs = null_qs.exclude(barcode__isnull=True).exclude(barcode="")
+        elif constraint.name == "uniq_company_payplan_user":
+            null_qs = null_qs.filter(user__isnull=False)
+            target_qs = target_qs.filter(user__isnull=False)
+        elif constraint.name == "uniq_company_payplan_default":
+            null_qs = null_qs.filter(user__isnull=True)
+            target_qs = target_qs.filter(user__isnull=True)
+
+        key_names = [field.name for field in key_fields]
+        key_attnames = [field.attname for field in key_fields]
+        grouped = {}
+        for values in null_qs.values_list(*key_attnames).iterator():
+            grouped[values] = grouped.get(values, 0) + 1
+
+        for values, null_count in grouped.items():
+            lookup = {name: value for name, value in zip(key_names, values)}
+            duplicate_in_null_rows = null_count > 1
+            duplicate_in_target = target_qs.filter(**lookup).exists()
+            if duplicate_in_null_rows or duplicate_in_target:
+                collisions.append({
+                    "constraint": constraint.name,
+                    "key": lookup,
+                    "null_rows": null_count,
+                    "already_in_store": duplicate_in_target,
+                })
+    return collisions
+
+
 def create_sqlite_backup(alias, destination):
     connection = connections[alias]
     if connection.vendor != "sqlite":
@@ -141,11 +182,14 @@ class Command(BaseCommand):
             )
 
         cross_mismatches = []
+        unique_collisions = []
         if len(stores) == 1:
             for model, field in scoped:
                 mismatch_count = cross_company_reference_mismatches(model, field, alias, Company)
                 if mismatch_count:
                     cross_mismatches.append({"model": model._meta.label, "rows": mismatch_count})
+                for collision in company_unique_key_collisions(model, field, stores[0].pk, alias):
+                    unique_collisions.append({"model": model._meta.label, **collision})
 
         blockers = []
         if len(stores) > 1:
@@ -154,7 +198,9 @@ class Command(BaseCommand):
                 "дублікатів і перевірка конфліктів товарів, клієнтів, шаблонів та фінансових документів."
             )
         if cross_mismatches:
-            blockers.append("Є записи, пов'язані з об'єктами іншого магазину або без магазину.")
+            blockers.append("Є записи, пов'язані з об'єктами іншого магазину.")
+        if unique_collisions:
+            blockers.append("Після заповнення company_id виникнуть конфлікти унікальності (наприклад, дублікати телефонів, штрихкодів або шаблонів).")
         if active_users_without_role:
             blockers.append("Є активні облікові записи без ролі в локальному магазині.")
 
@@ -196,6 +242,7 @@ class Command(BaseCommand):
             "membership_count": len(memberships),
             "active_users_without_role": active_users_without_role,
             "cross_store_reference_mismatches": cross_mismatches,
+            "unique_key_collisions": unique_collisions,
             "owner_consistency": owner_report,
             "blockers": blockers,
             "mode": "apply" if options["apply"] else "read_only",
@@ -218,6 +265,10 @@ class Command(BaseCommand):
             if cross_mismatches:
                 self.stdout.write("Порушення зв'язків між магазинами: " + ", ".join(
                     f"{x['model']}={x['rows']}" for x in cross_mismatches
+                ))
+            if unique_collisions:
+                self.stdout.write("Конфлікти унікальності: " + ", ".join(
+                    f"{x['model']}:{x['constraint']} key={x['key']}" for x in unique_collisions[:10]
                 ))
             if blockers:
                 self.stdout.write(self.style.ERROR("Перенесення заблоковано:"))
