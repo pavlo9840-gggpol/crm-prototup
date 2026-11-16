@@ -24,19 +24,23 @@ from django.views.decorators.http import require_POST
 from . import services
 from .models import Category, CompanyMembership, PriceHistory, Product, norm_sku
 from .tenant_context import company_required
-from .views import tenant_staff_only
 
 User = get_user_model()
 D0 = Decimal("0")
 
 
-def superuser_only(view):
+def local_admin_only(view):
+    """Allow the local store owner/admin; global superusers remain recovery admins."""
     @login_required
+    @company_required
     @wraps(view)
-    def wrapper(request, *a, **k):
-        if not request.user.is_superuser:
+    def wrapper(request, *args, **kwargs):
+        membership = getattr(request, "company_membership", None)
+        if not request.user.is_superuser and not (
+            membership and membership.is_active and membership.role in ("owner", "admin")
+        ):
             raise PermissionDenied
-        return view(request, *a, **k)
+        return view(request, *args, **kwargs)
     return wrapper
 
 
@@ -80,9 +84,7 @@ class UserForm(forms.Form):
         return d
 
 
-@login_required
-@company_required
-@tenant_staff_only
+@local_admin_only
 def user_list(request):
     memberships = CompanyMembership.objects.filter(company=request.company).select_related("user").order_by(
         "-role", "user__username"
@@ -90,9 +92,7 @@ def user_list(request):
     return render(request, "core/user_list.html", {"memberships": memberships})
 
 
-@login_required
-@company_required
-@tenant_staff_only
+@local_admin_only
 def user_edit(request, pk=None):
     membership = get_object_or_404(
         CompanyMembership.objects.select_related("user").filter(company=request.company), user_id=pk
@@ -190,7 +190,7 @@ def save_backup(keep=14):
     return path
 
 
-@superuser_only
+@local_admin_only
 def backup_page(request):
     if request.method == "POST":
         try:
@@ -209,7 +209,7 @@ def backup_page(request):
                                                 "dir": str(BACKUP_DIR)})
 
 
-@superuser_only
+@local_admin_only
 def backup_download(request, name):
     if not BACKUP_NAME.match(name) or not (BACKUP_DIR / name).is_file():
         raise Http404
