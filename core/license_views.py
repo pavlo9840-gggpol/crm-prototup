@@ -11,7 +11,9 @@ from .models import CompanyMembership, LicenseActivation
 @login_required
 def activate_license(request):
     membership = getattr(request, "company_membership", None)
-    if not request.user.is_superuser and not request.user.is_staff and not (
+    if request.company is None:
+        raise PermissionDenied
+    if not request.user.is_superuser and not (
         membership and membership.role in ("owner", "admin")
     ):
         raise PermissionDenied
