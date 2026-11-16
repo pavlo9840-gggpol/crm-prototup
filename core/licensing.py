@@ -42,6 +42,8 @@ def _parse_datetime(value, field_name, *, optional=False):
 def verify_license_token(token, *, now=None):
     """Return validated claims or raise LicenseError; never contacts a server."""
     token = (token or "").strip()
+    if len(token) > 8192:
+        raise LicenseError("Ліцензійний ключ завеликий.")
     parts = token.split(".")
     if len(parts) != 3 or parts[0] != "AZ1":
         raise LicenseError("Непідтримуваний формат ключа. Очікується ключ АвтоЗапас AZ1.")
@@ -57,9 +59,11 @@ def verify_license_token(token, *, now=None):
 
     payload_bytes = _b64decode(parts[1])
     signature = _b64decode(parts[2])
+    if len(payload_bytes) > 4096:
+        raise LicenseError("Дані ліцензії завеликі.")
     try:
         public_key.verify(signature, payload_bytes)
-    except InvalidSignature as exc:
+    except (InvalidSignature, ValueError) as exc:
         raise LicenseError("Підпис ліцензії недійсний або ключ було змінено.") from exc
 
     try:
