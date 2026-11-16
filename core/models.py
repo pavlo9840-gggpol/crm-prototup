@@ -982,7 +982,7 @@ from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine, 
 
 # ====================================================== SaaS tenant identity
 class Company(models.Model):
-    """A customer workspace. Business records are attached to this boundary in later migrations."""
+    """The single local store for this installation; not a SaaS tenant."""
     PLANS = [
         ("start", "START"), ("business", "BUSINESS"),
         ("pro", "PRO"), ("network", "NETWORK"),
@@ -1012,13 +1012,8 @@ class Company(models.Model):
 
     @property
     def has_access(self):
-        from django.utils import timezone
-        now = timezone.now()
-        if self.status in ("suspended", "cancelled"):
-            return False
-        if self.status == "trial":
-            return self.trial_ends_at is None or self.trial_ends_at > now
-        return self.subscription_ends_at is None or self.subscription_ends_at > now
+        """Legacy compatibility only. Access is controlled by local license validation."""
+        return True
 
 
 class CompanyMembership(models.Model):
