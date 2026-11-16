@@ -1,9 +1,21 @@
 import os
 from pathlib import Path
+from django.core.exceptions import ImproperlyConfigured
 BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = "change-me-in-production"
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
-ALLOWED_HOSTS = ["*"]
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY must be set when DEBUG=0.")
+    SECRET_KEY = "dev-only-insecure-key-do-not-use-in-production"
+
+_allowed_hosts = os.environ.get("DJANGO_ALLOWED_HOSTS", "")
+if DEBUG:
+    ALLOWED_HOSTS = [host.strip() for host in _allowed_hosts.split(",") if host.strip()] or ["localhost", "127.0.0.1", "[::1]"]
+else:
+    ALLOWED_HOSTS = [host.strip() for host in _allowed_hosts.split(",") if host.strip()]
+    if not ALLOWED_HOSTS:
+        raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must contain the production hostnames.")
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
@@ -52,3 +64,13 @@ AUTOZAPAZ_LICENSE_PUBLIC_KEY = os.environ.get("AUTOZAPAZ_LICENSE_PUBLIC_KEY", ""
 LICENSE_ENFORCEMENT_ENABLED = os.environ.get(
     "AUTOZAPAZ_REQUIRE_LICENSE", "0" if DEBUG else "1"
 ) == "1"
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+if not DEBUG:
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
