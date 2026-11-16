@@ -12,6 +12,8 @@ from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from core.license_entitlements import FEATURE_LABELS, PLAN_LIMITS
+
 
 def b64(data):
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
@@ -24,13 +26,26 @@ def main():
     parser.add_argument("--installation-id", required=True, help="UUID shown on the customer activation screen")
     parser.add_argument("--plan", choices=("start", "pro", "business"), required=True)
     parser.add_argument("--days", type=int, default=0, help="0 = perpetual")
-    parser.add_argument("--max-users", type=int, default=1)
-    parser.add_argument("--max-workstations", type=int, default=1)
+    parser.add_argument("--max-users", type=int, default=None)
+    parser.add_argument("--max-workstations", type=int, default=None)
     parser.add_argument("--features", default="", help="Comma-separated feature identifiers")
     args = parser.parse_args()
 
-    if args.days < 0 or args.max_users < 1 or args.max_workstations < 1:
-        parser.error("days must be >= 0 and user/workstation limits must be >= 1")
+    if args.days < 0:
+        parser.error("days must be >= 0")
+    plan_limits = PLAN_LIMITS[args.plan]
+    args.max_users = args.max_users if args.max_users is not None else plan_limits["max_users"]
+    args.max_workstations = (
+        args.max_workstations if args.max_workstations is not None else plan_limits["max_workstations"]
+    )
+    if not 1 <= args.max_users <= plan_limits["max_users"]:
+        parser.error(args.plan.upper() + " supports 1.." + str(plan_limits["max_users"]) + " users")
+    if not 1 <= args.max_workstations <= plan_limits["max_workstations"]:
+        parser.error(args.plan.upper() + " supports 1.." + str(plan_limits["max_workstations"]) + " workstations")
+    selected_features = sorted({x.strip() for x in args.features.split(",") if x.strip()})
+    unknown_features = sorted(set(selected_features) - set(FEATURE_LABELS))
+    if unknown_features:
+        parser.error("Unknown feature identifier(s): " + ", ".join(unknown_features))
     try:
         installation_id = str(uuid.UUID(args.installation_id))
     except ValueError:
@@ -53,7 +68,7 @@ def main():
         "expires_at": (now + timedelta(days=args.days)).isoformat() if args.days else None,
         "max_users": args.max_users,
         "max_workstations": args.max_workstations,
-        "features": sorted({x.strip() for x in args.features.split(",") if x.strip()}),
+        "features": selected_features,
     }
     payload = json.dumps(claims, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     signature = private_key.sign(payload)
