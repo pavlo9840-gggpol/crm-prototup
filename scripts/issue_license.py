@@ -3,7 +3,9 @@
 import argparse
 import base64
 import json
+import os
 import uuid
+from getpass import getpass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -30,7 +32,8 @@ def main():
         parser.error("days must be >= 0 and user/workstation limits must be >= 1")
 
     key_data = Path(args.private_key).expanduser().read_bytes()
-    private_key = serialization.load_pem_private_key(key_data, password=None)
+    password = os.environ.get("AUTOZAPAZ_LICENSE_KEY_PASSWORD") or getpass("Private-key password: ")
+    private_key = serialization.load_pem_private_key(key_data, password=password.encode("utf-8"))
     if not isinstance(private_key, Ed25519PrivateKey):
         parser.error("The private key must be Ed25519 PEM.")
 
