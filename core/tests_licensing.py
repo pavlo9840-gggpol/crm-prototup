@@ -70,6 +70,18 @@ class OfflineLicenseValidationTests(SimpleTestCase):
             with self.assertRaises(LicenseError):
                 verify_license_token(self.make_token(max_users=0))
 
+    def test_plan_user_and_workstation_ceilings_are_enforced(self):
+        with self.settings(AUTOZAPAZ_LICENSE_PUBLIC_KEY=self.public_key):
+            with self.assertRaisesRegex(LicenseError, "не більше 5 користувачів"):
+                verify_license_token(self.make_token(max_users=6))
+            with self.assertRaisesRegex(LicenseError, "не більше 3 робочих місць"):
+                verify_license_token(self.make_token(max_workstations=4))
+
+    def test_unknown_feature_identifier_is_rejected(self):
+        with self.settings(AUTOZAPAZ_LICENSE_PUBLIC_KEY=self.public_key):
+            with self.assertRaisesRegex(LicenseError, "невідомий"):
+                verify_license_token(self.make_token(features=["secret_unregistered_module"]))
+
     def test_key_for_another_installation_is_rejected(self):
         with self.settings(AUTOZAPAZ_LICENSE_PUBLIC_KEY=self.public_key):
             with self.assertRaisesRegex(LicenseError, "іншої інсталяції"):
