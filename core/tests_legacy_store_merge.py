@@ -187,3 +187,37 @@ class LegacyStoreMergeCommandTests(TestCase):
         self.assertEqual(report["target_store"]["id"], self.target.pk)
         self.assertEqual(report["source_stores"][0]["id"], self.source.pk)
         self.assertEqual(report["blockers"], [])
+
+    def test_duplicate_product_brand_and_normalized_sku_blocks_merge(self, backup):
+        Product.objects.create(
+            company=self.target, name="Фільтр оливи", brand="Bosch", sku="1 234-AB"
+        )
+        Product.objects.create(
+            company=self.source, name="Масляний фільтр", brand=" BOSCH ", sku="1234AB"
+        )
+
+        report = json.loads(self.run_merge(as_json=True))
+        self.assertEqual(len(report["business_duplicate_candidates"]), 1)
+        self.assertEqual(report["business_duplicate_candidates"][0]["kind"], "product_brand_sku")
+        with self.assertRaises(CommandError):
+            self.run_merge(apply=True, backup="/tmp/autozapaz-merge-backup.sqlite3")
+
+        backup.assert_not_called()
+        self.assertEqual(Company.objects.count(), 2)
+
+    def test_customer_phone_duplicate_ignores_formatting_and_blocks_merge(self, backup):
+        Customer.objects.create(
+            company=self.target, name="Клієнт А", phone="+38 (050) 111-22-33"
+        )
+        Customer.objects.create(
+            company=self.source, name="Клієнт Б", phone="380501112233"
+        )
+
+        report = json.loads(self.run_merge(as_json=True))
+        self.assertEqual(len(report["business_duplicate_candidates"]), 1)
+        self.assertEqual(report["business_duplicate_candidates"][0]["kind"], "customer_phone")
+        with self.assertRaises(CommandError):
+            self.run_merge(apply=True, backup="/tmp/autozapaz-merge-backup.sqlite3")
+
+        backup.assert_not_called()
+        self.assertEqual(Customer.objects.count(), 2)
