@@ -221,3 +221,33 @@ class LegacyStoreMergeCommandTests(TestCase):
 
         backup.assert_not_called()
         self.assertEqual(Customer.objects.count(), 2)
+    @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
+    def test_active_staff_without_membership_blocks_merge(self, backup):
+        unassigned = get_user_model().objects.create_user(
+            username="merge-unassigned-staff", password="secret"
+        )
+
+        report = json.loads(self.run_merge(as_json=True))
+        self.assertEqual(report["active_users_without_role"], [unassigned.pk])
+        with self.assertRaises(CommandError):
+            self.run_merge(apply=True, backup="/tmp/autozapaz-merge-backup.sqlite3")
+
+        backup.assert_not_called()
+        self.assertEqual(Company.objects.count(), 2)
+
+    @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
+    def test_multiple_owner_roles_block_when_target_owner_is_missing(self, backup):
+        self.target.owner = None
+        self.target.save(update_fields=["owner"])
+        other = get_user_model().objects.create_user(
+            username="merge-second-owner-no-target", password="secret"
+        )
+        CompanyMembership.objects.create(
+            company=self.source, user=other, role="owner", is_active=True
+        )
+
+        with self.assertRaises(CommandError):
+            self.run_merge(apply=True, backup="/tmp/autozapaz-merge-backup.sqlite3")
+
+        backup.assert_not_called()
+        self.assertEqual(Company.objects.count(), 2)
