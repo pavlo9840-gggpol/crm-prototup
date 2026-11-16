@@ -5,7 +5,7 @@ from unittest.mock import patch
 from django.core.management import call_command, CommandError
 from django.test import TestCase
 
-from core.models import Category, Company, CompanyMembership, Product
+from core.models import Category, Company, CompanyMembership, CompanySettings, Product
 from django.contrib.auth import get_user_model
 
 
@@ -76,6 +76,17 @@ class LocalStoreMigrationCommandTests(TestCase):
         backup.assert_not_called()
         product.refresh_from_db()
         self.assertEqual(product.category_id, category.pk)
+
+    @patch("core.management.commands.migrate_to_local_store.create_sqlite_backup")
+    def test_company_settings_unique_collision_blocks_apply(self, backup):
+        CompanySettings.objects.create(company=self.store, name="Налаштування магазину")
+        CompanySettings.objects.create(company=None, name="Старі налаштування")
+
+        with self.assertRaises(CommandError):
+            self.run_audit(apply=True, backup="/tmp/autozapaz-test-backup.sqlite3")
+
+        backup.assert_not_called()
+        self.assertEqual(CompanySettings.objects.filter(company__isnull=True).count(), 1)
 
     @patch("core.management.commands.migrate_to_local_store.create_sqlite_backup")
     def test_owner_is_recovered_from_one_unambiguous_owner_role(self, backup):
