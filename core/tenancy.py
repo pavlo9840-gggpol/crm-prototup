@@ -15,6 +15,10 @@ def create_local_store(owner, name):
         raise ValueError("У базі кілька старих магазинів. Спочатку потрібне контрольоване об'єднання даних.")
     if stores.exists():
         store = stores.first()
+        if store.owner_id and store.owner_id != owner.pk:
+            raise ValueError("Локальний магазин уже має власника. Не можна непомітно змінити власника інсталяції.")
+        if store.owner_id and store.name != clean_name:
+            raise ValueError("Локальний магазин уже налаштований. Зміну назви виконайте в налаштуваннях магазину.")
         store.name = clean_name
         store.owner = owner
         store.status = "active"
