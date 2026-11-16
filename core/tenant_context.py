@@ -73,7 +73,7 @@ def company_required(view_func):
 
 class InstallationSetupMiddleware:
     """Send a fresh database to the one-time local setup page."""
-    EXEMPT_PREFIXES = ("/setup/", "/static/", "/media/")
+    EXEMPT_PREFIXES = ("/setup/", "/login/", "/logout/", "/static/", "/media/")
 
     def __init__(self, get_response):
         self.get_response = get_response
