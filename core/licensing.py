@@ -5,7 +5,7 @@ Only the public verification key is shipped with the application.
 """
 import base64
 import json
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -119,7 +119,7 @@ def get_active_license():
         return None
     if claims["license_id"] != activation.license_id:
         return None
-    return activation
+    return claims
 
 
 def license_is_required():
