@@ -92,30 +92,34 @@ class StaffAccessControlTests(TestCase):
             403,
         )
 
-    def test_only_superuser_can_access_user_and_backup_management(self):
+    def test_local_owner_can_manage_staff_but_backup_requires_system_superuser(self):
         User = get_user_model()
         root = User.objects.create_superuser(
             username="system-root",
             email="root@example.invalid",
             password="test-password",
         )
-        protected_routes = ("user_list", "user_new", "backup")
 
-        for user in (self.cashier, self.staff):
-            self.client.force_login(user)
-            for route in protected_routes:
-                with self.subTest(user=user.username, route=route):
-                    self.assertEqual(self.client.get(reverse(route)).status_code, 403)
+        self.client.force_login(self.cashier)
+        for route in ("user_list", "user_new", "backup"):
+            with self.subTest(user=self.cashier.username, route=route):
+                self.assertEqual(self.client.get(reverse(route)).status_code, 403)
+
+        self.client.force_login(self.staff)
+        for route in ("user_list", "user_new"):
+            with self.subTest(user=self.staff.username, route=route):
+                self.assertEqual(self.client.get(reverse(route)).status_code, 200)
+        self.assertEqual(self.client.get(reverse("backup")).status_code, 403)
 
         self.client.force_login(root)
-        for route in protected_routes:
+        for route in ("user_list", "user_new", "backup"):
             with self.subTest(user=root.username, route=route):
                 self.assertEqual(self.client.get(reverse(route)).status_code, 200)
 
-    def test_staff_cannot_create_users_or_trigger_backup_by_direct_post(self):
+    def test_cashier_cannot_create_users_or_trigger_backup_by_direct_post(self):
         User = get_user_model()
         before = User.objects.count()
-        self.client.force_login(self.staff)
+        self.client.force_login(self.cashier)
 
         user_response = self.client.post(
             reverse("user_new"),
