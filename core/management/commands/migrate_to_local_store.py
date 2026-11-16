@@ -121,6 +121,9 @@ def create_sqlite_backup(alias, destination):
     target = Path(destination).expanduser().resolve()
     if source == target:
         raise CommandError("Файл backup не може бути самим файлом бази даних.")
+    project_root = Path(settings.BASE_DIR).resolve()
+    if target == project_root or project_root in target.parents:
+        raise CommandError("Backup потрібно зберігати поза каталогом проєкту, бажано на іншому диску.")
     if target.exists():
         raise CommandError(f"Файл backup вже існує: {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -181,6 +184,10 @@ class Command(BaseCommand):
             Membership.objects.using(alias).select_related("user", "company").order_by("company_id", "user_id")
         )
         active_users_without_role = []
+        active_non_superusers = list(
+            User.objects.using(alias).filter(is_active=True, is_superuser=False)
+            .values_list("username", flat=True)
+        )
         if len(stores) == 1:
             member_ids = set(
                 Membership.objects.using(alias).filter(company_id=stores[0].pk, is_active=True)
@@ -222,6 +229,8 @@ class Command(BaseCommand):
             blockers.append("Після заповнення company_id виникнуть конфлікти унікальності (наприклад, дублікати телефонів, штрихкодів або шаблонів).")
         if active_users_without_role:
             blockers.append("Є активні облікові записи без ролі в локальному магазині.")
+        if len(stores) == 0 and len(active_non_superusers) > 1:
+            blockers.append("Без запису магазину знайдено кілька активних працівників. Спочатку потрібно вручну визначити їхні ролі; автоматичне призначення ролей заборонене.")
 
         owner_report = None
         if len(stores) == 1:
@@ -260,6 +269,7 @@ class Command(BaseCommand):
             "rows_without_store": null_rows,
             "membership_count": len(memberships),
             "active_users_without_role": active_users_without_role,
+            "active_non_superusers_when_store_missing": active_non_superusers if not stores else [],
             "cross_store_reference_mismatches": cross_mismatches,
             "unique_key_collisions": unique_collisions,
             "owner_consistency": owner_report,
