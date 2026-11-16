@@ -23,18 +23,29 @@ class CompanyContextMiddleware:
         if user is not None and user.is_authenticated:
             from .models import Company, CompanyMembership
 
-            stores = Company.objects.order_by("pk")
-            # Never silently merge or expose data from multiple old SaaS workspaces.
-            if stores.count() == 1:
-                company = stores.first()
-                membership = CompanyMembership.objects.filter(
-                    company=company, user=user, is_active=True
-                ).first()
-                request.company = company
+            memberships = (
+                CompanyMembership.objects
+                .select_related("company")
+                .filter(user=user, is_active=True)
+                .order_by("company_id")
+            )
+            # Legacy databases may still contain more than one old workspace.
+            # Never offer a switcher; require an explicit data-consolidation step
+            # when one local account is attached to multiple stores.
+            if memberships.count() == 1:
+                membership = memberships.first()
                 request.company_membership = membership
-                request.company_access = bool(membership or user.is_superuser)
-            elif stores.count() > 1:
+                request.company = membership.company
+                request.company_access = True
+            elif memberships.count() > 1:
                 request.company_conflict = True
+            elif user.is_superuser:
+                stores = Company.objects.order_by("pk")
+                if stores.count() == 1:
+                    request.company = stores.first()
+                    request.company_access = True
+                elif stores.count() > 1:
+                    request.company_conflict = True
 
         return self.get_response(request)
 
