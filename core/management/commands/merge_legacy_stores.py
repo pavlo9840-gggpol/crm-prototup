@@ -169,7 +169,16 @@ def staff_merge_plan(memberships, target_id, target_owner_id, source_companies):
                 "remove_membership_ids": [row.pk for row in source_rows if row.pk != keep.pk],
             })
 
+    active_owner_ids = {
+        row.user_id for row in memberships if row.role == "owner" and row.is_active
+    }
     if target_owner_id:
+        unexpected_owners = sorted(active_owner_ids - {target_owner_id})
+        if unexpected_owners:
+            blockers.append({
+                "user_ids": unexpected_owners,
+                "reason": "Після об'єднання залишилися б додаткові активні власники. Потрібно явно змінити їхні ролі.",
+            })
         owner_membership = next((row for row in memberships
                                  if row.company_id == target_id and row.user_id == target_owner_id), None)
         if owner_membership and (owner_membership.role != "owner" or not owner_membership.is_active):
@@ -288,7 +297,7 @@ class Command(BaseCommand):
         if not target.owner_id:
             owner_ids = {company.owner_id for company in [target, *sources] if company.owner_id}
             active_owner_roles = {row.user_id for row in memberships if row.role == "owner" and row.is_active}
-            candidates = owner_ids or active_owner_roles
+            candidates = owner_ids | active_owner_roles
             if len(candidates) != 1:
                 blockers.append("Неможливо однозначно визначити власника майбутнього локального магазину.")
 
