@@ -58,3 +58,22 @@ def company_required(view_func):
             )
         return view_func(request, *args, **kwargs)
     return wrapped
+
+
+class InstallationSetupMiddleware:
+    """Send a fresh database to the one-time local setup page."""
+    EXEMPT_PREFIXES = ("/setup/", "/static/", "/media/")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path.startswith(self.EXEMPT_PREFIXES):
+            return self.get_response(request)
+
+        from django.contrib.auth import get_user_model
+        from .models import Company
+        if not get_user_model().objects.exists() or not Company.objects.exists():
+            from django.http import HttpResponseRedirect
+            return HttpResponseRedirect("/setup/")
+        return self.get_response(request)
