@@ -103,6 +103,59 @@ def unique_company_collisions(model, company_field, company_ids, alias):
     return collisions
 
 
+def semantic_duplicate_candidates(company_ids, alias):
+    """Find likely duplicate products/customers across stores before ownership consolidation."""
+    Product = apps.get_model("core", "Product")
+    Customer = apps.get_model("core", "Customer")
+    scope = Q(company_id__in=company_ids) | Q(company_id__isnull=True)
+    candidates = []
+
+    products = Product.objects.using(alias).filter(scope).values(
+        "pk", "company_id", "name", "brand", "sku", "sku_norm", "barcode"
+    )
+    grouped_products = defaultdict(list)
+    for row in products.iterator():
+        brand_key = " ".join((row["brand"] or "").split()).casefold()
+        sku_key = (row["sku_norm"] or "").strip().upper()
+        if brand_key and sku_key:
+            grouped_products[(brand_key, sku_key)].append(row)
+    for key, rows in grouped_products.items():
+        store_ids = {row["company_id"] for row in rows}
+        if len(store_ids) > 1:
+            candidates.append({
+                "kind": "product_brand_sku",
+                "key": {"brand": key[0], "sku_norm": key[1]},
+                "records": [
+                    {"id": row["pk"], "company_id": row["company_id"],
+                     "name": row["name"], "brand": row["brand"],
+                     "sku": row["sku"], "barcode": row["barcode"]}
+                    for row in rows
+                ],
+            })
+
+    customers = Customer.objects.using(alias).filter(scope).values(
+        "pk", "company_id", "name", "phone"
+    )
+    grouped_customers = defaultdict(list)
+    for row in customers.iterator():
+        phone_key = "".join(ch for ch in (row["phone"] or "") if ch.isdigit())
+        if len(phone_key) >= 7:
+            grouped_customers[phone_key].append(row)
+    for phone_key, rows in grouped_customers.items():
+        store_ids = {row["company_id"] for row in rows}
+        if len(store_ids) > 1:
+            candidates.append({
+                "kind": "customer_phone",
+                "key": {"phone_digits": phone_key},
+                "records": [
+                    {"id": row["pk"], "company_id": row["company_id"],
+                     "name": row["name"], "phone": row["phone"]}
+                    for row in rows
+                ],
+            })
+    return candidates
+
+
 def external_reference_mismatches(model, source_company_field, company_ids, alias, company_model):
     """Rows in selected stores pointing to related objects in a store outside the merge."""
     qs = model.objects.using(alias).filter(
@@ -278,6 +331,12 @@ class Command(BaseCommand):
                 "Знайдено конфлікти унікальності між магазинами. Записи потрібно зіставити вручну; "
                 "автоматичне злиття товарів, клієнтів або налаштувань не виконується."
             )
+        semantic_duplicates = semantic_duplicate_candidates(selected_ids, alias)
+        if semantic_duplicates:
+            blockers.append(
+                "Знайдено ймовірні дублікати товарів (бренд + артикул) або клієнтів (номер телефону). "
+                "Їх потрібно вручну зіставити до об'єднання; автоматичне злиття історичних документів заборонене."
+            )
         if mismatches:
             blockers.append(
                 "Знайдено посилання на об'єкти магазинів поза вибраним набором. "
@@ -315,6 +374,7 @@ class Command(BaseCommand):
             "business_rows": total_rows,
             "business_models": counts,
             "unique_key_conflicts": collisions,
+            "business_duplicate_candidates": semantic_duplicates,
             "external_reference_mismatches": mismatches,
             "staff_merge_plan": staff_plan,
             "staff_conflicts": staff_conflicts,
@@ -334,6 +394,7 @@ class Command(BaseCommand):
             for row in counts:
                 self.stdout.write(f"  {row['model']}: {row['total']} записів")
             self.stdout.write(f"Конфліктів унікальності: {len(collisions)}")
+            self.stdout.write(f"Ймовірних дублікатів товарів/клієнтів: {len(semantic_duplicates)}")
             self.stdout.write(f"Порушень зовнішніх зв'язків: {len(mismatches)}")
             self.stdout.write(f"Операцій з ролями працівників: {len(staff_plan)}")
             if blockers:
