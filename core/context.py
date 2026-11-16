@@ -100,9 +100,17 @@ def layout(request):
     )
     active_company = getattr(request, "company", None)
 
+    from .license_entitlements import NAV_FEATURES, feature_is_enabled
+    active_license = getattr(request, "active_license", None)
     groups = []
     if can_manage_company:
         for title, items in STAFF_NAV:
+            if active_license:
+                items = [
+                    (label, name) for label, name in items
+                    if not NAV_FEATURES.get(name)
+                    or feature_is_enabled(active_license, NAV_FEATURES[name])
+                ]
             if title == "Керування" and not u.is_superuser:
                 items = [(label, name) for label, name in items if name != "backup"]
             rows = [{"label": lbl, "name": name, "active": name == cur} for lbl, name in items]
@@ -131,4 +139,6 @@ def layout(request):
         "cur_url": cur,
         "company_name": CompanySettings.get(active_company).name if active_company else "",
         "installation_conflict": bool(getattr(request, "company_conflict", False)),
+        "active_license_plan": active_license["plan"].upper() if active_license else "",
+        "active_license_max_workstations": active_license["max_workstations"] if active_license else None,
     }
