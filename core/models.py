@@ -1045,3 +1045,36 @@ class CompanyMembership(models.Model):
     @property
     def is_company_admin(self):
         return self.is_active and self.role in ("owner", "admin")
+
+
+
+class LicenseActivation(models.Model):
+    """The single signed license installed on this local copy of AutoZapaz."""
+    PLANS = [
+        ("start", "START"),
+        ("pro", "PRO"),
+        ("business", "BUSINESS"),
+    ]
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    token = models.TextField("Підписаний ліцензійний ключ")
+    license_id = models.CharField("ID ліцензії", max_length=80, unique=True)
+    plan = models.CharField("Тариф", max_length=20, choices=PLANS)
+    issued_at = models.DateTimeField("Видано")
+    expires_at = models.DateTimeField("Діє до", null=True, blank=True)
+    max_users = models.PositiveIntegerField("Максимум користувачів", default=1)
+    max_workstations = models.PositiveIntegerField("Максимум робочих місць", default=1)
+    features = models.JSONField("Доступні модулі", default=list, blank=True)
+    activated_at = models.DateTimeField("Активовано", auto_now_add=True)
+    updated_at = models.DateTimeField("Оновлено", auto_now=True)
+
+    class Meta:
+        verbose_name = "Локальна ліцензія"
+        verbose_name_plural = "Локальна ліцензія"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.license_id} · {self.get_plan_display()}"
