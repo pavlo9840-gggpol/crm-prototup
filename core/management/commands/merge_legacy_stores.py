@@ -347,6 +347,18 @@ class Command(BaseCommand):
             Membership.objects.using(alias).filter(company_id__in=selected_ids)
             .select_related("user").order_by("user_id", "company_id", "pk")
         )
+        User = apps.get_model(settings.AUTH_USER_MODEL)
+        active_users_without_role = list(
+            User.objects.using(alias).filter(is_active=True, is_superuser=False)
+            .exclude(pk__in=Membership.objects.using(alias)
+                     .filter(company_id__in=selected_ids).values("user_id"))
+            .values_list("pk", flat=True)
+        )
+        if active_users_without_role:
+            blockers.append(
+                "Є активні облікові записи без ролі працівника: "
+                f"{active_users_without_role}. Призначте їм ролі або деактивуйте облікові записи."
+            )
         staff_plan, staff_conflicts = staff_merge_plan(
             memberships, target_id, target.owner_id, sources
         )
@@ -378,6 +390,7 @@ class Command(BaseCommand):
             "external_reference_mismatches": mismatches,
             "staff_merge_plan": staff_plan,
             "staff_conflicts": staff_conflicts,
+            "active_users_without_role": active_users_without_role,
             "blockers": blockers,
             "mode": "apply" if options["apply"] else "read_only",
         }
