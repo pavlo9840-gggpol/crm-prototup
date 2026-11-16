@@ -88,3 +88,19 @@ class InstallationSetupMiddleware:
             from django.http import HttpResponseRedirect
             return HttpResponseRedirect("/setup/")
         return self.get_response(request)
+
+
+class LicenseRequiredMiddleware:
+    """Require a valid local license in production builds, never during development."""
+    EXEMPT_PREFIXES = ("/activate/", "/setup/", "/login/", "/logout/", "/static/", "/media/")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from .licensing import get_active_license, license_is_required
+        if license_is_required() and not request.path.startswith(self.EXEMPT_PREFIXES):
+            if get_active_license() is None:
+                from django.http import HttpResponseRedirect
+                return HttpResponseRedirect("/activate/")
+        return self.get_response(request)
