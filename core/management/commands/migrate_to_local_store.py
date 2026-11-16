@@ -65,7 +65,8 @@ def company_unique_key_collisions(model, company_field, store_id, alias):
             continue
         key_fields = [model._meta.get_field(name) for name in fields if name != company_field.name]
         null_qs = model.objects.using(alias).filter(**{f"{company_field.name}__isnull": True})
-        target_qs = (model.objects.using(alias).none() if store_id is None else\n                     model.objects.using(alias).filter(**{company_field.name: store_id}))
+        target_qs = (model.objects.using(alias).none() if store_id is None else
+                     model.objects.using(alias).filter(**{company_field.name: store_id}))
 
         # Respect the existing partial unique constraints on barcode and payroll rows.
         if constraint.name == "uniq_company_product_barcode":
