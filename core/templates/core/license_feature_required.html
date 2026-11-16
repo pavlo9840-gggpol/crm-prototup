@@ -1,0 +1,12 @@
+{% extends "core/base.html" %}
+{% block title %}Модуль недоступний{% endblock %}
+{% block content %}
+<h2>Модуль не входить до вашого тарифу</h2>
+<div class="card">
+  <p>Функція <b>{{ required_feature }}</b> не активована для поточної ліцензії.</p>
+  <p>Поточний тариф: <b>{{ current_plan }}</b>. Для доступу потрібен тариф <b>{{ required_plan }}</b> або окремо виданий дозвіл на цей модуль.</p>
+  <p>Ваші товари, продажі та інші дані залишаються на місці. Після оновлення ліцензії доступ відкриється автоматично.</p>
+  <a class="btn" href="{% url 'activate_license' %}">Перейти до ліцензії</a>
+  <a class="btn gray" href="{% url 'dashboard' %}">На головну</a>
+</div>
+{% endblock %}
