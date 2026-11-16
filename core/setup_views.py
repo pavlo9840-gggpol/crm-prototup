@@ -6,7 +6,8 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from django.shortcuts import redirect, render
 
-from .models import Company, CompanyMembership
+from .models import Company
+from .tenancy import create_local_store
 
 
 class InstallationSetupForm(forms.Form):
@@ -73,26 +74,7 @@ def installation_setup(request):
                     password=data["password"],
                 )
 
-            company = companies.first()
-            if company is None:
-                company = Company.objects.create(
-                    name=data["shop_name"].strip(),
-                    slug="local-autozapaz",
-                    owner=owner,
-                    plan="start",
-                    status="active",
-                )
-            else:
-                company.name = data["shop_name"].strip()
-                company.owner = owner
-                company.status = "active"
-                company.save(update_fields=["name", "owner", "status"])
-
-            CompanyMembership.objects.update_or_create(
-                company=company,
-                user=owner,
-                defaults={"role": "owner", "is_active": True},
-            )
+            company = create_local_store(owner, data["shop_name"])
 
         if not user_count:
             login(request, owner)
