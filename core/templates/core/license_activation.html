@@ -11,6 +11,11 @@
       Ліміт користувачів: {{ activation.max_users }} · Робочих місць: {{ activation.max_workstations }}
     </div>
   {% endif %}
+  <div class="card" style="background:#f7f7f7;margin:16px 0">
+    <b>Код цієї інсталяції</b>
+    <p style="font-family:monospace;font-size:1.05rem;word-break:break-all;margin:8px 0">{{ installation_id }}</p>
+    <p class="muted">Передайте цей код постачальнику програми для випуску ліцензії. Ключ буде працювати лише на цій інсталяції.</p>
+  </div>
   <form method="post">
     {% csrf_token %}
     <p><label for="license_key">Ліцензійний ключ</label>
