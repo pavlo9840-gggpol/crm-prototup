@@ -5,6 +5,7 @@ Only the public verification key is shipped with the application.
 """
 import base64
 import json
+import uuid
 from datetime import datetime
 
 from cryptography.exceptions import InvalidSignature
@@ -39,7 +40,15 @@ def _parse_datetime(value, field_name, *, optional=False):
     return parsed
 
 
-def verify_license_token(token, *, now=None):
+def get_installation_id():
+    """Return the persistent, locally generated installation identifier."""
+    from .models import InstallationIdentity
+
+    identity, _ = InstallationIdentity.objects.get_or_create(pk=1)
+    return str(identity.installation_id)
+
+
+def verify_license_token(token, *, now=None, expected_installation_id=None):
     """Return validated claims or raise LicenseError; never contacts a server."""
     token = (token or "").strip()
     if len(token) > 8192:
@@ -75,6 +84,13 @@ def verify_license_token(token, *, now=None):
 
     license_id = claims.get("license_id")
     plan = claims.get("plan")
+    bound_id = claims.get("installation_id")
+    try:
+        bound_id = str(uuid.UUID(str(bound_id)))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise LicenseError("Ліцензія не прив'язана до конкретної інсталяції.") from exc
+    if expected_installation_id is not None and bound_id != str(expected_installation_id):
+        raise LicenseError("Цей ліцензійний ключ виданий для іншої інсталяції АвтоЗапасу.")
     if not isinstance(license_id, str) or not license_id.strip() or len(license_id) > 80:
         raise LicenseError("У ліцензії немає коректного ідентифікатора.")
     if plan not in {"start", "pro", "business"}:
@@ -100,6 +116,7 @@ def verify_license_token(token, *, now=None):
 
     return {
         "license_id": license_id.strip(),
+        "installation_id": bound_id,
         "plan": plan,
         "issued_at": issued_at,
         "expires_at": expires_at,
@@ -118,7 +135,7 @@ def get_active_license():
     if not activation:
         return None
     try:
-        claims = verify_license_token(activation.token)
+        claims = verify_license_token(activation.token, expected_installation_id=get_installation_id())
     except LicenseError:
         return None
     if claims["license_id"] != activation.license_id:
