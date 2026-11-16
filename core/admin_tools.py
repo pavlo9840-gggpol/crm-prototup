@@ -252,8 +252,7 @@ def category_by_path(path, company):
     return parent
 
 
-@tenant_staff_only
-@company_required
+@local_admin_only
 def product_export(request):
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="products.csv"'
@@ -396,8 +395,7 @@ def apply_rows(rows, user, company):
     return created, updated
 
 
-@tenant_staff_only
-@company_required
+@local_admin_only
 def product_import(request):
     if request.method == "POST":
         f = request.FILES.get("file")
@@ -416,8 +414,7 @@ def product_import(request):
     return render(request, "core/product_import.html", {"columns": COLUMNS})
 
 
-@tenant_staff_only
-@company_required
+@local_admin_only
 @require_POST
 def product_import_apply(request):
     rows = request.session.pop("product_import", None)
