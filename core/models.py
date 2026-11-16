@@ -1094,3 +1094,19 @@ class InstallationIdentity(models.Model):
     def save(self, *args, **kwargs):
         self.pk = 1
         super().save(*args, **kwargs)
+
+
+class LicenseWorkstationSession(models.Model):
+    """A recently active authenticated browser session counted as one workstation."""
+    session_key = models.CharField("Ключ сесії", max_length=40, unique=True)
+    user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="license_workstation_sessions")
+    created_at = models.DateTimeField("Початок сесії", auto_now_add=True)
+    last_seen = models.DateTimeField("Остання активність", db_index=True)
+
+    class Meta:
+        ordering = ["last_seen"]
+        verbose_name = "Активне робоче місце"
+        verbose_name_plural = "Активні робочі місця"
+
+    def __str__(self):
+        return f"{self.user} · {self.last_seen:%d.%m.%Y %H:%M}"
