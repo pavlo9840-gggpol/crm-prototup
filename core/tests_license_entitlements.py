@@ -88,6 +88,18 @@ class LocalLicenseEnforcementTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertContains(response, "Прайси постачальників", status_code=403)
 
+    def test_pro_plan_allows_pro_route_but_blocks_business_service_module(self):
+        self.activate("pro", max_users=5, max_workstations=3)
+        client = Client()
+        client.force_login(self.user)
+
+        supplier_prices = client.get("/supplier-prices/")
+        self.assertNotEqual(supplier_prices.status_code, 403)
+
+        service_module = client.get("/service/")
+        self.assertEqual(service_module.status_code, 403)
+        self.assertContains(service_module, "Модуль СТО", status_code=403)
+
     def test_signed_addon_can_enable_one_pro_feature_on_start(self):
         self.activate("start", max_users=2, max_workstations=1, features=["supplier_prices"])
         client = Client()
