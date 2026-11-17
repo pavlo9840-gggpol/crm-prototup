@@ -9,3 +9,8 @@ db.sqlite3
 autozapaz-license-private.pem
 *license-private*.pem
 *.license-private.pem
+
+# Generated deployment assets and local shop data
+staticfiles/
+media/
+backups/
