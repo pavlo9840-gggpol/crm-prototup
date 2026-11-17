@@ -188,6 +188,7 @@ class LegacyStoreMergeCommandTests(TestCase):
         self.assertEqual(report["source_stores"][0]["id"], self.source.pk)
         self.assertEqual(report["blockers"], [])
 
+    @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
     def test_duplicate_product_brand_and_normalized_sku_blocks_merge(self, backup):
         Product.objects.create(
             company=self.target, name="Фільтр оливи", brand="Bosch", sku="1 234-AB"
@@ -205,6 +206,7 @@ class LegacyStoreMergeCommandTests(TestCase):
         backup.assert_not_called()
         self.assertEqual(Company.objects.count(), 2)
 
+    @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
     def test_customer_phone_duplicate_ignores_formatting_and_blocks_merge(self, backup):
         Customer.objects.create(
             company=self.target, name="Клієнт А", phone="+38 (050) 111-22-33"
