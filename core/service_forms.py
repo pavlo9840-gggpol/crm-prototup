@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib.auth import get_user_model
 from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine
+from .models import StaffMembership
 
 
 class ServiceAppointmentForm(forms.ModelForm):
@@ -17,7 +18,7 @@ class ServiceAppointmentForm(forms.ModelForm):
             self.fields["customer"].queryset = Customer.objects.filter(company=company)
             self.fields["car"].queryset = CustomerCar.objects.filter(company=company).select_related("customer")
             self.fields["assigned_to"].queryset = get_user_model().objects.filter(
-                company_memberships__company=company, company_memberships__is_active=True
+                staff_memberships__company=company, staff_memberships__is_active=True
             ).distinct()
         self.fields["car"].queryset = self.fields["car"].queryset.select_related("customer")
         if self.data.get("customer"):
@@ -34,7 +35,7 @@ class ServiceOrderForm(forms.ModelForm):
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
         if company is not None:
-            from .models import Customer, CustomerCar, CompanyMembership
+            from .models import Customer, CustomerCar
             self.fields["customer"].queryset = Customer.objects.filter(company=company)
             self.fields["car"].queryset = CustomerCar.objects.filter(company=company)
             self.fields["appointment"].queryset = ServiceAppointment.objects.filter(company=company)
