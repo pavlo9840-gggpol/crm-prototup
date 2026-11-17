@@ -24,7 +24,8 @@ VERSION="$2"
 [[ -d "$DATA_DIR" && -d "$BACKUP_DIR" ]] || fail "Не знайдено постійний каталог даних або резервних копій."
 id "$SERVICE_USER" >/dev/null 2>&1 || fail "Не знайдено системного користувача $SERVICE_USER."
 systemctl cat "$SERVICE" >/dev/null 2>&1 || fail "Службу $SERVICE не встановлено."
-case "$RELEASE_SOURCE/" in "$APP_LINK/"*) fail "Новий реліз не може бути всередині чинної програми." ;; esac
+CURRENT_APP_REAL="$(readlink -f -- "$APP_LINK")"
+case "$RELEASE_SOURCE/" in "$CURRENT_APP_REAL/"*) fail "Новий реліз не може бути всередині чинної програми." ;; esac
 [[ "$(find "$RELEASE_SOURCE" -type l -print -quit)" == "" ]] || fail "Реліз містить символічні посилання."
 [[ "$(find "$RELEASE_SOURCE" ! -type d ! -type f -print -quit)" == "" ]] || fail "Реліз містить спеціальні файли."
 
@@ -47,7 +48,8 @@ OLD_APP_FALLBACK="$RELEASES_DIR/rollback-$STAMP"
 OLD_VENV_FALLBACK="$VENVS_DIR/rollback-$STAMP"
 RESTORE_DIR="$DATA_DIR/.rollback-restore-$STAMP"
 BACKUP_PATH=""
-SWITCHED=0
+APP_SWITCHED=0
+VENV_SWITCHED=0
 [[ ! -e "$NEW_APP" && ! -e "$NEW_VENV" ]] || fail "Каталог версії вже існує."
 mkdir -p "$RELEASES_DIR" "$VENVS_DIR"
 
@@ -168,15 +170,22 @@ case "$(realpath -e -- "$BACKUP_PATH")" in
     "$(realpath -e -- "$BACKUP_DIR")"/*) ;;
     *) systemctl start "$SERVICE" || true; fail "Backup створено поза каталогом резервних копій." ;;
 esac
-as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" verify_backup "$BACKUP_PATH"
-as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" restore_backup "$BACKUP_PATH" "$RESTORE_DIR" --apply
+if ! as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" verify_backup "$BACKUP_PATH"; then
+    systemctl start "$SERVICE" || true
+    fail "Перевірка резервної копії не пройшла; оновлення скасовано."
+fi
+if ! as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" restore_backup "$BACKUP_PATH" "$RESTORE_DIR" --apply; then
+    systemctl start "$SERVICE" || true
+    fail "Не вдалося підготувати каталог відкату; оновлення скасовано."
+fi
 
 info "Перемикання коду та Python-середовища"
 atomic_link "$APP_LINK" "$NEW_APP" "$OLD_APP_FALLBACK"
 if [[ "$OLD_APP_REAL" == "$APP_LINK" ]]; then OLD_APP_REAL="$OLD_APP_FALLBACK"; fi
+APP_SWITCHED=1
 atomic_link "$VENV_LINK" "$NEW_VENV" "$OLD_VENV_FALLBACK"
 if [[ "$OLD_VENV_REAL" == "$VENV_LINK" ]]; then OLD_VENV_REAL="$OLD_VENV_FALLBACK"; fi
-SWITCHED=1
+VENV_SWITCHED=1
 
 info "Застосування міграцій"
 if ! as_service "$VENV_LINK/bin/python" "$APP_LINK/manage.py" migrate --noinput; then
