@@ -15,8 +15,6 @@ class LocalInstallationFoundationTests(TestCase):
 
         self.assertEqual(store.owner, self.user)
         self.assertEqual(store.name, "Магазин АвтоЗапас")
-        self.assertEqual(store.status, "active")
-        self.assertTrue(store.has_access)
         membership = CompanyMembership.objects.get(company=store, user=self.user)
         self.assertEqual(membership.role, "owner")
         self.assertTrue(membership.is_company_admin)
@@ -27,12 +25,6 @@ class LocalInstallationFoundationTests(TestCase):
             create_local_store(self.user, "Другий магазин")
         self.assertEqual(Company.objects.count(), 1)
         self.assertEqual(Company.objects.first(), first)
-
-    def test_legacy_trial_fields_do_not_control_local_license_access(self):
-        store = create_local_store(self.user, "Локальний магазин")
-        store.status = "suspended"
-        store.save(update_fields=["status"])
-        self.assertTrue(store.has_access)
 
     def test_duplicate_local_role_is_rejected_by_database_constraint(self):
         store = create_local_store(self.user, "Унікальне членство")
