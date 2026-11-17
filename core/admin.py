@@ -116,9 +116,8 @@ class PartFitmentAdmin(admin.ModelAdmin):
 
 @admin.register(m.Company)
 class CompanyAdmin(admin.ModelAdmin):
-    list_display = ("name", "slug", "owner", "plan", "status", "trial_ends_at", "subscription_ends_at")
+    list_display = ("name", "slug", "owner", "created_at")
     search_fields = ("name", "slug", "owner__username")
-    list_filter = ("plan", "status")
     readonly_fields = ("created_at", "updated_at")
 
 
