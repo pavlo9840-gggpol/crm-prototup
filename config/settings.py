@@ -32,7 +32,8 @@ INSTALLED_APPS = [
     "core",
 ]
 MIDDLEWARE = [
-    "django.middleware.security.SecurityMiddleware",\n    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -64,7 +65,12 @@ USE_TZ = True
 DATE_FORMAT = "d.m.Y"
 DATETIME_FORMAT = "d.m.Y H:i"
 SHORT_DATE_FORMAT = "d.m.Y"
-STATIC_URL = "/static/"\nSTATIC_ROOT = BASE_DIR / "staticfiles"\nSTORAGES = {\n    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},\n    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},\n}
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
 MEDIA_URL = "/media/"
 MEDIA_ROOT = AUTOZAPAZ_DATA_DIR / "media"
 LOGIN_URL = "/login/"
