@@ -333,10 +333,11 @@
 
 **Статус:** реалізація додана; очікує повного CI на поточному коміті.
 
-- База SQLite та `MEDIA_ROOT` тепер розташовані в системному каталозі даних користувача через platformdirs: Linux `~/.local/share/AutoZapaz`, Windows `%LOCALAPPDATA%\\AutoZapaz`. Шлях можна перевизначити через `AUTOZAPAZ_DATA_DIR`.
-- Резервні копії за замовчуванням зберігаються в `<AUTOZAPAZ_DATA_DIR>/backups`; доступне окреме перевизначення `AUTOZAPAZ_BACKUP_DIR`.
+- База SQLite та `MEDIA_ROOT` тепер розташовані в системному каталозі даних користувача через platformdirs: Linux `~/.local/share/AutoZapaz`, Windows `%LOCALAPPDATA%\\AutoZapaz`. Шлях можна перевизначити через `AUTOZAPAZ_DATA_DIR`; на POSIX права каталогу автоматично обмежуються до `0700`.
+- Резервні копії за замовчуванням зберігаються в `<AUTOZAPAZ_DATA_DIR>/backups`; доступне окреме перевизначення `AUTOZAPAZ_BACKUP_DIR`. Каталог резервних копій також отримує права `0700` на POSIX.
 - Додана команда `python manage.py migrate_local_data`: read-only план перенесення старої `db.sqlite3`, `media/` і `backups/`; запис лише з `--apply`. SQLite копіюється через backup API та перевіряється; медіа/архіви копіюються без видалення оригіналів. Існуючі цільові файли не перезаписуються; символічні посилання блокують копіювання.
 - Локальний WSGI-сервер запускається через Waitress командою `python manage.py serve`, за замовчуванням тільки на `127.0.0.1:8000`; є перевірка порту й кількості потоків.
 - Статичні ресурси підготовлені для WhiteNoise та `collectstatic`; завантажені медіафайли доступні і при `DEBUG=False` у локальному loopback-режимі.
 - Додані CI-тести перенесення даних (read-only, успішна копія, конфлікт, пошкоджена БД, symlink), параметрів Waitress і media-serving.
+- Для локального HTTP secure cookies вимкнені, щоб браузерні сесії працювали на loopback; `AUTOZAPAZ_SECURE_COOKIES=1` вмикається лише за HTTPS reverse proxy. На Windows ACL каталогу даних має відповідати обліковому запису служби.
 - Це ще не Windows/Linux інсталятор і не системна служба. Автозапуск, service account, firewall, PostgreSQL/LAN та перевірка upgrade на реальному клієнтському каталозі залишаються наступними задачами.
