@@ -6,7 +6,7 @@ from django.utils import timezone
 from . import cash as cashlib
 from .models import (Shift, CashOperation, Customer, Product, PurchaseItem, Sale, SaleItem, SaleReturn,
                      SaleReturnItem, StockMovement, Purchase, PriceHistory, MarkupTier,
-                     CompanySettings, CompanyMembership, norm_sku)
+                     CompanySettings, StaffMembership, norm_sku)
 
 D0 = Decimal("0")
 
@@ -117,7 +117,7 @@ def _make_item(sale, p, q, pr, x, done):
 
 
 def _can_manage(user, company):
-    return CompanyMembership.objects.filter(company=company, user=user, is_active=True,
+    return StaffMembership.objects.filter(company=company, user=user, is_active=True,
                                             role__in=("owner", "admin", "manager")).exists()
 
 
