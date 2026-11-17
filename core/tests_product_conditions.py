@@ -8,7 +8,7 @@ from core.models import Category, Company, CompanyMembership, Product
 class ProductConditionTests(TestCase):
     def setUp(self):
         user = get_user_model().objects.create_superuser("products-admin", "admin@example.test", "secret")
-        self.company = Company.objects.create(name="Product conditions shop", slug="product-conditions-shop", status="active", owner=user)
+        self.company = Company.objects.create(name="Product conditions shop", slug="product-conditions-shop", owner=user)
         CompanyMembership.objects.create(company=self.company, user=user, role="owner")
         self.client.force_login(user)
 
