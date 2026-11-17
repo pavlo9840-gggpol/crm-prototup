@@ -90,5 +90,9 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
+
+# The bundled local Waitress server uses HTTP on loopback. Enable secure
+# cookies only when an HTTPS reverse proxy/terminator is configured.
+SECURE_LOCAL_COOKIES = os.environ.get("AUTOZAPAZ_SECURE_COOKIES", "0") == "1"
+SESSION_COOKIE_SECURE = SECURE_LOCAL_COOKIES
+CSRF_COOKIE_SECURE = SECURE_LOCAL_COOKIES
