@@ -309,7 +309,7 @@ def load(doc_type, request):
     user, ids = request.user, parse_ids(request)
     if doc_type in ("receipt", "sale_invoice"):
         qs = Sale.objects.filter(company=request.company, status=Sale.DONE).select_related("cashier", "customer")
-        if getattr(getattr(request, "company_membership", None), "role", "") not in ("owner", "admin", "manager"):
+        if getattr(getattr(request, "staff_membership", None), "role", "") not in ("owner", "admin", "manager"):
             qs = qs.filter(cashier=user)
         out = [sale_ctx(s) for s in _by_ids(qs, ids)]
     elif doc_type == "purchase":
