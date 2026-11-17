@@ -395,7 +395,7 @@ class Command(BaseCommand):
             raise CommandError("Цільовий магазин не може бути одночасно у списку джерел.")
 
         Company = apps.get_model("core", "Company")
-        Membership = apps.get_model("core", "CompanyMembership")
+        Membership = apps.get_model("core", "StaffMembership")
         all_companies = list(Company.objects.using(alias).order_by("pk"))
         by_id = {company.pk: company for company in all_companies}
         missing = [pk for pk in [target_id, *source_ids] if pk not in by_id]
