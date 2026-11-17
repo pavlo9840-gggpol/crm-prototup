@@ -331,7 +331,7 @@
 
 ## Блок 0.9 — відокремлення даних і локальний сервер для desktop-інсталяції
 
-**Статус:** реалізація додана; очікує повного CI на поточному коміті.
+**Статус:** реалізація додана; CI успішно пройшов на commit `53a0b144` (204 regression tests, Django checks, collectstatic та migration state).
 
 - База SQLite та `MEDIA_ROOT` тепер розташовані в системному каталозі даних користувача через platformdirs: Linux `~/.local/share/AutoZapaz`, Windows `%LOCALAPPDATA%\\AutoZapaz`. Шлях можна перевизначити через `AUTOZAPAZ_DATA_DIR`; на POSIX права каталогу автоматично обмежуються до `0700`.
 - Резервні копії за замовчуванням зберігаються в `<AUTOZAPAZ_DATA_DIR>/backups`; доступне окреме перевизначення `AUTOZAPAZ_BACKUP_DIR`. Каталог резервних копій також отримує права `0700` на POSIX.
