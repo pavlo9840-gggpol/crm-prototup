@@ -1,10 +1,10 @@
 import tempfile
 from pathlib import Path
 
-from django.test import SimpleTestCase, override_settings
+from django.test import TestCase, override_settings
 
 
-class LocalMediaServingTests(SimpleTestCase):
+class LocalMediaServingTests(TestCase):
     def test_uploaded_media_is_available_when_debug_is_disabled(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             media_root = Path(temp_dir)
