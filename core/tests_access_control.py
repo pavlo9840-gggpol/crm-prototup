@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from core.models import Company, CompanyMembership, Product, StockAdjustment, StockMovement
+from core.models import Company, StaffMembership, Product, StockAdjustment, StockMovement
 
 
 class StaffAccessControlTests(TestCase):
@@ -15,7 +15,7 @@ class StaffAccessControlTests(TestCase):
             username="inventory-manager", password="test-password", is_staff=True
         )
         cls.company = Company.objects.create(name="Inventory test shop", slug="inventory-test-shop", owner=cls.staff)
-        CompanyMembership.objects.create(company=cls.company, user=cls.staff, role="owner")
+        StaffMembership.objects.create(company=cls.company, user=cls.staff, role="owner")
         cls.cashier = User.objects.create_user(
             username="inventory-cashier", password="test-password", is_staff=False
         )
