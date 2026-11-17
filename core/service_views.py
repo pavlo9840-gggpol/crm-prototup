@@ -23,7 +23,7 @@ def workshop_staff(view):
     @company_required
     @wraps(view)
     def wrapped(request, *args, **kwargs):
-        membership = getattr(request, "company_membership", None)
+        membership = getattr(request, "staff_membership", None)
         if not request.user.is_superuser and (
             membership is None or membership.role not in ("owner", "admin", "manager", "mechanic")
         ):
@@ -37,7 +37,7 @@ def workshop_cashier(view):
     @company_required
     @wraps(view)
     def wrapped(request, *args, **kwargs):
-        membership = getattr(request, "company_membership", None)
+        membership = getattr(request, "staff_membership", None)
         if not request.user.is_superuser and (
             membership is None or membership.role not in ("owner", "admin", "manager", "cashier")
         ):
@@ -52,7 +52,7 @@ def workshop_manager(view):
     @company_required
     @wraps(view)
     def wrapped(request, *args, **kwargs):
-        membership = getattr(request, "company_membership", None)
+        membership = getattr(request, "staff_membership", None)
         if not request.user.is_superuser and (
             membership is None or membership.role not in ("owner", "admin", "manager")
         ):
@@ -62,7 +62,7 @@ def workshop_manager(view):
 
 
 def _require_assigned_mechanic(request, order):
-    membership = getattr(request, "company_membership", None)
+    membership = getattr(request, "staff_membership", None)
     if membership and membership.role == "mechanic" and order.mechanic_id != request.user.pk:
         raise Http404
 
@@ -71,7 +71,7 @@ def _require_assigned_mechanic(request, order):
 def service_home(request):
     appointments = company_queryset(ServiceAppointment.objects.select_related("customer", "car", "assigned_to").order_by("scheduled_at"), request)
     orders = company_queryset(ServiceOrder.objects.select_related("customer", "car", "mechanic").order_by("-created_at"), request)
-    if getattr(request.company_membership, "role", "") == "mechanic":
+    if getattr(request.staff_membership, "role", "") == "mechanic":
         appointments = appointments.filter(assigned_to=request.user)
         orders = orders.filter(mechanic=request.user)
     appointments, orders = appointments[:80], orders[:30]
