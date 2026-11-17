@@ -121,8 +121,8 @@ class CompanyAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at")
 
 
-@admin.register(m.CompanyMembership)
-class CompanyMembershipAdmin(admin.ModelAdmin):
+@admin.register(m.StaffMembership)
+class StaffMembershipAdmin(admin.ModelAdmin):
     list_display = ("company", "user", "role", "is_active", "created_at")
     search_fields = ("company__name", "user__username", "user__email")
     list_filter = ("role", "is_active")
