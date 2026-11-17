@@ -64,7 +64,7 @@ USE_TZ = True
 DATE_FORMAT = "d.m.Y"
 DATETIME_FORMAT = "d.m.Y H:i"
 SHORT_DATE_FORMAT = "d.m.Y"
-STATIC_URL = "/static/"\nSTATIC_ROOT = BASE_DIR / "staticfiles"\nSTATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
+STATIC_URL = "/static/"\nSTATIC_ROOT = BASE_DIR / "staticfiles"\nSTORAGES = {\n    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},\n    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},\n}
 MEDIA_URL = "/media/"
 MEDIA_ROOT = AUTOZAPAZ_DATA_DIR / "media"
 LOGIN_URL = "/login/"
