@@ -26,7 +26,7 @@ def company_fk(model, company_model):
 def company_scoped_models(company_model):
     result = []
     for model in apps.get_models(include_auto_created=False):
-        if model._meta.app_label != "core" or model is company_model or model.__name__ == "CompanyMembership":
+        if model._meta.app_label != "core" or model is company_model or model.__name__ in ("CompanyMembership", "StaffMembership"):
             continue
         field = company_fk(model, company_model)
         if field:
@@ -160,7 +160,7 @@ class Command(BaseCommand):
             raise CommandError("--backup використовується лише разом із --apply.")
 
         Company = apps.get_model("core", "Company")
-        Membership = apps.get_model("core", "CompanyMembership")
+        Membership = apps.get_model("core", "StaffMembership")
         User = apps.get_model(settings.AUTH_USER_MODEL)
         stores = list(Company.objects.using(alias).order_by("pk"))
         scoped = company_scoped_models(Company)
