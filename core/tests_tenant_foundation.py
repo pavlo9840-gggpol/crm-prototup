@@ -2,7 +2,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 
-from core.models import Company, CompanyMembership
+from core.models import Company, StaffMembership
 from core.tenancy import create_local_store
 
 
@@ -15,7 +15,7 @@ class LocalInstallationFoundationTests(TestCase):
 
         self.assertEqual(store.owner, self.user)
         self.assertEqual(store.name, "Магазин АвтоЗапас")
-        membership = CompanyMembership.objects.get(company=store, user=self.user)
+        membership = StaffMembership.objects.get(company=store, user=self.user)
         self.assertEqual(membership.role, "owner")
         self.assertTrue(membership.is_company_admin)
 
@@ -30,4 +30,4 @@ class LocalInstallationFoundationTests(TestCase):
         store = create_local_store(self.user, "Унікальне членство")
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                CompanyMembership.objects.create(company=store, user=self.user, role="admin")
+                StaffMembership.objects.create(company=store, user=self.user, role="admin")
