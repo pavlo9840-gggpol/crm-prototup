@@ -155,7 +155,7 @@ def user_edit(request, pk=None):
 
 
 # =============================================================== backups
-BACKUP_DIR = Path(os.environ.get("AUTOZAPAZ_BACKUP_DIR", Path(settings.AUTOZAPAZ_DATA_DIR) / "backups")).expanduser()
+BACKUP_DIR = Path(os.environ.get("AUTOZAPAZ_BACKUP_DIR", Path(settings.AUTOZAPAZ_DATA_DIR) / "backups")).expanduser().resolve()
 BACKUP_NAME = re.compile(r"^backup-\d{8}-\d{6}\.zip$")
 
 
