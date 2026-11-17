@@ -7,7 +7,7 @@ from django.utils import timezone
 from core.models import Customer, CustomerCar, Product
 from core.service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine
 from core.tests_tenant_helpers import create_test_company
-from core.models import CompanyMembership
+from core.models import StaffMembership
 
 
 class ServiceWorkshopTests(TestCase):
@@ -45,7 +45,7 @@ class ServiceWorkshopTests(TestCase):
 
     def test_overlapping_appointment_for_same_mechanic_is_rejected(self):
         mechanic = get_user_model().objects.create_user(username="mechanic", password="pass")
-        CompanyMembership.objects.create(company=self.company, user=mechanic, role="mechanic")
+        StaffMembership.objects.create(company=self.company, user=mechanic, role="mechanic")
         other_customer = Customer.objects.create(company=self.company, name="Іван", phone="+380501111112")
         other_car = CustomerCar.objects.create(company=self.company, customer=other_customer, make="VW", model="Golf", year=2017, plate="AC9876BC", vin="WVWZZZ1JZXW000001")
         start = timezone.now() + timedelta(days=3)
