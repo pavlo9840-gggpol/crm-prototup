@@ -6,6 +6,8 @@ business records; only company ownership is consolidated after preflight.
 """
 import json
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 from django.apps import apps
 from django.conf import settings
@@ -156,6 +158,118 @@ def semantic_duplicate_candidates(company_ids, alias):
     return candidates
 
 
+
+def load_record_merge_plan(path, selected_company_ids, alias):
+    """Load explicit product/customer merges; never infer financial or stock totals."""
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CommandError(f"Не вдалося прочитати --record-map: {exc}")
+    if not isinstance(payload, dict) or set(payload) - {"products", "customers"}:
+        raise CommandError("--record-map має містити лише масиви products та customers.")
+
+    plan = {"core.Product": [], "core.Customer": []}
+    used_ids = {"core.Product": set(), "core.Customer": set()}
+    for key, label in (("products", "core.Product"), ("customers", "core.Customer")):
+        entries = payload.get(key, [])
+        if not isinstance(entries, list):
+            raise CommandError(f"Поле {key} у --record-map має бути масивом.")
+        Model = apps.get_model(*label.split("."))
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                raise CommandError(f"{key}[{index}] має бути об'єктом.")
+            try:
+                keep_id = int(entry["keep_id"])
+                merge_ids = [int(value) for value in entry["merge_ids"]]
+            except (KeyError, TypeError, ValueError):
+                raise CommandError(f"{key}[{index}]: потрібні числові keep_id та merge_ids.")
+            if not merge_ids or keep_id in merge_ids or len(merge_ids) != len(set(merge_ids)):
+                raise CommandError(f"{key}[{index}]: merge_ids мають бути непорожніми й унікальними.")
+            all_ids = [keep_id, *merge_ids]
+            if used_ids[label].intersection(all_ids):
+                raise CommandError(f"{key}[{index}]: один запис використано у кількох групах.")
+            rows = list(Model.objects.using(alias).filter(pk__in=all_ids).values("pk", "company_id"))
+            by_id = {row["pk"]: row for row in rows}
+            if set(by_id) != set(all_ids):
+                raise CommandError(f"{key}[{index}]: один або кілька ID не знайдені.")
+            if any(row["company_id"] not in selected_company_ids and row["company_id"] is not None
+                   for row in rows):
+                raise CommandError(f"{key}[{index}]: записи мають належати вибраним магазинам або бути без магазину.")
+            if len({by_id[value]["company_id"] for value in all_ids}) < 2:
+                raise CommandError(f"{key}[{index}]: група має охоплювати щонайменше два магазини/джерела.")
+            normalized = {"keep_id": keep_id, "merge_ids": merge_ids}
+            if label == "core.Product":
+                if "current_stock" not in entry:
+                    raise CommandError(f"{key}[{index}]: явно вкажіть current_stock для основної картки.")
+                try:
+                    stock = Decimal(str(entry["current_stock"]))
+                    if not stock.is_finite():
+                        raise InvalidOperation
+                except (InvalidOperation, TypeError, ValueError):
+                    raise CommandError(f"{key}[{index}]: current_stock має бути скінченним числом.")
+                normalized["current_stock"] = stock
+            else:
+                if "total_spent" not in entry or "purchases_count" not in entry:
+                    raise CommandError(f"{key}[{index}]: явно вкажіть total_spent та purchases_count.")
+                try:
+                    spent = Decimal(str(entry["total_spent"]))
+                    count = int(entry["purchases_count"])
+                    if not spent.is_finite() or count < 0:
+                        raise InvalidOperation
+                except (InvalidOperation, TypeError, ValueError):
+                    raise CommandError(f"{key}[{index}]: некоректні total_spent або purchases_count.")
+                normalized.update(total_spent=spent, purchases_count=count)
+            plan[label].append(normalized)
+            used_ids[label].update(all_ids)
+    return plan
+
+
+def record_merge_coverage(plan):
+    return {
+        label: {
+            record_id
+            for group in groups
+            for record_id in [group["keep_id"], *group["merge_ids"]]
+        }
+        for label, groups in plan.items()
+    }
+
+
+def redirect_record_foreign_keys(Model, keep_id, merge_ids, alias):
+    """Redirect every FK/OneToOne reference before deleting a duplicate record."""
+    changed = {}
+    for related_model in apps.get_models():
+        for field in related_model._meta.fields:
+            if isinstance(field, ForeignKey) and field.remote_field.model == Model:
+                count = related_model.objects.using(alias).filter(
+                    **{field.attname + "__in": merge_ids}
+                ).update(**{field.attname: keep_id})
+                if count:
+                    key = related_model._meta.label
+                    changed[key] = changed.get(key, 0) + count
+    Model.objects.using(alias).filter(pk__in=merge_ids).delete()
+    return changed
+
+
+def apply_record_merge_plan(plan, alias):
+    moved = {}
+    Product = apps.get_model("core", "Product")
+    Customer = apps.get_model("core", "Customer")
+    for group in plan["core.Product"]:
+        counts = redirect_record_foreign_keys(Product, group["keep_id"], group["merge_ids"], alias)
+        Product.objects.using(alias).filter(pk=group["keep_id"]).update(current_stock=group["current_stock"])
+        for model, count in counts.items():
+            moved[model] = moved.get(model, 0) + count
+    for group in plan["core.Customer"]:
+        counts = redirect_record_foreign_keys(Customer, group["keep_id"], group["merge_ids"], alias)
+        Customer.objects.using(alias).filter(pk=group["keep_id"]).update(
+            total_spent=group["total_spent"], purchases_count=group["purchases_count"]
+        )
+        for model, count in counts.items():
+            moved[model] = moved.get(model, 0) + count
+    return moved
+
+
 def external_reference_mismatches(model, source_company_field, company_ids, alias, company_model):
     """Rows in selected stores pointing to related objects in a store outside the merge."""
     qs = model.objects.using(alias).filter(
@@ -258,6 +372,7 @@ class Command(BaseCommand):
         parser.add_argument("--source-stores", help="ID усіх інших магазинів через кому.")
         parser.add_argument("--apply", action="store_true", help="Застосувати об'єднання після чистого аудиту.")
         parser.add_argument("--backup", help="Новий SQLite backup-файл поза каталогом проєкту.")
+        parser.add_argument("--record-map", help="JSON із явним ручним зіставленням дублікатів товарів і клієнтів.")
         parser.add_argument("--database", default="default", help="Alias бази Django.")
         parser.add_argument("--json", action="store_true", dest="as_json", help="Вивести звіт у JSON.")
 
@@ -326,16 +441,29 @@ class Command(BaseCommand):
             mismatches.extend(
                 external_reference_mismatches(model, field, selected_ids, alias, Company)
             )
-        if collisions:
-            blockers.append(
-                "Знайдено конфлікти унікальності між магазинами. Записи потрібно зіставити вручну; "
-                "автоматичне злиття товарів, клієнтів або налаштувань не виконується."
-            )
         semantic_duplicates = semantic_duplicate_candidates(selected_ids, alias)
-        if semantic_duplicates:
+        record_plan = load_record_merge_plan(options["record_map"], selected_ids, alias) if options["record_map"] else {
+            "core.Product": [], "core.Customer": []
+        }
+        mapped_ids = record_merge_coverage(record_plan)
+        unresolved_collisions = []
+        for collision in collisions:
+            label = collision["model"]
+            ids = {row["id"] for row in collision["records"]}
+            if label not in mapped_ids or not ids.issubset(mapped_ids[label]):
+                unresolved_collisions.append(collision)
+        if unresolved_collisions:
+            blockers.append("Залишилися конфлікти унікальності, які не покриває файл ручного зіставлення.")
+        unresolved_semantic = []
+        for candidate in semantic_duplicates:
+            label = "core.Product" if candidate["kind"] == "product_brand_sku" else "core.Customer"
+            ids = {row["id"] for row in candidate["records"]}
+            if not ids.issubset(mapped_ids[label]):
+                unresolved_semantic.append(candidate)
+        if unresolved_semantic:
             blockers.append(
-                "Знайдено ймовірні дублікати товарів (бренд + артикул) або клієнтів (номер телефону). "
-                "Їх потрібно вручну зіставити до об'єднання; автоматичне злиття історичних документів заборонене."
+                "Є ймовірні дублікати товарів/клієнтів без повного ручного зіставлення. "
+                "Підготуйте --record-map; автоматичного вибору основної картки немає."
             )
         if mismatches:
             blockers.append(
@@ -386,7 +514,10 @@ class Command(BaseCommand):
             "business_rows": total_rows,
             "business_models": counts,
             "unique_key_conflicts": collisions,
+            "unresolved_unique_key_conflicts": unresolved_collisions,
             "business_duplicate_candidates": semantic_duplicates,
+            "unresolved_business_duplicate_candidates": unresolved_semantic,
+            "record_merge_plan": record_plan,
             "external_reference_mismatches": mismatches,
             "staff_merge_plan": staff_plan,
             "staff_conflicts": staff_conflicts,
@@ -440,6 +571,7 @@ class Command(BaseCommand):
                 raise CommandError("Склад магазинів змінився після аудиту. Запустіть команду повторно.")
             locked_target = locked_companies[target_id]
 
+            merged_record_references = apply_record_merge_plan(record_plan, alias)
             moved_rows = {}
             for model, field in scoped:
                 changed = model.objects.using(alias).filter(
@@ -495,4 +627,5 @@ class Command(BaseCommand):
             "target_store_id": target_id,
             "removed_store_ids": source_ids,
             "moved_rows_by_model": moved_rows,
+            "redirected_record_references": merged_record_references,
         }, ensure_ascii=False, indent=2))
