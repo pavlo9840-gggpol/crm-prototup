@@ -21,7 +21,7 @@ VERSION="$2"
 [[ "$VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || fail "Некоректний ідентифікатор версії."
 [[ -d "$RELEASE_SOURCE" && -f "$RELEASE_SOURCE/manage.py" && -f "$RELEASE_SOURCE/requirements.txt" ]] || fail "Каталог релізу має містити manage.py та requirements.txt."
 [[ -f "$ENV_FILE" && -f "$APP_LINK/manage.py" && -x "$VENV_LINK/bin/python" ]] || fail "Не знайдено чинну інсталяцію АвтоЗапас."
-[[ -d "$DATA_DIR" && -d "$BACKUP_DIR" ]] || fail "Не знайдено постійний каталог даних або резервних копій."
+[[ -d "$DATA_DIR" ]] || fail "Не знайдено постійний каталог даних."
 id "$SERVICE_USER" >/dev/null 2>&1 || fail "Не знайдено системного користувача $SERVICE_USER."
 systemctl cat "$SERVICE" >/dev/null 2>&1 || fail "Службу $SERVICE не встановлено."
 CURRENT_APP_REAL="$(readlink -f -- "$APP_LINK")"
@@ -33,6 +33,9 @@ set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
 set +a
+[[ "$AUTOZAPAZ_DATA_DIR" == "$DATA_DIR" ]] || fail "Оновлювач підтримує стандартний AUTOZAPAZ_DATA_DIR=$DATA_DIR."
+BACKUP_DIR="$AUTOZAPAZ_BACKUP_DIR"
+[[ -d "$BACKUP_DIR" ]] || fail "Не знайдено каталог резервних копій: $BACKUP_DIR"
 : "${DJANGO_SECRET_KEY:?У конфігурації немає DJANGO_SECRET_KEY}"
 : "${AUTOZAPAZ_DATA_DIR:?У конфігурації немає AUTOZAPAZ_DATA_DIR}"
 : "${AUTOZAPAZ_BACKUP_DIR:?У конфігурації немає AUTOZAPAZ_BACKUP_DIR}"
