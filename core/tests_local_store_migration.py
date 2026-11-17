@@ -51,7 +51,7 @@ class LocalStoreMigrationCommandTests(TestCase):
     def test_multiple_stores_are_rejected_without_mutating_data(self, backup):
         other_owner = get_user_model().objects.create_user(username="second-owner", password="secret")
         second = Company.objects.create(
-            name="Другий магазин", slug="migration-second", owner=other_owner, status="active"
+            name="Другий магазин", slug="migration-second", owner=other_owner
         )
         CompanyMembership.objects.create(company=second, user=other_owner, role="owner", is_active=True)
         product = Product.objects.create(name="Деталь", sku="SECOND-1", company=second)
