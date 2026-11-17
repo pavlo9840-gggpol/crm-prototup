@@ -5,7 +5,7 @@ from unittest.mock import patch
 from django.core.management import call_command, CommandError
 from django.test import TestCase
 
-from core.models import Category, Company, CompanyMembership, CompanySettings, Product
+from core.models import Category, Company, StaffMembership, CompanySettings, Product
 from django.contrib.auth import get_user_model
 
 
@@ -19,7 +19,7 @@ class LocalStoreMigrationCommandTests(TestCase):
         self.store.name = "Основний магазин"
         self.store.owner = self.owner
         self.store.save(update_fields=["name", "owner"])
-        CompanyMembership.objects.create(company=self.store, user=self.owner, role="owner", is_active=True)
+        StaffMembership.objects.create(company=self.store, user=self.owner, role="owner", is_active=True)
 
     def run_audit(self, **kwargs):
         output = StringIO()
@@ -52,7 +52,7 @@ class LocalStoreMigrationCommandTests(TestCase):
         second = Company.objects.create(
             name="Другий магазин", slug="migration-second", owner=other_owner
         )
-        CompanyMembership.objects.create(company=second, user=other_owner, role="owner", is_active=True)
+        StaffMembership.objects.create(company=second, user=other_owner, role="owner", is_active=True)
         product = Product.objects.create(name="Деталь", sku="SECOND-1", company=second)
 
         with self.assertRaises(CommandError):
@@ -122,7 +122,7 @@ class LocalStoreMigrationCommandTests(TestCase):
 
         created = Company.objects.get()
         self.assertEqual(created.owner_id, self.owner.pk)
-        self.assertTrue(CompanyMembership.objects.filter(
+        self.assertTrue(StaffMembership.objects.filter(
             company=created, user=self.owner, role="owner", is_active=True
         ).exists())
         product.refresh_from_db()
