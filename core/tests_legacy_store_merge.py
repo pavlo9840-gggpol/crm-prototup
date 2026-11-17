@@ -9,7 +9,7 @@ from django.core.management import call_command, CommandError
 from django.test import TestCase
 
 from core.models import (
-    Category, Company, CompanyMembership, CompanySettings, Customer, Product,
+    Category, Company, StaffMembership, CompanySettings, Customer, Product,
     CustomerCar, Sale, SaleItem, StockMovement,
 )
 
@@ -23,13 +23,13 @@ class LegacyStoreMergeCommandTests(TestCase):
         self.target.slug = "merge-target"
         self.target.owner = self.owner
         self.target.save(update_fields=["name", "slug", "owner"])
-        CompanyMembership.objects.create(
+        StaffMembership.objects.create(
             company=self.target, user=self.owner, role="owner", is_active=True
         )
         self.source = Company.objects.create(
             name="Старий магазин", slug="merge-source", owner=self.owner
         )
-        CompanyMembership.objects.create(
+        StaffMembership.objects.create(
             company=self.source, user=self.owner, role="owner", is_active=True
         )
 
@@ -84,7 +84,7 @@ class LegacyStoreMergeCommandTests(TestCase):
         self.assertFalse(Company.objects.filter(pk=self.source.pk).exists())
         self.assertEqual(Company.objects.count(), 1)
         self.assertEqual(
-            CompanyMembership.objects.filter(company=self.target, user=self.owner).count(), 1
+            StaffMembership.objects.filter(company=self.target, user=self.owner).count(), 1
         )
         self.assertIn("Об'єднання завершено", output)
 
@@ -125,7 +125,7 @@ class LegacyStoreMergeCommandTests(TestCase):
     @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
     def test_second_active_owner_blocks_merge(self, backup):
         other = get_user_model().objects.create_user(username="merge-extra-owner", password="secret")
-        CompanyMembership.objects.create(
+        StaffMembership.objects.create(
             company=self.source, user=other, role="owner", is_active=True
         )
 
@@ -152,8 +152,8 @@ class LegacyStoreMergeCommandTests(TestCase):
 
     @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
     def test_conflicting_staff_roles_block_merge(self, backup):
-        CompanyMembership.objects.filter(company=self.target, user=self.owner).update(role="manager")
-        CompanyMembership.objects.filter(company=self.source, user=self.owner).update(role="cashier")
+        StaffMembership.objects.filter(company=self.target, user=self.owner).update(role="manager")
+        StaffMembership.objects.filter(company=self.source, user=self.owner).update(role="cashier")
 
         with self.assertRaises(CommandError):
             self.run_merge(apply=True, backup="/tmp/autozapaz-merge-backup.sqlite3")
@@ -343,7 +343,7 @@ class LegacyStoreMergeCommandTests(TestCase):
         other = get_user_model().objects.create_user(
             username="merge-second-owner-no-target", password="secret"
         )
-        CompanyMembership.objects.create(
+        StaffMembership.objects.create(
             company=self.source, user=other, role="owner", is_active=True
         )
 
