@@ -183,6 +183,9 @@ def verify_backup_archive(source):
                 member = Path(name)
                 if name.startswith(("/", "\\")) or "\\" in name or ".." in member.parts:
                     raise ValueError(f"Небезпечний шлях у ZIP-архіві: {name}")
+                mode = (archive.getinfo(name).external_attr >> 16) & 0o170000
+                if stat.S_ISLNK(mode):
+                    raise ValueError(f"Символічні посилання в ZIP-архіві заборонені: {name}")
             if "db.sqlite3" not in names:
                 raise ValueError("В архіві немає обов'язкового файлу db.sqlite3.")
             if archive.testzip() is not None:
