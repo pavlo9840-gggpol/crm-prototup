@@ -156,3 +156,40 @@ python manage.py restore_backup /шлях/до/backup-YYYYMMDD-HHMMSS.zip /шл�
 ### Локальний сервер
 
 `python manage.py serve --host 127.0.0.1 --port 8000` запускає WSGI через Waitress без Django autoreload. Типова адреса доступна лише на цьому ПК. Не використовуйте `--host 0.0.0.0` для SQLite-інсталяції: підтримка спільної роботи через LAN потребує окремо налаштованої PostgreSQL-бази, мережевих правил і служби БД.
+
+
+## Linux systemd-служба — перша інсталяція
+
+У репозиторії є:
+- `deploy/linux/autozapaz.service` — systemd unit, окремий користувач `autozapaz`, запуск Waitress лише на `127.0.0.1:8000`, обмеження запису каталогом `/var/lib/autozapaz`, ізоляція системних директорій.
+- `deploy/linux/install.sh` — bootstrap для першої інсталяції. Він створює системного користувача, venv, захищений env-файл, встановлює залежності, виконує міграції та collectstatic, реєструє й запускає службу.
+
+### Встановлення
+
+Цей bootstrap не копіює вихідний код і не є самостійним пакетом. Спочатку розпакуйте реліз у `/opt/autozapaz/app`. Для першої інсталяції потрібен відкритий Ed25519-ключ видавця (Base64URL); приватний ключ ніколи не передається клієнту:
+
+```bash
+sudo AUTOZAPAZ_LICENSE_PUBLIC_KEY='ВАШ_ВІДКРИТИЙ_КЛЮЧ' \
+  bash /opt/autozapaz/app/deploy/linux/install.sh
+```
+
+Після успішного запуску:
+- вебінтерфейс доступний тільки локально: `http://127.0.0.1:8000/`;
+- майстер `/setup/` створює перший магазин та адміністратора;
+- активація `/activate/` приймає ключ, підписаний відповідним приватним ключем видавця;
+- конфігурація: `/etc/autozapaz/autozapaz.env`, права `0640`, власник root і група autozapaz;
+- SQLite, медіа й резервні копії: `/var/lib/autozapaz`;
+- код релізу: `/opt/autozapaz/app`, Python venv: `/opt/autozapaz/venv`.
+
+Команди керування:
+
+```bash
+sudo systemctl status autozapaz
+sudo systemctl restart autozapaz
+sudo systemctl stop autozapaz
+sudo journalctl -u autozapaz -f
+```
+
+Інсталятор навмисно відмовляється повторно запускатися, якщо `/etc/systemd/system/autozapaz.service` вже існує. Це запобігає випадковому запуску міграцій поверх робочої БД без окремого backup/rollback-процесу. Не використовуйте цей bootstrap для оновлення існуючої інсталяції. Поки що це лише Linux systemd bootstrap, а не DEB/RPM/AppImage інсталятор. Windows service/installer буде окремим кроком.
+
+Не відкривайте порт 8000 у firewall і не змінюйте `--host` на `0.0.0.0` для SQLite. LAN-доступ буде дозволений тільки після окремого впровадження PostgreSQL та перевірки мережевого режиму.
