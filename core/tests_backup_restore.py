@@ -95,6 +95,13 @@ class BackupArchiveTests(TransactionTestCase):
 
 
 class BackupLegacyCompatibilityTests(SimpleTestCase):
+    def test_archive_with_non_sqlite_database_is_rejected_cleanly(self):
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as archive:
+            archive.writestr("db.sqlite3", b"this is not a sqlite database")
+        with self.assertRaisesRegex(ValueError, "не є коректною SQLite-базою"):
+            admin_tools.verify_backup_archive(data.getvalue())
+
     def test_legacy_zip_without_manifest_remains_supported(self):
         # A minimal valid SQLite database is supplied by the test helper below.
         import sqlite3
