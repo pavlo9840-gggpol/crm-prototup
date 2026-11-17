@@ -43,7 +43,7 @@ class LocalDataMigrationCommandTests(SimpleTestCase):
         self.assertIn("лише аудит", output.getvalue())
 
     def test_apply_copies_sqlite_media_and_backups_without_deleting_sources(self):
-        call_command("migrate_local_data", "--apply", stdout=None)
+        import io\n\n        call_command("migrate_local_data", "--apply", stdout=io.StringIO())
         target_db = self.data_dir / "db.sqlite3"
         self.assertTrue(target_db.is_file())
         self.assertEqual(
