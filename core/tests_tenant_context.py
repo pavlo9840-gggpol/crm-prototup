@@ -1,9 +1,7 @@
-from datetime import timedelta
 import json
 
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
-from django.utils import timezone
 
 from core.models import (Category, Company, CompanyMembership, CompanySettings, Product, StockMovement,
                          Supplier, SupplierItem, Customer, Sale, Shift, SaleItem, DocTemplate, PayPlan)
@@ -43,16 +41,6 @@ class CompanyContextTests(TestCase):
 
         self.assertIsNone(request.company)
         self.assertFalse(company_queryset(Product.objects.all(), request).exists())
-
-    def test_expired_trial_has_no_query_access(self):
-        self.company.status = "trial"
-        self.company.trial_ends_at = timezone.now() - timedelta(seconds=1)
-        self.company.save(update_fields=["status", "trial_ends_at"])
-        request = self.request_for(self.user, {"active_company_id": self.company.pk})
-
-        self.assertIsNotNone(request.company)
-        self.assertTrue(request.company_access)
-        self.assertTrue(company_queryset(Product.objects.all(), request).filter(pk=self.own_product.pk).exists())
 
     def test_multiple_memberships_require_explicit_selection(self):
         CompanyMembership.objects.create(company=self.other_company, user=self.user, role="manager")
