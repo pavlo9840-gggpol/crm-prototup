@@ -40,7 +40,7 @@ class ServiceOrderForm(forms.ModelForm):
             self.fields["car"].queryset = CustomerCar.objects.filter(company=company)
             self.fields["appointment"].queryset = ServiceAppointment.objects.filter(company=company)
             self.fields["mechanic"].queryset = __import__("django.contrib.auth", fromlist=["get_user_model"]).get_user_model().objects.filter(
-                company_memberships__company=company, company_memberships__is_active=True
+                staff_memberships__company=company, staff_memberships__is_active=True
             ).distinct()
         if self.data.get("customer"):
             self.fields["car"].queryset = self.fields["car"].queryset.filter(customer_id=self.data["customer"])
