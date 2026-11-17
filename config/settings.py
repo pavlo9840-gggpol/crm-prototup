@@ -1,7 +1,17 @@
 import os
 from pathlib import Path
+
 from django.core.exceptions import ImproperlyConfigured
+from platformdirs import user_data_path
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+AUTOZAPAZ_DATA_DIR = Path(
+    os.environ.get(
+        "AUTOZAPAZ_DATA_DIR",
+        user_data_path("AutoZapaz", "AutoZapaz"),
+    )
+).expanduser()
+AUTOZAPAZ_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
@@ -22,7 +32,7 @@ INSTALLED_APPS = [
     "core",
 ]
 MIDDLEWARE = [
-    "django.middleware.security.SecurityMiddleware",
+    "django.middleware.security.SecurityMiddleware",\n    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -46,7 +56,7 @@ TEMPLATES = [{
     ]},
 }]
 WSGI_APPLICATION = "config.wsgi.application"
-DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
+DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": AUTOZAPAZ_DATA_DIR / "db.sqlite3"}}
 LANGUAGE_CODE = "uk"
 TIME_ZONE = "Europe/Kyiv"
 USE_I18N = True
@@ -54,9 +64,9 @@ USE_TZ = True
 DATE_FORMAT = "d.m.Y"
 DATETIME_FORMAT = "d.m.Y H:i"
 SHORT_DATE_FORMAT = "d.m.Y"
-STATIC_URL = "/static/"
+STATIC_URL = "/static/"\nSTATIC_ROOT = BASE_DIR / "staticfiles"\nSTATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = AUTOZAPAZ_DATA_DIR / "media"
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/login/"
