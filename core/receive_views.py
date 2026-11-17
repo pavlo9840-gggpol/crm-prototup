@@ -21,7 +21,7 @@ FIELDS = [("sku", "Артикул *"), ("brand", "Бренд"), ("qty", "Кіл�
 @company_required
 def receive_home(request):
     qs = company_queryset(Receipt.objects.select_related("supplier", "user", "purchase"), request)
-    if getattr(request.company_membership, "role", "") not in ("owner", "admin", "manager"):
+    if getattr(request.staff_membership, "role", "") not in ("owner", "admin", "manager"):
         qs = qs.filter(user=request.user)
     return render(request, "core/receive.html", {"suppliers": company_queryset(Supplier.objects.all(), request), "journal": qs[:20], "currencies": Currency.objects.all(),
                                                  "days": CompanySettings.get(request.company).pickup_days})
