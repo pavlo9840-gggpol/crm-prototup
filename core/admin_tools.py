@@ -272,8 +272,11 @@ def restore_backup_archive(source, target_dir):
 
         if not (temporary_root / "db.sqlite3").is_file():
             raise ValueError("Після відновлення не знайдено db.sqlite3.")
-        verify_backup_archive(temporary_root_archive := _zip_directory_for_validation(temporary_root))
-        temporary_root_archive.close()
+        validation_archive = _zip_directory_for_validation(temporary_root)
+        try:
+            verify_backup_archive(validation_archive)
+        finally:
+            validation_archive.close()
         if target.exists():
             raise ValueError(f"Каталог призначення з'явився під час відновлення; нічого не перезаписано: {target}")
         temporary_root.rename(target)
