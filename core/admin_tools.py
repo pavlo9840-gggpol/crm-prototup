@@ -364,7 +364,9 @@ def make_backup_zip():
 def save_backup(keep=14):
     if keep < 1:
         raise ValueError("Кількість резервних копій для зберігання має бути не меншою за 1.")
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    BACKUP_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt":
+        BACKUP_DIR.chmod(0o700)
     stamp = timezone.localtime()
     path = BACKUP_DIR / f"backup-{stamp:%Y%m%d-%H%M%S}.zip"
     while path.exists():
