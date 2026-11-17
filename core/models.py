@@ -999,38 +999,6 @@ class Company(models.Model):
         return self.name
 
 
-class CompanyMembership(models.Model):
-    """Local staff role assignment for the one installed store."""
-    ROLES = [
-        ("owner", "Власник"), ("admin", "Адміністратор"),
-        ("manager", "Менеджер"), ("cashier", "Касир"),
-        ("mechanic", "Механік"),
-    ]
-
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="memberships")
-    user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="company_memberships")
-    role = models.CharField(max_length=20, choices=ROLES, default="cashier")
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["company_id", "user_id"]
-        constraints = [
-            models.UniqueConstraint(fields=["company", "user"], name="uniq_company_user_membership"),
-        ]
-        indexes = [models.Index(fields=["user", "is_active"], name="cm_user_active_idx")]
-        verbose_name = "Роль працівника"
-        verbose_name_plural = "Ролі працівників"
-
-    def __str__(self):
-        return f"{self.user} · {self.company} ({self.get_role_display()})"
-
-    @property
-    def is_company_admin(self):
-        return self.is_active and self.role in ("owner", "admin")
-
-
-
 class StaffMembership(models.Model):
     """Local staff role assignment, independent from the legacy SaaS membership table."""
     ROLES = [
