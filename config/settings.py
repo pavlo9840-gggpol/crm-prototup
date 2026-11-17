@@ -11,7 +11,14 @@ AUTOZAPAZ_DATA_DIR = Path(
         user_data_path("AutoZapaz", appauthor=False),
     )
 ).expanduser()
-AUTOZAPAZ_DATA_DIR.mkdir(parents=True, exist_ok=True)
+AUTOZAPAZ_DATA_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+if os.name != "nt":
+    try:
+        AUTOZAPAZ_DATA_DIR.chmod(0o700)
+    except OSError as exc:
+        raise ImproperlyConfigured(
+            f"Cannot secure the AutoZapaz data directory permissions: {AUTOZAPAZ_DATA_DIR}"
+        ) from exc
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
