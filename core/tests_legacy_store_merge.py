@@ -22,8 +22,7 @@ class LegacyStoreMergeCommandTests(TestCase):
         self.target.name = "Цільовий магазин"
         self.target.slug = "merge-target"
         self.target.owner = self.owner
-        self.target.status = "active"
-        self.target.save(update_fields=["name", "slug", "owner", "status"])
+        self.target.save(update_fields=["name", "slug", "owner"])
         CompanyMembership.objects.create(
             company=self.target, user=self.owner, role="owner", is_active=True
         )
