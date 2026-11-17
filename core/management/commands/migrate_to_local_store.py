@@ -334,7 +334,7 @@ class Command(BaseCommand):
                     slug = f"{base_slug}-{suffix}"
                     suffix += 1
                 store = Company.objects.using(alias).create(
-                    name="АвтоЗапас", slug=slug, owner=owner, plan="start", status="active"
+                    name="АвтоЗапас", slug=slug, owner=owner
                 )
                 Membership.objects.using(alias).create(
                     company=store, user=owner, role="owner", is_active=True
