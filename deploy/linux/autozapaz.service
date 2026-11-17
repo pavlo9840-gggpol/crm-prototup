@@ -9,6 +9,7 @@ User=autozapaz
 Group=autozapaz
 WorkingDirectory=/opt/autozapaz/app
 EnvironmentFile=/etc/autozapaz/autozapaz.env
+Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/opt/autozapaz/venv/bin/python /opt/autozapaz/app/manage.py serve --host 127.0.0.1 --port 8000 --threads 8
 Restart=on-failure
 RestartSec=5
