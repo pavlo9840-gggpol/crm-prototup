@@ -345,7 +345,7 @@
 
 ## Блок 0.10 — Linux systemd bootstrap та ізоляція служби
 
-**Статус:** реалізацію додано; очікує CI на поточному коміті.
+**Статус:** CI успішний на commit `25fbf7af`; 206 тестів і перевірка bash syntax пройшли.
 
 - Додано `deploy/linux/autozapaz.service`: окремий користувач/група `autozapaz`, автозапуск після reboot, перезапуск після аварійного завершення, Waitress лише на loopback, журнал у journald.
 - Systemd hardening: `ProtectSystem=strict`, `ProtectHome=true`, `NoNewPrivileges`, приватний `/tmp`, заборона запису в код релізу; writable лише `/var/lib/autozapaz`.
