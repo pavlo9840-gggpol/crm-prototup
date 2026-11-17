@@ -4,12 +4,30 @@
 
 АвтоЗапас — локальна програма для одного магазину/підприємства, не SaaS. Немає створення або перемикання хмарних workspace. Кілька працівників мають окремі локальні облікові записи та ролі. Активація ліцензійним ключем і тарифні обмеження описані в [документі ліцензування та першого запуску](docs/licensing-and-first-run.md).
 
+## Постійне зберігання даних
+
+База SQLite, фото/файли та резервні копії зберігаються окремо від каталогу програми:
+- Linux: `~/.local/share/AutoZapaz/`
+- Windows: `%LOCALAPPDATA%\\AutoZapaz\\`
+- Для службової інсталяції рекомендовано явно задати `AUTOZAPAZ_DATA_DIR` на каталог із правами лише для облікового запису служби та адміністраторів.
+- Резервні копії за замовчуванням: `<AUTOZAPAZ_DATA_DIR>/backups/`; окремий шлях можна задати через `AUTOZAPAZ_BACKUP_DIR`.
+
+Під час переходу зі старої інсталяції, де `db.sqlite3`, `media/` і `backups/` лежали поруч із `manage.py`, **не запускайте нову програму до перенесення**. Зупиніть старий сервер, виконайте `python manage.py migrate_local_data` для аудиту, потім `python manage.py migrate_local_data --apply`. Команда копіює дані, перевіряє SQLite, не видаляє оригінали й не перезаписує наявні файли призначення.
+
 ## Запуск із вихідного коду (режим розробки)
     python -m venv venv && source venv/bin/activate    # Windows: venv\\Scripts\\activate
     pip install -r requirements.txt
     python manage.py migrate
     python manage.py runserver
 Відкрити http://127.0.0.1:8000/ — на чистій базі програма автоматично перенаправить на /setup/, де потрібно створити першого адміністратора та локальний магазин.
+
+## Запуск локального екземпляра через Waitress
+
+Для перевірки режиму, наближеного до встановленої програми:
+    python manage.py migrate
+    python manage.py collectstatic --noinput
+    python manage.py serve --host 127.0.0.1 --port 8000
+Відкрити http://127.0.0.1:8000/. Команда `serve` не вмикає autoreload і за замовчуванням слухає лише loopback, а не всю мережу. Для production задайте `DJANGO_DEBUG=0`, `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,[::1]` та публічний ключ видавця `AUTOZAPAZ_LICENSE_PUBLIC_KEY`. Не відкривайте SQLite-інсталяцію в LAN: мережевий режим буде окремим етапом після PostgreSQL provisioning.
 
 Для демонстраційних даних після налаштування можна виконати python manage.py load_demo_data. Стандартні демо-паролі не використовувати в реальному магазині.
 
