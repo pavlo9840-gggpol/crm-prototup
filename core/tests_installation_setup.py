@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from core.models import Company, CompanyMembership
+from core.models import Company, StaffMembership
 
 
 class FirstRunSetupTests(TestCase):
@@ -25,7 +25,7 @@ class FirstRunSetupTests(TestCase):
         store = Company.objects.get()
         self.assertEqual(store.name, "АвтоЗапас Тест")
         self.assertEqual(store.owner, owner)
-        membership = CompanyMembership.objects.get(company=store, user=owner)
+        membership = StaffMembership.objects.get(company=store, user=owner)
         self.assertEqual(membership.role, "owner")
         self.assertTrue(membership.is_active)
 
@@ -35,7 +35,7 @@ class FirstRunSetupTests(TestCase):
         store = Company.objects.first()
         store.owner = owner
         store.save(update_fields=["owner"])
-        CompanyMembership.objects.create(company=store, user=owner, role="owner")
+        StaffMembership.objects.create(company=store, user=owner, role="owner")
         self.client.force_login(owner)
 
         response = self.client.get("/setup/")
@@ -49,7 +49,7 @@ class FirstRunSetupTests(TestCase):
         store = Company.objects.first()
         store.owner = owner
         store.save(update_fields=["owner"])
-        CompanyMembership.objects.create(company=store, user=owner, role="owner")
+        StaffMembership.objects.create(company=store, user=owner, role="owner")
         self.client.force_login(owner)
 
         response = self.client.get(reverse("dashboard"))
