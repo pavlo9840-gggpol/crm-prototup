@@ -133,6 +133,23 @@ class BackupArchiveTests(TransactionTestCase):
             with self.assertRaises(CommandError):
                 call_command("restore_backup", str(archive_path), str(Path(temp_dir) / "restore"))
 
+    def test_restore_management_command_restores_only_after_apply(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive_path = Path(temp_dir) / "backup.zip"
+            target = Path(temp_dir) / "restore"
+            archive_path.write_bytes(data)
+            call_command("restore_backup", str(archive_path), str(target), "--apply", stdout=io.StringIO())
+            self.assertTrue((target / "db.sqlite3").is_file())
+
+    def test_restore_rejects_dangling_symlink_destination(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "restore-link"
+            target.symlink_to(Path(temp_dir) / "missing-target")
+            with self.assertRaisesRegex(ValueError, "вже існує"):
+                admin_tools.restore_backup_archive(data, target)
+
     def test_verify_backup_management_command_rejects_missing_file(self):
         with self.assertRaises(CommandError):
             call_command("verify_backup", "/definitely/missing/autozapaz-backup.zip")
