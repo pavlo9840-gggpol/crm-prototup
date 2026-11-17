@@ -212,6 +212,8 @@ def verify_backup_archive(source):
                 database = sqlite3.connect(str(database_path))
                 try:
                     result = database.execute("PRAGMA integrity_check").fetchone()
+                except sqlite3.DatabaseError as exc:
+                    raise ValueError(f"Файл db.sqlite3 не є коректною SQLite-базою: {exc}") from exc
                 finally:
                     database.close()
                 if not result or result[0] != "ok":
