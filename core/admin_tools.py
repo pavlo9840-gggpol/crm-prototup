@@ -196,6 +196,9 @@ def verify_backup_archive(source):
                     for name, metadata in expected.items():
                         if name not in names or not isinstance(metadata, dict):
                             raise ValueError(f"Файл з маніфесту відсутній або некоректний: {name}")
+                        info = archive.getinfo(name)
+                        if info.file_size != metadata.get("size"):
+                            raise ValueError(f"Розмір файлу не збігається з маніфестом: {name}")
                         actual = hashlib.sha256(archive.read(name)).hexdigest()
                         if actual != metadata.get("sha256"):
                             raise ValueError(f"Контрольна сума не збігається: {name}")
@@ -206,8 +209,11 @@ def verify_backup_archive(source):
                 database_path = Path(temp_dir) / "db.sqlite3"
                 with archive.open("db.sqlite3") as zipped_db, open(database_path, "wb") as output:
                     shutil.copyfileobj(zipped_db, output)
-                with sqlite3.connect(str(database_path)) as database:
+                database = sqlite3.connect(str(database_path))
+                try:
                     result = database.execute("PRAGMA integrity_check").fetchone()
+                finally:
+                    database.close()
                 if not result or result[0] != "ok":
                     raise ValueError(f"SQLite integrity_check не пройшов: {result[0] if result else 'немає відповіді'}")
             return {
