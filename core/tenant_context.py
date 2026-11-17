@@ -16,7 +16,6 @@ class CompanyContextMiddleware:
     def __call__(self, request):
         request.company = None
         request.staff_membership = None
-        request.company_membership = None  # temporary compatibility alias
         request.company_access = False
         request.company_conflict = False
 
@@ -36,7 +35,6 @@ class CompanyContextMiddleware:
             if memberships.count() == 1:
                 membership = memberships.first()
                 request.staff_membership = membership
-                request.company_membership = membership
                 request.company = membership.company
                 request.company_access = True
             elif memberships.count() > 1:
