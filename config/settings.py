@@ -10,7 +10,7 @@ AUTOZAPAZ_DATA_DIR = Path(
         "AUTOZAPAZ_DATA_DIR",
         user_data_path("AutoZapaz", appauthor=False),
     )
-).expanduser()
+).expanduser().resolve()
 AUTOZAPAZ_DATA_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
 if os.name != "nt":
     try:
