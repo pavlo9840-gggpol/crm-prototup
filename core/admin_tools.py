@@ -22,7 +22,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import services
-from .models import Category, CompanyMembership, LicenseWorkstationSession, PriceHistory, Product, norm_sku
+from .models import Category, StaffMembership, LicenseWorkstationSession, PriceHistory, Product, norm_sku
 from .tenant_context import company_required
 
 User = get_user_model()
@@ -35,7 +35,7 @@ def local_admin_only(view):
     @company_required
     @wraps(view)
     def wrapper(request, *args, **kwargs):
-        membership = getattr(request, "company_membership", None)
+        membership = getattr(request, "staff_membership", None)
         if not request.user.is_superuser and not (
             membership and membership.is_active and membership.role in ("owner", "admin")
         ):
@@ -86,7 +86,7 @@ class UserForm(forms.Form):
 
 @local_admin_only
 def user_list(request):
-    memberships = CompanyMembership.objects.filter(company=request.company).select_related("user").order_by(
+    memberships = StaffMembership.objects.filter(company=request.company).select_related("user").order_by(
         "-role", "user__username"
     )
     return render(request, "core/user_list.html", {"memberships": memberships})
