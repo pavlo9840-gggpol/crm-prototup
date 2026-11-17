@@ -26,7 +26,9 @@ jobs:
           pip install -r requirements.txt openpyxl
       - name: Check Django configuration
         run: python manage.py check
-      - name: Collect static assets for local deployment\n        run: python manage.py collectstatic --noinput\n      - name: Check publisher license CLI
+      - name: Collect static assets for local deployment
+        run: python manage.py collectstatic --noinput
+      - name: Check publisher license CLI
         run: python scripts/issue_license.py --help > /dev/null
       - name: Check migration model state
         run: python manage.py makemigrations --check --dry-run
