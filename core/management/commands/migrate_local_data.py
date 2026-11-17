@@ -73,7 +73,9 @@ class Command(BaseCommand):
             "media": app_dir / "media",
             "backups": app_dir / "backups",
         }
-        present = {name: path for name, path in sources.items() if path.exists()}
+        present = {name: path for name, path in sources.items() if path.exists() or path.is_symlink()}
+        if any(path.is_symlink() for path in present.values()):
+            raise CommandError("Символічні посилання на рівні старих db.sqlite3/media/backups не підтримуються.")
         if not present:
             raise CommandError(
                 f"Старих даних у {app_dir} не знайдено. Немає що переносити."
