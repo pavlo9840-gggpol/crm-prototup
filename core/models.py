@@ -984,22 +984,9 @@ from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine, 
 # ====================================================== Local store identity
 class Company(models.Model):
     """The single local store for this installation; not a SaaS tenant."""
-    PLANS = [
-        ("start", "START"), ("business", "BUSINESS"),
-        ("pro", "PRO"), ("network", "NETWORK"),
-    ]
-    STATUSES = [
-        ("trial", "Пробний період"), ("active", "Активна"),
-        ("suspended", "Призупинена"), ("cancelled", "Скасована"),
-    ]
-
     name = models.CharField("Назва магазину", max_length=150)
     slug = models.SlugField("Ідентифікатор", max_length=180, unique=True)
     owner = models.ForeignKey(USER, null=True, blank=True, on_delete=models.PROTECT, related_name="owned_companies")
-    plan = models.CharField(max_length=20, choices=PLANS, default="start", db_index=True)
-    status = models.CharField(max_length=20, choices=STATUSES, default="trial", db_index=True)
-    trial_ends_at = models.DateTimeField(null=True, blank=True)
-    subscription_ends_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1010,11 +997,6 @@ class Company(models.Model):
 
     def __str__(self):
         return self.name
-
-    @property
-    def has_access(self):
-        """Legacy compatibility only. Access is controlled by local license validation."""
-        return True
 
 
 class CompanyMembership(models.Model):
