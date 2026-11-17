@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 AUTOZAPAZ_DATA_DIR = Path(
     os.environ.get(
         "AUTOZAPAZ_DATA_DIR",
-        user_data_path("AutoZapaz", "AutoZapaz"),
+        user_data_path("AutoZapaz", appauthor=False),
     )
 ).expanduser()
 AUTOZAPAZ_DATA_DIR.mkdir(parents=True, exist_ok=True)
