@@ -1033,7 +1033,11 @@ class CompanyMembership(models.Model):
 
 class StaffMembership(models.Model):
     """Local staff role assignment, independent from the legacy SaaS membership table."""
-    ROLES = CompanyMembership.ROLES
+    ROLES = [
+        ("owner", "Власник"), ("admin", "Адміністратор"),
+        ("manager", "Менеджер"), ("cashier", "Касир"),
+        ("mechanic", "Механік"),
+    ]
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="staff_memberships")
     user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="staff_memberships")
