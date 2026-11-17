@@ -9,15 +9,20 @@ def copy_legacy_staff_memberships(apps, schema_editor):
     alias = schema_editor.connection.alias
 
     for legacy in LegacyMembership.objects.using(alias).all().iterator():
-        StaffMembership.objects.using(alias).get_or_create(
+        membership, created = StaffMembership.objects.using(alias).get_or_create(
             company_id=legacy.company_id,
             user_id=legacy.user_id,
             defaults={
                 "role": legacy.role,
                 "is_active": legacy.is_active,
-                "created_at": legacy.created_at,
             },
         )
+        if created:
+            # auto_now_add overrides a supplied timestamp on insert; restore the
+            # original legacy timestamp explicitly after the row is created.
+            StaffMembership.objects.using(alias).filter(pk=membership.pk).update(
+                created_at=legacy.created_at
+            )
 
 
 def reverse_copy_is_noop(apps, schema_editor):
