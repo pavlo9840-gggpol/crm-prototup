@@ -1031,6 +1031,34 @@ class CompanyMembership(models.Model):
 
 
 
+class StaffMembership(models.Model):
+    """Local staff role assignment, independent from the legacy SaaS membership table."""
+    ROLES = CompanyMembership.ROLES
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="staff_memberships")
+    user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="staff_memberships")
+    role = models.CharField(max_length=20, choices=ROLES, default="cashier")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["company_id", "user_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["company", "user"], name="uniq_company_staff_membership"),
+        ]
+        indexes = [models.Index(fields=["user", "is_active"], name="sm_user_active_idx")]
+        verbose_name = "Роль працівника"
+        verbose_name_plural = "Ролі працівників"
+
+    def __str__(self):
+        return f"{self.user} · {self.company} ({self.get_role_display()})"
+
+    @property
+    def is_company_admin(self):
+        return self.is_active and self.role in ("owner", "admin")
+
+
+
 class LicenseActivation(models.Model):
     """The single signed license installed on this local copy of AutoZapaz."""
     PLANS = [
