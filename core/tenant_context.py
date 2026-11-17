@@ -15,16 +15,17 @@ class CompanyContextMiddleware:
 
     def __call__(self, request):
         request.company = None
-        request.company_membership = None
+        request.staff_membership = None
+        request.company_membership = None  # temporary compatibility alias
         request.company_access = False
         request.company_conflict = False
 
         user = getattr(request, "user", None)
         if user is not None and user.is_authenticated:
-            from .models import Company, CompanyMembership
+            from .models import Company, StaffMembership
 
             memberships = (
-                CompanyMembership.objects
+                StaffMembership.objects
                 .select_related("company")
                 .filter(user=user, is_active=True)
                 .order_by("company_id")
@@ -34,6 +35,7 @@ class CompanyContextMiddleware:
             # when one local account is attached to multiple stores.
             if memberships.count() == 1:
                 membership = memberships.first()
+                request.staff_membership = membership
                 request.company_membership = membership
                 request.company = membership.company
                 request.company_access = True
