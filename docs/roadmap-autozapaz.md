@@ -341,3 +341,18 @@
 - Додані CI-тести перенесення даних (read-only, успішна копія, конфлікт, пошкоджена БД, symlink), параметрів Waitress і media-serving.
 - Для локального HTTP secure cookies вимкнені, щоб браузерні сесії працювали на loopback; `AUTOZAPAZ_SECURE_COOKIES=1` вмикається лише за HTTPS reverse proxy. На Windows ACL каталогу даних має відповідати обліковому запису служби.
 - Це ще не Windows/Linux інсталятор і не системна служба. Автозапуск, service account, firewall, PostgreSQL/LAN та перевірка upgrade на реальному клієнтському каталозі залишаються наступними задачами.
+
+
+## Блок 0.10 — Linux systemd bootstrap та ізоляція служби
+
+**Статус:** реалізацію додано; очікує CI на поточному коміті.
+
+- Додано `deploy/linux/autozapaz.service`: окремий користувач/група `autozapaz`, автозапуск після reboot, перезапуск після аварійного завершення, Waitress лише на loopback, журнал у journald.
+- Systemd hardening: `ProtectSystem=strict`, `ProtectHome=true`, `NoNewPrivileges`, приватний `/tmp`, заборона запису в код релізу; writable лише `/var/lib/autozapaz`.
+- Додано bootstrap `deploy/linux/install.sh`: перша інсталяція з каталогу `/opt/autozapaz/app`, створення системного користувача й каталогів, venv, залежностей, production env-файлу з випадковим SECRET_KEY, міграції, collectstatic та enable/start systemd.
+- Відкритий ключ ліцензійного видавця обов'язковий при першій інсталяції; приватний ключ не копіюється на клієнтський ПК. Конфігурація root-owned із правами 0640.
+- Повторний запуск bootstrap заборонено, якщо systemd unit уже встановлено: це не дозволяє випадково виконати міграції поверх робочої бази без backup/rollback.
+- Додані регресійні перевірки вмісту systemd unit/installer та перевірка bash syntax у CI.
+- Це не повноцінний Linux пакет і не Windows installer/service. Немає автоматичного копіювання релізу, безпечного оновлення/відкату, перевірки на реальній машині та PostgreSQL/LAN.
+
+**Наступне:** реалізувати окремий контрольований updater із резервною копією БД і медіа, перевіркою сумісності міграцій, health-check та rollback; після нього — Windows service + installer і пакети Linux.
