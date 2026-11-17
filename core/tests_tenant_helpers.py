@@ -6,7 +6,6 @@ def create_test_company(owner, name="Test workspace", members=()):
     company = Company.objects.create(
         name=name,
         slug=f"test-workspace-{owner.pk}",
-        status="active",
         owner=owner,
     )
     CompanyMembership.objects.create(company=company, user=owner, role="owner")
