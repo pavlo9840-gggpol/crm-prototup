@@ -3,7 +3,7 @@ import json
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 
-from core.models import (Category, Company, CompanyMembership, CompanySettings, Product, StockMovement,
+from core.models import (Category, Company, StaffMembership, CompanySettings, Product, StockMovement,
                          Supplier, SupplierItem, Customer, Sale, Shift, SaleItem, DocTemplate, PayPlan)
 from core.tenant_context import CompanyContextMiddleware, company_queryset
 
@@ -15,8 +15,8 @@ class CompanyContextTests(TestCase):
         self.other_user = User.objects.create_user(username="other-workspace-user", password="secret")
         self.company = Company.objects.create(name="Магазин А", slug="shop-a", owner=self.user)
         self.other_company = Company.objects.create(name="Магазин Б", slug="shop-b", owner=self.other_user)
-        CompanyMembership.objects.create(company=self.company, user=self.user, role="owner")
-        CompanyMembership.objects.create(company=self.other_company, user=self.other_user, role="owner")
+        StaffMembership.objects.create(company=self.company, user=self.user, role="owner")
+        StaffMembership.objects.create(company=self.other_company, user=self.other_user, role="owner")
         self.own_product = Product.objects.create(name="Свій товар", sku="OWN-1", company=self.company)
         self.other_product = Product.objects.create(name="Чужий товар", sku="OTHER-1", company=self.other_company)
         self.factory = RequestFactory()
@@ -43,7 +43,7 @@ class CompanyContextTests(TestCase):
         self.assertFalse(company_queryset(Product.objects.all(), request).exists())
 
     def test_multiple_memberships_require_explicit_selection(self):
-        CompanyMembership.objects.create(company=self.other_company, user=self.user, role="manager")
+        StaffMembership.objects.create(company=self.other_company, user=self.user, role="manager")
         request = self.request_for(self.user)
 
         self.assertIsNone(request.company)
@@ -106,7 +106,7 @@ class CompanyContextTests(TestCase):
     def test_legacy_templates_and_payroll_plans_are_company_scoped(self):
         DocTemplate.objects.create(company=self.company, kind="receipt", body="shop A")
         DocTemplate.objects.create(company=self.other_company, kind="receipt", body="shop B")
-        CompanyMembership.objects.create(company=self.other_company, user=self.user, role="cashier")
+        StaffMembership.objects.create(company=self.other_company, user=self.user, role="cashier")
         PayPlan.objects.create(company=self.company, user=self.user, margin_pct=10)
         PayPlan.objects.create(company=self.other_company, user=self.user, margin_pct=20)
         PayPlan.objects.create(company=self.company, user=None, margin_pct=5)
