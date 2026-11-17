@@ -27,3 +27,36 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('migrate --noinput', script)
         self.assertIn('collectstatic --noinput', script)
         self.assertNotIn("rm -rf", script)
+
+
+    def test_updater_creates_and_verifies_backup_before_switching_release(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        backup = script.index('backup --keep 30')
+        verify = script.index('verify_backup "$BACKUP_PATH"')
+        restore = script.index('restore_backup "$BACKUP_PATH" "$RESTORE_DIR" --apply')
+        switch = script.index('atomic_link "$APP_LINK" "$NEW_APP"')
+        migrate = script.index('manage.py" migrate --noinput')
+        self.assertLess(backup, verify)
+        self.assertLess(verify, restore)
+        self.assertLess(restore, switch)
+        self.assertLess(switch, migrate)
+        self.assertIn('migrate --plan', script)
+        self.assertIn('health_check', script)
+
+    def test_updater_has_code_venv_database_and_media_rollback(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        self.assertIn('APP_SWITCHED=1', script)
+        self.assertIn('VENV_SWITCHED=1', script)
+        self.assertIn('db.sqlite3.failed-', script)
+        self.assertIn('media.failed-', script)
+        self.assertIn('OLD_APP_REAL', script)
+        self.assertIn('OLD_VENV_REAL', script)
+        self.assertIn('systemctl start "$SERVICE"', script)
+        self.assertIn('Старі релізи не видаляються автоматично', script)
+
+    def test_updater_rejects_symlinks_and_invalid_release_version(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        self.assertIn('VERSION" =~ ^[A-Za-z0-9]', script)
+        self.assertIn('find "$RELEASE_SOURCE" -type l', script)
+        self.assertIn('find "$RELEASE_SOURCE" ! -type d ! -type f', script)
+        self.assertIn('не може бути всередині чинної програми', script)
