@@ -517,7 +517,7 @@ def manager_sales(request):
                                          sale__created_at__date__gte=d1, sale__created_at__date__lte=d2)
           .filter(returned_qty__lt=F("quantity")))
     mgr = request.GET.get("manager", "")
-    is_manager = CompanyMembership.objects.filter(company=request.company, user=request.user, is_active=True,
+    is_manager = StaffMembership.objects.filter(company=request.company, user=request.user, is_active=True,
                                                            role__in=("owner", "admin", "manager")).exists()
     if is_manager:
         if mgr:
@@ -569,7 +569,7 @@ def manager_sales(request):
     return render(request, "core/manager_sales.html", {
         "mypay": mypay, "rows": rows, "summary": summary, "rev": rev, "cst": cst, "mg": rev - cst,
         "pct": ((rev - cst) / rev * 100) if rev else D0, "d1": d1, "d2": d2, "mgr": mgr, "cq": cq, "src": src,
-        "managers": User.objects.filter(staff_memberships__company=request.company, company_memberships__is_active=True,
+        "managers": User.objects.filter(staff_memberships__company=request.company, staff_memberships__is_active=True,
                                                     is_active=True).distinct().order_by("username") if is_manager else []})
 
 
