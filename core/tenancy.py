@@ -21,16 +21,13 @@ def create_local_store(owner, name):
             raise ValueError("Локальний магазин уже налаштований. Зміну назви виконайте в налаштуваннях магазину.")
         store.name = clean_name
         store.owner = owner
-        store.status = "active"
-        store.save(update_fields=["name", "owner", "status", "updated_at"])
+        store.save(update_fields=["name", "owner", "updated_at"])
     else:
         slug = "local-autozapaz"
         store = Company.objects.create(
             name=clean_name,
             slug=slug,
             owner=owner,
-            plan="start",
-            status="active",
         )
 
     CompanyMembership.objects.update_or_create(
