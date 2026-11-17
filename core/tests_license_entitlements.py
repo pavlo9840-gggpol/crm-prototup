@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from core.models import (
     Company,
-    CompanyMembership,
+    StaffMembership,
     InstallationIdentity,
     LicenseActivation,
     LicenseWorkstationSession,
@@ -40,7 +40,7 @@ class LocalLicenseEnforcementTests(TestCase):
         self.company = Company.objects.create(
             name="Тестовий магазин", slug="license-test-store", owner=self.user
         )
-        CompanyMembership.objects.create(company=self.company, user=self.user, role="owner")
+        StaffMembership.objects.create(company=self.company, user=self.user, role="owner")
         self.installation_id = uuid.uuid4()
         InstallationIdentity.objects.create(pk=1, installation_id=self.installation_id)
         self.activate("start", max_users=2, max_workstations=1)
