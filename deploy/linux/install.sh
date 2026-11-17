@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+APP_DIR="/opt/autozapaz/app"
 INSTALL_ROOT="/opt/autozapaz"
 VENV_DIR="$INSTALL_ROOT/venv"
 DATA_DIR="/var/lib/autozapaz"
@@ -15,10 +15,11 @@ fail() { printf 'Помилка: %s\n' "$*" >&2; exit 1; }
 info() { printf '\n==> %s\n' "$*"; }
 
 [[ "$(id -u)" -eq 0 ]] || fail "Запустіть інсталятор від root: sudo bash deploy/linux/install.sh"
-[[ -f "$APP_DIR/manage.py" && -f "$APP_DIR/requirements.txt" ]] || fail "Не знайдено manage.py або requirements.txt у $APP_DIR"
+[[ -f "$APP_DIR/manage.py" && -f "$APP_DIR/requirements.txt" ]] || fail "Спочатку розпакуйте реліз у $APP_DIR; інсталятор не запускає програму з домашнього каталогу."
 [[ -f "$SERVICE_SOURCE" ]] || fail "Не знайдено systemd unit: $SERVICE_SOURCE"
 command -v python3 >/dev/null 2>&1 || fail "Потрібен Python 3."
 command -v runuser >/dev/null 2>&1 || fail "Потрібна команда runuser (util-linux)."
+[[ ! -e "$SERVICE_FILE" ]] || fail "Служба вже встановлена. Оновлення з автоматичним backup/rollback буде окремою процедурою; цей скрипт призначений лише для першої інсталяції."
 
 if [[ ! -f "$ENV_FILE" ]]; then
     [[ -n "${AUTOZAPAZ_LICENSE_PUBLIC_KEY:-}" ]] || fail "Для першої інсталяції передайте AUTOZAPAZ_LICENSE_PUBLIC_KEY з вашого видавничого ключа."
@@ -33,7 +34,8 @@ if ! id "$SERVICE_USER" >/dev/null 2>&1; then
     useradd --system --home-dir "$DATA_DIR" --create-home --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
 install -d -o root -g "$SERVICE_USER" -m 0750 "$INSTALL_ROOT"
-install -d -o root -g "$SERVICE_USER" -m 0750 "$APP_DIR"
+chown root:"$SERVICE_USER" "$APP_DIR"
+chmod 0750 "$APP_DIR"
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 "$DATA_DIR" "$DATA_DIR/media" "$DATA_DIR/backups"
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$APP_DIR/staticfiles"
 install -d -o root -g "$SERVICE_USER" -m 0750 "$CONFIG_DIR"
