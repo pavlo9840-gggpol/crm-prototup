@@ -95,7 +95,7 @@ def user_list(request):
 @local_admin_only
 def user_edit(request, pk=None):
     membership = get_object_or_404(
-        CompanyMembership.objects.select_related("user").filter(company=request.company), user_id=pk
+        StaffMembership.objects.select_related("user").filter(company=request.company), user_id=pk
     ) if pk else None
     obj = membership.user if membership else None
     me = obj is not None and obj.pk == request.user.pk
@@ -115,7 +115,7 @@ def user_edit(request, pk=None):
             role, active = d["role"], d["is_active"]
         from .licensing import get_active_license
         active_license = get_active_license()
-        active_members = CompanyMembership.objects.filter(company=request.company, is_active=True).count()
+        active_members = StaffMembership.objects.filter(company=request.company, is_active=True).count()
         is_new_active_member = obj is None and active
         is_reactivating_member = bool(membership and not membership.is_active and active)
         if active_license and active_members >= active_license["max_users"] and (
@@ -131,7 +131,7 @@ def user_edit(request, pk=None):
                 username=d["username"], password=d["password"], first_name=d["first_name"],
                 is_staff=False, is_superuser=False,
             )
-            CompanyMembership.objects.create(company=request.company, user=obj, role=role, is_active=active)
+            StaffMembership.objects.create(company=request.company, user=obj, role=role, is_active=active)
         else:
             obj.username, obj.first_name = d["username"], d["first_name"]
             if d["password"]:
