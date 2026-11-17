@@ -1,6 +1,7 @@
 from datetime import timedelta
 from importlib import import_module
 
+from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test import TestCase
@@ -24,7 +25,7 @@ class StaffMembershipDataCopyTests(TestCase):
 
         migration = import_module("core.migrations.0036_local_staff_membership")
         migration.copy_legacy_staff_memberships(
-            __import__("django").apps.apps,
+            apps,
             type("SchemaEditor", (), {"connection": connection})(),
         )
 
