@@ -28,7 +28,7 @@ class LegacyStoreMergeCommandTests(TestCase):
             company=self.target, user=self.owner, role="owner", is_active=True
         )
         self.source = Company.objects.create(
-            name="Старий магазин", slug="merge-source", owner=self.owner, status="active"
+            name="Старий магазин", slug="merge-source", owner=self.owner
         )
         CompanyMembership.objects.create(
             company=self.source, user=self.owner, role="owner", is_active=True
