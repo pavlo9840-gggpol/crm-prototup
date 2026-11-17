@@ -18,8 +18,7 @@ class LocalStoreMigrationCommandTests(TestCase):
         self.store = Company.objects.order_by("pk").first()
         self.store.name = "Основний магазин"
         self.store.owner = self.owner
-        self.store.status = "active"
-        self.store.save(update_fields=["name", "owner", "status"])
+        self.store.save(update_fields=["name", "owner"])
         CompanyMembership.objects.create(company=self.store, user=self.owner, role="owner", is_active=True)
 
     def run_audit(self, **kwargs):
@@ -67,7 +66,7 @@ class LocalStoreMigrationCommandTests(TestCase):
     def test_cross_store_foreign_key_mismatch_blocks_apply(self, backup):
         other_owner = get_user_model().objects.create_user(username="category-owner", password="secret")
         second = Company.objects.create(
-            name="Інший магазин", slug="migration-category", owner=other_owner, status="active"
+            name="Інший магазин", slug="migration-category", owner=other_owner
         )
         category = Category.objects.create(company=second, name="Чужа категорія")
         product = Product.objects.create(
