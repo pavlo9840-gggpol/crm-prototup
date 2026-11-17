@@ -120,7 +120,7 @@ def output(request, pages, fmt, name, extra=None):
 def print_docs(request, doc_type):
     if doc_type not in docs.DOC_TYPES:
         raise Http404
-    if doc_type != "receipt" and getattr(getattr(request, "company_membership", None), "role", "") not in ("owner", "admin", "manager"):
+    if doc_type != "receipt" and getattr(getattr(request, "staff_membership", None), "role", "") not in ("owner", "admin", "manager"):
         raise PermissionDenied
     ctxs = docs.load(doc_type, request)
     tpl = pick_template(doc_type, request.GET.get("template"), request.company)
