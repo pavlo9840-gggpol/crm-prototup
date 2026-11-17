@@ -9,7 +9,7 @@ class AcceptanceTest(TestCase):
     def test_flow(self):
         U = get_user_model()
         admin = U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
-        company = Company.objects.create(name="Acceptance shop", slug="acceptance-shop", status="active", owner=admin)
+        company = Company.objects.create(name="Acceptance shop", slug="acceptance-shop", owner=admin)
         CompanyMembership.objects.create(company=company, user=admin, role="owner")
         p = Product.objects.create(company=company, name="Кола", sku="K1", barcode="123", price=30, cost_price=20, min_stock=150)
         sup = Supplier.objects.create(company=company, name="S")
