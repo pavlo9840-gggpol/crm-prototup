@@ -14,7 +14,7 @@ class StaffAccessControlTests(TestCase):
         cls.staff = User.objects.create_user(
             username="inventory-manager", password="test-password", is_staff=True
         )
-        cls.company = Company.objects.create(name="Inventory test shop", slug="inventory-test-shop", status="active", owner=cls.staff)
+        cls.company = Company.objects.create(name="Inventory test shop", slug="inventory-test-shop", owner=cls.staff)
         CompanyMembership.objects.create(company=cls.company, user=cls.staff, role="owner")
         cls.cashier = User.objects.create_user(
             username="inventory-cashier", password="test-password", is_staff=False
