@@ -1,5 +1,6 @@
 from io import StringIO
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import json
 
@@ -9,6 +10,7 @@ from django.test import TestCase
 
 from core.models import (
     Category, Company, CompanyMembership, CompanySettings, Customer, Product,
+    CustomerCar, Sale, SaleItem, StockMovement,
 )
 
 
@@ -223,6 +225,104 @@ class LegacyStoreMergeCommandTests(TestCase):
 
         backup.assert_not_called()
         self.assertEqual(Customer.objects.count(), 2)
+
+    def _write_record_map(self, payload):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "record-map.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return str(path)
+
+    @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
+    def test_manual_product_merge_redirects_sales_and_stock_history(self, backup):
+        backup.return_value = Path("/tmp/autozapaz-merge-backup.sqlite3")
+        keep = Product.objects.create(
+            company=self.target, name="Фільтр Bosch", brand="Bosch",
+            sku="1 234-AB", current_stock=2
+        )
+        duplicate = Product.objects.create(
+            company=self.source, name="Фільтр оливи", brand=" BOSCH ",
+            sku="1234AB", current_stock=7
+        )
+        sale = Sale.objects.create(company=self.source, cashier=self.owner, total=100)
+        sale_item = SaleItem.objects.create(
+            company=self.source, sale=sale, product=duplicate,
+            quantity=1, original_price=100, price=100
+        )
+        movement = StockMovement.objects.create(
+            company=self.source, product=duplicate, movement_type="purchase",
+            quantity_change=7, balance_after=7
+        )
+        mapping = self._write_record_map({
+            "products": [{
+                "keep_id": keep.pk, "merge_ids": [duplicate.pk], "current_stock": "9.000"
+            }]
+        })
+
+        self.run_merge(
+            apply=True, backup="/tmp/autozapaz-merge-backup.sqlite3", record_map=mapping
+        )
+
+        backup.assert_called_once()
+        keep.refresh_from_db()
+        sale_item.refresh_from_db()
+        movement.refresh_from_db()
+        self.assertEqual(keep.current_stock, 9)
+        self.assertEqual(sale_item.product_id, keep.pk)
+        self.assertEqual(movement.product_id, keep.pk)
+        self.assertFalse(Product.objects.filter(pk=duplicate.pk).exists())
+        self.assertTrue(Sale.objects.filter(pk=sale.pk).exists())
+
+    @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
+    def test_manual_customer_merge_redirects_sales_and_cars(self, backup):
+        backup.return_value = Path("/tmp/autozapaz-merge-backup.sqlite3")
+        keep = Customer.objects.create(
+            company=self.target, name="Клієнт основний", phone="+380501112233"
+        )
+        duplicate = Customer.objects.create(
+            company=self.source, name="Клієнт дубль", phone="380501112233"
+        )
+        sale = Sale.objects.create(
+            company=self.source, cashier=self.owner, customer=duplicate, total=250
+        )
+        car = CustomerCar.objects.create(
+            company=self.source, customer=duplicate, plate="AC1234AA", vin="WVWZZZ1JZXW000001"
+        )
+        mapping = self._write_record_map({
+            "customers": [{
+                "keep_id": keep.pk, "merge_ids": [duplicate.pk],
+                "total_spent": "250.00", "purchases_count": 1
+            }]
+        })
+
+        self.run_merge(
+            apply=True, backup="/tmp/autozapaz-merge-backup.sqlite3", record_map=mapping
+        )
+
+        backup.assert_called_once()
+        keep.refresh_from_db()
+        sale.refresh_from_db()
+        car.refresh_from_db()
+        self.assertEqual(keep.total_spent, 250)
+        self.assertEqual(keep.purchases_count, 1)
+        self.assertEqual(sale.customer_id, keep.pk)
+        self.assertEqual(car.customer_id, keep.pk)
+        self.assertFalse(Customer.objects.filter(pk=duplicate.pk).exists())
+
+    def test_record_map_requires_explicit_product_stock_and_customer_totals(self):
+        keep = Product.objects.create(
+            company=self.target, name="Фільтр Bosch", brand="Bosch", sku="ABC-1"
+        )
+        duplicate = Product.objects.create(
+            company=self.source, name="Фільтр Bosch", brand="Bosch", sku="ABC1"
+        )
+        mapping = self._write_record_map({
+            "products": [{"keep_id": keep.pk, "merge_ids": [duplicate.pk]}]
+        })
+        with self.assertRaises(CommandError):
+            self.run_merge(as_json=True, record_map=mapping)
+        self.assertTrue(Product.objects.filter(pk=duplicate.pk).exists())
+
     @patch("core.management.commands.merge_legacy_stores.create_sqlite_backup")
     def test_active_staff_without_membership_blocks_merge(self, backup):
         unassigned = get_user_model().objects.create_user(
