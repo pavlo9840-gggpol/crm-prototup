@@ -3,7 +3,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from core.admin_tools import apply_rows, parse_csv
-from core.models import CompanyMembership, Product
+from core.models import StaffMembership, Product
 from core.tests_tenant_helpers import create_test_company
 
 
@@ -30,14 +30,14 @@ class WorkspaceAdminToolsTests(TestCase):
         member = User.objects.get(username="shop-manager")
         self.assertFalse(member.is_staff)
         self.assertFalse(member.is_superuser)
-        membership = CompanyMembership.objects.get(company=self.company, user=member)
+        membership = StaffMembership.objects.get(company=self.company, user=member)
         self.assertEqual(membership.role, "manager")
         self.assertTrue(membership.is_active)
 
     def test_editing_member_role_does_not_change_other_company_membership(self):
         member = User.objects.create_user(username="shared-employee", password="secret")
-        own = CompanyMembership.objects.create(company=self.company, user=member, role="cashier")
-        foreign = CompanyMembership.objects.create(company=self.other_company, user=member, role="mechanic")
+        own = StaffMembership.objects.create(company=self.company, user=member, role="cashier")
+        foreign = StaffMembership.objects.create(company=self.other_company, user=member, role="mechanic")
         response = self.client.post(reverse("user_edit", args=[member.pk]), {
             "username": member.username,
             "first_name": member.first_name,
@@ -56,7 +56,7 @@ class WorkspaceAdminToolsTests(TestCase):
 
     def test_user_list_and_edit_never_expose_foreign_company_members(self):
         foreign = User.objects.create_user(username="foreign-employee", password="secret")
-        CompanyMembership.objects.create(company=self.other_company, user=foreign, role="cashier")
+        StaffMembership.objects.create(company=self.other_company, user=foreign, role="cashier")
         response = self.client.get(reverse("user_list"))
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "foreign-employee")
