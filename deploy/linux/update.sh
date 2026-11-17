@@ -102,11 +102,15 @@ rollback_update() {
     local reason="$1"
     printf '\nПОМИЛКА: %s\nПовертаю попередню версію.\n' "$reason" >&2
     systemctl stop "$SERVICE" >/dev/null 2>&1 || true
-    if [[ "$SWITCHED" -eq 1 ]]; then
-        ln -s "$OLD_APP_REAL" "${APP_LINK}.rollback-$STAMP"
-        mv -Tf "${APP_LINK}.rollback-$STAMP" "$APP_LINK"
-        ln -s "$OLD_VENV_REAL" "${VENV_LINK}.rollback-$STAMP"
-        mv -Tf "${VENV_LINK}.rollback-$STAMP" "$VENV_LINK"
+    if [[ "$APP_SWITCHED" -eq 1 || "$VENV_SWITCHED" -eq 1 ]]; then
+        if [[ "$APP_SWITCHED" -eq 1 ]]; then
+            ln -s "$OLD_APP_REAL" "${APP_LINK}.rollback-$STAMP"
+            mv -Tf "${APP_LINK}.rollback-$STAMP" "$APP_LINK"
+        fi
+        if [[ "$VENV_SWITCHED" -eq 1 ]]; then
+            ln -s "$OLD_VENV_REAL" "${VENV_LINK}.rollback-$STAMP"
+            mv -Tf "${VENV_LINK}.rollback-$STAMP" "$VENV_LINK"
+        fi
         if [[ -d "$RESTORE_DIR" && -f "$RESTORE_DIR/db.sqlite3" ]]; then
             [[ ! -e "$DATA_DIR/db.sqlite3" ]] || mv "$DATA_DIR/db.sqlite3" "$DATA_DIR/db.sqlite3.failed-$STAMP"
             [[ ! -e "$DATA_DIR/db.sqlite3-wal" ]] || mv "$DATA_DIR/db.sqlite3-wal" "$DATA_DIR/db.sqlite3-wal.failed-$STAMP"
@@ -147,7 +151,6 @@ python3 -m venv "$NEW_VENV"
 "$NEW_VENV/bin/python" -m pip install -r "$NEW_APP/requirements.txt"
 chown -R "root:$SERVICE_USER" "$NEW_VENV"
 find "$NEW_VENV" -type d -exec chmod 0750 {} +
-find "$NEW_VENV" -type f -exec chmod 0640 {} +
 
 info "Перевірка нового коду до зупинки служби"
 as_service "$NEW_VENV/bin/python" "$NEW_APP/manage.py" check --database default
