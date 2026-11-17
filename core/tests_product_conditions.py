@@ -2,14 +2,14 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from core.forms import ProductForm
-from core.models import Category, Company, CompanyMembership, Product
+from core.models import Category, Company, StaffMembership, Product
 
 
 class ProductConditionTests(TestCase):
     def setUp(self):
         user = get_user_model().objects.create_superuser("products-admin", "admin@example.test", "secret")
         self.company = Company.objects.create(name="Product conditions shop", slug="product-conditions-shop", owner=user)
-        CompanyMembership.objects.create(company=self.company, user=user, role="owner")
+        StaffMembership.objects.create(company=self.company, user=user, role="owner")
         self.client.force_login(user)
 
     def payload(self, **extra):
