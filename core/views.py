@@ -45,7 +45,7 @@ def tenant_staff_only(view):
     @login_required
     @wraps(view)
     def wrapper(request, *args, **kwargs):
-        membership = getattr(request, "company_membership", None)
+        membership = getattr(request, "staff_membership", None)
         if not request.user.is_superuser and (
             membership is None or membership.role not in ("owner", "admin", "manager")
         ):
@@ -698,7 +698,7 @@ def sale_list(request):
     from .designer_views import print_bar
     return render(request, "core/sale_list.html", {
         "sales": qs.annotate(qty=Sum("items__quantity"))[:300],
-        "cashiers": get_user_model().objects.filter(company_memberships__company=request.company, company_memberships__is_active=True).distinct(), "payments": Sale.PAYMENTS, **print_bar("receipt", request.company)})
+        "cashiers": get_user_model().objects.filter(staff_memberships__company=request.company, company_memberships__is_active=True).distinct(), "payments": Sale.PAYMENTS, **print_bar("receipt", request.company)})
 
 
 @tenant_cashier_only
