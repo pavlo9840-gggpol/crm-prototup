@@ -2,7 +2,7 @@ import json
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from core.models import Company, CompanyMembership, Product, Supplier, Sale, StockMovement
+from core.models import Company, StaffMembership, Product, Supplier, Sale, StockMovement
 
 
 class AcceptanceTest(TestCase):
@@ -10,7 +10,7 @@ class AcceptanceTest(TestCase):
         U = get_user_model()
         admin = U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
         company = Company.objects.create(name="Acceptance shop", slug="acceptance-shop", owner=admin)
-        CompanyMembership.objects.create(company=company, user=admin, role="owner")
+        StaffMembership.objects.create(company=company, user=admin, role="owner")
         p = Product.objects.create(company=company, name="Кола", sku="K1", barcode="123", price=30, cost_price=20, min_stock=150)
         sup = Supplier.objects.create(company=company, name="S")
         adm, cash = self.client, self.client_class()
