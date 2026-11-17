@@ -7,12 +7,12 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, TransactionTestCase, override_settings
 
 from core import admin_tools
 
 
-class BackupArchiveTests(TestCase):
+class BackupArchiveTests(TransactionTestCase):
     def _make_archive(self, media_root):
         with override_settings(MEDIA_ROOT=media_root):
             return admin_tools.make_backup_zip()
