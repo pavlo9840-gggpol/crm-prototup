@@ -9,7 +9,7 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 from pathlib import Path
@@ -284,7 +284,7 @@ def save_backup(keep=14):
     stamp = timezone.localtime()
     path = BACKUP_DIR / f"backup-{stamp:%Y%m%d-%H%M%S}.zip"
     while path.exists():
-        stamp += timezone.timedelta(seconds=1)
+        stamp += timedelta(seconds=1)
         path = BACKUP_DIR / f"backup-{stamp:%Y%m%d-%H%M%S}.zip"
 
     temporary_path = None
