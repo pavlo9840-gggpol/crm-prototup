@@ -46,7 +46,7 @@ class BackupArchiveTests(TransactionTestCase):
             for name in source.namelist():
                 payload = source.read(name)
                 if name == "media/photo.txt":
-                    payload = b"changed after backup"
+                    payload = b"tampered"
                 target.writestr(name, payload)
 
         with self.assertRaisesRegex(ValueError, "Контрольна сума не збігається"):
