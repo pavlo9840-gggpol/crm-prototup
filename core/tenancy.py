@@ -1,6 +1,6 @@
 """Single local-store initialization helpers (not SaaS workspace creation)."""
 from django.db import transaction
-from .models import Company, CompanyMembership
+from .models import Company, StaffMembership
 
 
 @transaction.atomic
@@ -30,7 +30,7 @@ def create_local_store(owner, name):
             owner=owner,
         )
 
-    CompanyMembership.objects.update_or_create(
+    StaffMembership.objects.update_or_create(
         company=store,
         user=owner,
         defaults={"role": "owner", "is_active": True},
