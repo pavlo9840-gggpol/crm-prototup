@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from core.models import Category, Company, CompanyMembership, MarkupTier, PartInfo, PartOe, PriceHistory, Product, Supplier, SupplierItem
+from core.models import Category, Company, StaffMembership, MarkupTier, PartInfo, PartOe, PriceHistory, Product, Supplier, SupplierItem
 
 D = Decimal
 
@@ -15,8 +15,8 @@ class ProductFormUxTest(TestCase):
         admin = U.objects.create_superuser("admin", "", "x")
         cash = U.objects.create_user("cash", password="x")
         self.company = Company.objects.create(name="Магазин тестів", slug="product-form-shop", owner=admin)
-        CompanyMembership.objects.create(company=self.company, user=admin, role="owner")
-        CompanyMembership.objects.create(company=self.company, user=cash, role="cashier")
+        StaffMembership.objects.create(company=self.company, user=admin, role="owner")
+        StaffMembership.objects.create(company=self.company, user=cash, role="cashier")
         self.adm, self.cash = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.cash.login(username="cash", password="x")
