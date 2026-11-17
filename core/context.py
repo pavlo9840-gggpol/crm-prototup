@@ -89,7 +89,7 @@ def layout(request):
     if cur == "print_docs" or (m and m.url_name == "print_docs"):
         cur = "designer_home"
 
-    membership = getattr(request, "company_membership", None)
+    membership = getattr(request, "staff_membership", None)
     company_access = bool(getattr(request, "company_access", False))
     can_manage_company = bool(
         company_access and (
