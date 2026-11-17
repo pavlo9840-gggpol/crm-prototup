@@ -1,7 +1,12 @@
 """Users management, database backups, product CSV import/export."""
 import csv
+import hashlib
 import io
+import json
+import os
 import re
+import shutil
+import sqlite3
 import tempfile
 import zipfile
 from datetime import datetime
@@ -149,46 +154,156 @@ def user_edit(request, pk=None):
 
 
 # =============================================================== backups
-BACKUP_DIR = Path(settings.BASE_DIR) / "backups"
+BACKUP_DIR = Path(os.environ.get("AUTOZAPAZ_BACKUP_DIR", Path(settings.BASE_DIR) / "backups")).expanduser()
 BACKUP_NAME = re.compile(r"^backup-\d{8}-\d{6}\.zip$")
 
 
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_backup_archive(source):
+    """Validate ZIP structure, optional manifest hashes and SQLite integrity.
+
+    Accepts a filesystem path or ZIP bytes. Legacy archives without a manifest
+    remain verifiable for backwards compatibility.
+    """
+    archive_source = io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source
+    try:
+        with zipfile.ZipFile(archive_source, "r") as archive:
+            names = archive.namelist()
+            if len(names) != len(set(names)):
+                raise ValueError("Архів містить повторювані імена файлів.")
+            for name in names:
+                member = Path(name)
+                if name.startswith(("/", "\\")) or "\\" in name or ".." in member.parts:
+                    raise ValueError(f"Небезпечний шлях у ZIP-архіві: {name}")
+            if "db.sqlite3" not in names:
+                raise ValueError("В архіві немає обов'язкового файлу db.sqlite3.")
+            if archive.testzip() is not None:
+                raise ValueError("ZIP-архів пошкоджений.")
+
+            if "manifest.json" in names:
+                try:
+                    manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                    expected = manifest.get("files", {})
+                    if not isinstance(expected, dict) or "db.sqlite3" not in expected:
+                        raise ValueError("Маніфест не містить контрольної суми db.sqlite3.")
+                    for name, metadata in expected.items():
+                        if name not in names or not isinstance(metadata, dict):
+                            raise ValueError(f"Файл з маніфесту відсутній або некоректний: {name}")
+                        actual = hashlib.sha256(archive.read(name)).hexdigest()
+                        if actual != metadata.get("sha256"):
+                            raise ValueError(f"Контрольна сума не збігається: {name}")
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise ValueError(f"Маніфест резервної копії пошкоджений: {exc}") from exc
+
+            with tempfile.TemporaryDirectory(prefix="autozapaz-verify-") as temp_dir:
+                database_path = Path(temp_dir) / "db.sqlite3"
+                with archive.open("db.sqlite3") as zipped_db, open(database_path, "wb") as output:
+                    shutil.copyfileobj(zipped_db, output)
+                with sqlite3.connect(str(database_path)) as database:
+                    result = database.execute("PRAGMA integrity_check").fetchone()
+                if not result or result[0] != "ok":
+                    raise ValueError(f"SQLite integrity_check не пройшов: {result[0] if result else 'немає відповіді'}")
+            return {
+                "database": "db.sqlite3",
+                "media_files": sum(1 for name in names if name.startswith("media/") and not name.endswith("/")),
+                "manifest": "manifest.json" in names,
+                "integrity": "ok",
+                "files": len(names),
+            }
+    except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
+        raise ValueError(f"Не вдалося прочитати резервну копію: {exc}") from exc
+
+
 def make_backup_zip():
-    """Consistent copy of the SQLite database (+ uploaded media) as ZIP bytes.
-    Uses VACUUM INTO (an atomic snapshot that never waits on writers)."""
+    """Create a consistent SQLite + media archive with SHA-256 manifest."""
     if connection.vendor != "sqlite":
         raise RuntimeError("Автоматична резервна копія підтримується лише для SQLite")
-    tmpdir = tempfile.mkdtemp()
-    snap = Path(tmpdir) / "db.sqlite3"
-    try:
+    with tempfile.TemporaryDirectory(prefix="autozapaz-backup-") as temp_dir:
+        snap = Path(temp_dir) / "db.sqlite3"
         try:
             with connection.cursor() as cur:
                 cur.execute("VACUUM INTO %s", [str(snap)])
-        except Exception as e:
-            raise RuntimeError(f"Не вдалося створити копію бази даних: {e}")
+        except Exception as exc:
+            raise RuntimeError(f"Не вдалося створити копію бази даних: {exc}") from exc
+
+        integrity = sqlite3.connect(str(snap))
+        try:
+            check = integrity.execute("PRAGMA integrity_check").fetchone()
+        finally:
+            integrity.close()
+        if not check or check[0] != "ok":
+            raise RuntimeError(f"Перевірка SQLite backup не пройдена: {check[0] if check else 'немає відповіді'}")
+
+        files = {"db.sqlite3": {"sha256": _sha256_file(snap), "size": snap.stat().st_size}}
+        media = Path(settings.MEDIA_ROOT)
         buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            z.write(snap, "db.sqlite3")
-            media = Path(settings.MEDIA_ROOT)
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.write(snap, "db.sqlite3")
             if media.exists():
-                for f in media.rglob("*"):
-                    if f.is_file():
-                        z.write(f, "media/" + f.relative_to(media).as_posix())
-            z.writestr("README.txt", "Відновлення: зупиніть сервер, замініть db.sqlite3 файлом з архіву, "
-                                     "а папку media — вмістом media/ з архіву.\n")
-        return buf.getvalue()
-    finally:
-        import shutil
-        shutil.rmtree(tmpdir, ignore_errors=True)
+                media_root = media.resolve()
+                for file_path in media.rglob("*"):
+                    if file_path.is_symlink() or not file_path.is_file():
+                        continue
+                    resolved = file_path.resolve()
+                    if media_root not in resolved.parents:
+                        continue
+                    archive_name = "media/" + file_path.relative_to(media).as_posix()
+                    archive.write(file_path, archive_name)
+                    files[archive_name] = {"sha256": _sha256_file(file_path), "size": file_path.stat().st_size}
+            manifest = {
+                "format_version": 1,
+                "created_at": timezone.localtime().isoformat(),
+                "database_engine": "sqlite",
+                "files": files,
+            }
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+            archive.writestr(
+                "README.txt",
+                "Резервна копія АвтоЗапас. Перед відновленням зупиніть застосунок. "
+                "Спочатку перевірте архів командою: python manage.py verify_backup <архів.zip>.\n",
+            )
+        data = buf.getvalue()
+        try:
+            verify_backup_archive(data)
+        except ValueError as exc:
+            raise RuntimeError(f"Створена резервна копія не пройшла перевірку: {exc}") from exc
+        return data
 
 
 def save_backup(keep=14):
-    BACKUP_DIR.mkdir(exist_ok=True)
-    path = BACKUP_DIR / f"backup-{timezone.localtime():%Y%m%d-%H%M%S}.zip"
-    path.write_bytes(make_backup_zip())
+    if keep < 1:
+        raise ValueError("Кількість резервних копій для зберігання має бути не меншою за 1.")
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = timezone.localtime()
+    path = BACKUP_DIR / f"backup-{stamp:%Y%m%d-%H%M%S}.zip"
+    while path.exists():
+        stamp += timezone.timedelta(seconds=1)
+        path = BACKUP_DIR / f"backup-{stamp:%Y%m%d-%H%M%S}.zip"
+
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix=".autozapaz-backup-", suffix=".tmp", dir=BACKUP_DIR, delete=False) as output:
+            temporary_path = Path(output.name)
+            output.write(make_backup_zip())
+            output.flush()
+            os.fsync(output.fileno())
+        verify_backup_archive(temporary_path)
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path:
+            temporary_path.unlink(missing_ok=True)
+
     old = sorted(p for p in BACKUP_DIR.glob("backup-*.zip") if BACKUP_NAME.match(p.name))
-    for p in old[:-keep] if keep else []:
-        p.unlink(missing_ok=True)
+    for backup_path in old[:-keep]:
+        backup_path.unlink(missing_ok=True)
     return path
 
 
