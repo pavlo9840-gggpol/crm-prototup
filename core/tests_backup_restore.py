@@ -89,6 +89,50 @@ class BackupArchiveTests(TransactionTestCase):
             path.write_bytes(data)
             call_command("verify_backup", str(path), stdout=io.StringIO())
 
+    def test_restore_creates_verified_database_and_media_in_new_directory(self):
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            media_root = root / "source-media"
+            media_root.mkdir()
+            (media_root / "logo.txt").write_text("autozapaz-logo", encoding="utf-8")
+            data = self._make_archive(media_root)
+            target = root / "restored-installation"
+
+            report = admin_tools.restore_backup_archive(data, target)
+
+            self.assertEqual(report["directory"], target.resolve())
+            self.assertTrue((target / "db.sqlite3").is_file())
+            self.assertEqual((target / "media" / "logo.txt").read_text(encoding="utf-8"), "autozapaz-logo")
+            self.assertEqual(report["media_files"], 1)
+            database = sqlite3.connect(target / "db.sqlite3")
+            try:
+                self.assertEqual(database.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            finally:
+                database.close()
+
+    def test_restore_never_overwrites_an_existing_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "existing"
+            target.mkdir()
+            sentinel = target / "keep.txt"
+            sentinel.write_text("do not overwrite", encoding="utf-8")
+            data = self._make_archive(target / "missing-media")
+
+            with self.assertRaisesRegex(ValueError, "вже існує"):
+                admin_tools.restore_backup_archive(data, target)
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "do not overwrite")
+
+    def test_restore_management_command_requires_explicit_apply(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive_path = Path(temp_dir) / "backup.zip"
+            archive_path.write_bytes(data)
+            with self.assertRaises(CommandError):
+                call_command("restore_backup", str(archive_path), str(Path(temp_dir) / "restore"))
+
     def test_verify_backup_management_command_rejects_missing_file(self):
         with self.assertRaises(CommandError):
             call_command("verify_backup", "/definitely/missing/autozapaz-backup.zip")
