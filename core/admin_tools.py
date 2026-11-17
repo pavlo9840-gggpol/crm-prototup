@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import tempfile
 import zipfile
 from datetime import datetime, timedelta
@@ -227,6 +228,72 @@ def verify_backup_archive(source):
             }
     except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
         raise ValueError(f"Не вдалося прочитати резервну копію: {exc}") from exc
+
+
+def restore_backup_archive(source, target_dir):
+    """Restore a verified archive into a brand-new isolated directory.
+
+    Existing destinations are never overwritten. This helper deliberately
+    does not replace the live Django database or MEDIA_ROOT.
+    """
+    target = Path(target_dir).expanduser().resolve()
+    if target.exists():
+        raise ValueError(f"Каталог призначення вже існує; нічого не перезаписано: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    verify_backup_archive(source)
+
+    archive_source = io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source
+    temporary_root = Path(tempfile.mkdtemp(prefix=".autozapaz-restore-", dir=target.parent))
+    try:
+        with zipfile.ZipFile(archive_source, "r") as archive:
+            for info in archive.infolist():
+                name = info.filename
+                if name in ("db.sqlite3", "manifest.json", "README.txt"):
+                    if name != "db.sqlite3":
+                        continue
+                    destination = temporary_root / "db.sqlite3"
+                elif name.startswith("media/"):
+                    relative = Path(*Path(name).parts[1:])
+                    if not relative.parts:
+                        continue
+                    destination = temporary_root / "media" / relative
+                else:
+                    raise ValueError(f"Непідтримуваний файл у резервній копії: {name}")
+
+                if info.is_dir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                    continue
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(info, "r") as zipped_file, open(destination, "wb") as output:
+                    shutil.copyfileobj(zipped_file, output)
+
+        if not (temporary_root / "db.sqlite3").is_file():
+            raise ValueError("Після відновлення не знайдено db.sqlite3.")
+        verify_backup_archive(temporary_root_archive := _zip_directory_for_validation(temporary_root))
+        temporary_root_archive.close()
+        if target.exists():
+            raise ValueError(f"Каталог призначення з'явився під час відновлення; нічого не перезаписано: {target}")
+        temporary_root.rename(target)
+        temporary_root = None
+        return {
+            "directory": target,
+            "database": target / "db.sqlite3",
+            "media": target / "media",
+            "media_files": sum(1 for path in (target / "media").rglob("*") if path.is_file())
+            if (target / "media").exists() else 0,
+        }
+    finally:
+        if temporary_root is not None:
+            shutil.rmtree(temporary_root, ignore_errors=True)
+
+
+def _zip_directory_for_validation(directory):
+    """Build an in-memory ZIP from the extracted DB for a second SQLite check."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.write(Path(directory) / "db.sqlite3", "db.sqlite3")
+    buffer.seek(0)
+    return buffer
 
 
 def make_backup_zip():
