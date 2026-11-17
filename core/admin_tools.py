@@ -239,7 +239,10 @@ def restore_backup_archive(source, target_dir):
     Existing destinations are never overwritten. This helper deliberately
     does not replace the live Django database or MEDIA_ROOT.
     """
-    target = Path(target_dir).expanduser().resolve()
+    requested_target = Path(target_dir).expanduser()
+    if requested_target.exists() or requested_target.is_symlink():
+        raise ValueError(f"Каталог призначення вже існує; нічого не перезаписано: {requested_target}")
+    target = requested_target.resolve()
     if target.exists():
         raise ValueError(f"Каталог призначення вже існує; нічого не перезаписано: {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
