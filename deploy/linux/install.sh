@@ -22,7 +22,7 @@ command -v runuser >/dev/null 2>&1 || fail "Потрібна команда runu
 [[ ! -e "$SERVICE_FILE" ]] || fail "Служба вже встановлена. Оновлення з автоматичним backup/rollback буде окремою процедурою; цей скрипт призначений лише для першої інсталяції."
 
 if [[ ! -f "$ENV_FILE" ]]; then
-    [[ -n "${AUTOZAPAZ_LICENSE_PUBLIC_KEY:-}" ]] || fail "Для першої інсталяції передайте AUTOZAPAZ_LICENSE_PUBLIC_KEY з вашого видавничого ключа."
+    [[ "${AUTOZAPAZ_LICENSE_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "Передайте коректний відкритий Ed25519-ключ (43 символи Base64URL) через AUTOZAPAZ_LICENSE_PUBLIC_KEY."
     python3 - <<'PY' >/dev/null || fail "Потрібен Python 3 із модулем secrets."
 import secrets
 print(secrets.token_urlsafe(64))
@@ -60,6 +60,8 @@ else
     info "Наявний файл конфігурації збережено без змін: $ENV_FILE"
     grep -q '^DJANGO_SECRET_KEY=.' "$ENV_FILE" || fail "У $ENV_FILE відсутній DJANGO_SECRET_KEY."
     grep -q '^AUTOZAPAZ_LICENSE_PUBLIC_KEY=.' "$ENV_FILE" || fail "У $ENV_FILE не налаштовано AUTOZAPAZ_LICENSE_PUBLIC_KEY."
+    PUBLIC_KEY_VALUE="$(sed -n 's/^AUTOZAPAZ_LICENSE_PUBLIC_KEY=//p' "$ENV_FILE")"
+    [[ "$PUBLIC_KEY_VALUE" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "У $ENV_FILE некоректний відкритий Ed25519-ключ."
 fi
 
 info "Підготовка Python-середовища"
