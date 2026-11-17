@@ -22,7 +22,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import fitment, pricing, services
-from .models import (CompanyMembership, CrossRef, Customer, CustomerCar, MarkupTier, PriceImport, Product, Sale, SaleItem, Supplier,
+from .models import (StaffMembership, CrossRef, Customer, CustomerCar, MarkupTier, PriceImport, Product, Sale, SaleItem, Supplier,
                      SupplierApi, SupplierItem, SupplierPriceChange, norm_sku)
 from .crosses import analog_levels
 from .services import StockError
@@ -434,7 +434,7 @@ def markup_edit(request, pk=None):
 def _orders_qs(user, company):
     qs = (SaleItem.objects.filter(company=company, sale__company=company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE)
           .select_related("sale__customer", "sale__cashier", "sale__car", "supplier", "supplier_item", "product"))
-    is_manager = CompanyMembership.objects.filter(company=company, user=user, is_active=True,
+    is_manager = StaffMembership.objects.filter(company=company, user=user, is_active=True,
                                                    role__in=("owner", "admin", "manager")).exists()
     return qs if is_manager else qs.filter(sale__cashier=user)
 
@@ -569,7 +569,7 @@ def manager_sales(request):
     return render(request, "core/manager_sales.html", {
         "mypay": mypay, "rows": rows, "summary": summary, "rev": rev, "cst": cst, "mg": rev - cst,
         "pct": ((rev - cst) / rev * 100) if rev else D0, "d1": d1, "d2": d2, "mgr": mgr, "cq": cq, "src": src,
-        "managers": User.objects.filter(company_memberships__company=request.company, company_memberships__is_active=True,
+        "managers": User.objects.filter(staff_memberships__company=request.company, company_memberships__is_active=True,
                                                     is_active=True).distinct().order_by("username") if is_manager else []})
 
 
