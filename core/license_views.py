@@ -5,12 +5,12 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 
 from .licensing import LicenseError, get_installation_id, verify_license_token
-from .models import CompanyMembership, LicenseActivation
+from .models import StaffMembership, LicenseActivation
 
 
 @login_required
 def activate_license(request):
-    membership = getattr(request, "company_membership", None)
+    membership = getattr(request, "staff_membership", None)
     if request.company is None:
         raise PermissionDenied
     if not request.user.is_superuser and not (
@@ -24,7 +24,7 @@ def activate_license(request):
         try:
             installation_id = get_installation_id()
             claims = verify_license_token(token, expected_installation_id=installation_id)
-            active_users = CompanyMembership.objects.filter(company=request.company, is_active=True).values("user_id").distinct().count()
+            active_users = StaffMembership.objects.filter(company=request.company, is_active=True).values("user_id").distinct().count()
             if active_users > claims["max_users"]:
                 raise LicenseError(
                     f"У ліцензії дозволено {claims['max_users']} користувач(ів), "
