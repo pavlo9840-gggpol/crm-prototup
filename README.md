@@ -27,7 +27,7 @@
     python manage.py migrate
     python manage.py collectstatic --noinput
     python manage.py serve --host 127.0.0.1 --port 8000
-Відкрити http://127.0.0.1:8000/. Команда `serve` не вмикає autoreload і за замовчуванням слухає лише loopback, а не всю мережу. Для production задайте `DJANGO_DEBUG=0`, `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,[::1]` та публічний ключ видавця `AUTOZAPAZ_LICENSE_PUBLIC_KEY`. Не відкривайте SQLite-інсталяцію в LAN: мережевий режим буде окремим етапом після PostgreSQL provisioning.
+Відкрити http://127.0.0.1:8000/. Команда `serve` не вмикає autoreload і за замовчуванням слухає лише loopback, а не всю мережу. Для production задайте `DJANGO_DEBUG=0`, `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,[::1]` та публічний ключ видавця `AUTOZAPAZ_LICENSE_PUBLIC_KEY`. Для звичайного локального HTTP secure cookies вимкнені; `AUTOZAPAZ_SECURE_COOKIES=1` задавайте лише за HTTPS reverse proxy. Не відкривайте SQLite-інсталяцію в LAN: мережевий режим буде окремим етапом після PostgreSQL provisioning.
 
 Для демонстраційних даних після налаштування можна виконати python manage.py load_demo_data. Стандартні демо-паролі не використовувати в реальному магазині.
 
