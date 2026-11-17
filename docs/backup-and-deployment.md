@@ -136,7 +136,7 @@ python manage.py restore_backup /шлях/до/backup-YYYYMMDD-HHMMSS.zip /шл�
 Поточна конфігурація зберігає дані поза директорією з кодом:
 - `AUTOZAPAZ_DATA_DIR` — каталог SQLite та медіафайлів. Якщо змінну не задано, використовується системний каталог користувацьких даних через platformdirs (Linux: `~/.local/share/AutoZapaz`; Windows: `%LOCALAPPDATA%\\AutoZapaz`).
 - `AUTOZAPAZ_BACKUP_DIR` — окремий каталог резервних копій; типовий шлях `<AUTOZAPAZ_DATA_DIR>/backups`.
-- `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS` і `AUTOZAPAZ_LICENSE_PUBLIC_KEY` задають production-конфігурацію.
+- `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS` і `AUTOZAPAZ_LICENSE_PUBLIC_KEY` задають production-конфігурацію. Локальний Waitress працює через HTTP loopback, тому secure cookies за замовчуванням вимкнені; `AUTOZAPAZ_SECURE_COOKIES=1` вмикайте лише за наявності HTTPS reverse proxy.
 - Статичні файли збираються в `staticfiles/` у каталозі релізу та віддаються WhiteNoise; локальний сервер запускається командою `python manage.py serve` через Waitress.
 
 ### Перенесення зі старого розміщення
