@@ -1,0 +1,34 @@
+[Unit]
+Description=AutoZapaz local CRM
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=autozapaz
+Group=autozapaz
+WorkingDirectory=/opt/autozapaz/app
+EnvironmentFile=/etc/autozapaz/autozapaz.env
+ExecStart=/opt/autozapaz/venv/bin/python /opt/autozapaz/app/manage.py serve --host 127.0.0.1 --port 8000 --threads 8
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+
+# Application code is read-only to the service. Only the persistent data
+# directory is writable; SQLite is deliberately not exposed to the LAN.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadOnlyPaths=/opt/autozapaz/app
+ReadWritePaths=/var/lib/autozapaz
+
+[Install]
+WantedBy=multi-user.target
