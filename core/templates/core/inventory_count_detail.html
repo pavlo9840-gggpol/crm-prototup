@@ -42,7 +42,7 @@
 {% else %}
 <div class="card" style="overflow:auto"><table style="width:100%">
 <thead><tr><th>Товар</th><th>Артикул</th><th class="n">Було</th><th class="n">Фактично</th><th class="n">Різниця</th></tr></thead>
-<tbody>{% for item in items %}<tr><td>{{ item.product.name }}</td><td>{{ item.product.sku }}</td><td class="n">{{ item.expected_quantity|floatformat:"-3" }}</td><td class="n">{{ item.counted_quantity|default:"—" }}</td><td class="n">{{ item.difference|default:"—" }}</td></tr>{% empty %}<tr><td colspan="5">Немає позицій.</td></tr>{% endfor %}</tbody></table></div>
+<tbody>{% for item in items %}<tr><td>{{ item.product.name }}</td><td>{{ item.product.sku }}</td><td class="n">{{ item.book_quantity_at_approval|default:item.expected_quantity|floatformat:"-3" }}</td><td class="n">{{ item.counted_quantity|default:"—" }}</td><td class="n">{{ item.difference|default:"—" }}</td></tr>{% empty %}<tr><td colspan="5">Немає позицій.</td></tr>{% endfor %}</tbody></table></div>
 <p class="muted">Затвердив: {{ count.approved_by|default:"—" }}. Рух товарів збережено в журналі.</p>
 {% endif %}
 {% endblock %}
