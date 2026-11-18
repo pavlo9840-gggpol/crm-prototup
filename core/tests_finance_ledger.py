@@ -195,6 +195,40 @@ class SettlementLedgerTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(self.Payment.objects.filter(purchase=other_purchase).count(), 0)
 
+    def test_customer_account_shows_customer_debt_and_payment_history(self):
+        self.Payment.objects.create(company=self.company, sale=self.sale,
+            amount=Decimal("200.00"), payment_method="bank", created_by=self.owner)
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("customer_account", args=[self.customer.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["account_totals"]["sales"], Decimal("1000.00"))
+        self.assertEqual(response.context["account_totals"]["checkout_paid"], Decimal("300.00"))
+        self.assertEqual(response.context["account_totals"]["later_paid"], Decimal("200.00"))
+        self.assertEqual(response.context["account_totals"]["debt"], Decimal("500.00"))
+        self.assertContains(response, "Картка")
+        self.assertContains(response, "Рахунок")
+
+    def test_supplier_account_shows_purchase_payments_and_outstanding_balance(self):
+        self.Payment.objects.create(company=self.company, purchase=self.purchase,
+            amount=Decimal("650.00"), payment_method="bank", created_by=self.owner)
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("supplier_account", args=[self.supplier.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["account_totals"]["purchases"], Decimal("2000.00"))
+        self.assertEqual(response.context["account_totals"]["paid"], Decimal("650.00"))
+        self.assertEqual(response.context["account_totals"]["debt"], Decimal("1350.00"))
+        self.assertContains(response, "Постачальник")
+
+    def test_customer_and_supplier_accounts_are_company_isolated(self):
+        other_owner = get_user_model().objects.create_superuser(username="foreign-account-owner", email="", password="secret")
+        other_company = create_test_company(other_owner, "Foreign account", [])
+        from core.models import Customer, Supplier
+        foreign_customer = Customer.objects.create(company=other_company, name="Чужий клієнт", phone="0509999991")
+        foreign_supplier = Supplier.objects.create(company=other_company, name="Чужий постачальник")
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get(reverse("customer_account", args=[foreign_customer.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("supplier_account", args=[foreign_supplier.pk])).status_code, 404)
+
     def test_model_rejects_payment_linked_to_foreign_company_document(self):
         other_owner = get_user_model().objects.create_superuser(
             username="foreign-settlement-owner", email="", password="secret"
