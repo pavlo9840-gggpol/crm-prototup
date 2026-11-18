@@ -72,22 +72,23 @@ const sp=(c,p,rl)=>{let x=c*(1+p/100);if(rl){if(rl.mm>0)x=Math.max(x,c/(1-rl.mm/
 function reprice(){cart.forEach(l=>{if(l.si&&!l.manual){l.pct=pctFor(l.rl);l.price=sp(l.cost,l.pct,l.rl)}})}
 const total=()=>cart.reduce((s,l)=>s+Math.round(l.qty*l.price*100),0)/100;
 function render(){let n=0;$('cart').querySelector('tbody').innerHTML=cart.map((l,i)=>{n+=l.qty;
+const sn=l.tm==="serial"?`<br><label class="muted">Серійний № / IMEI <input autocomplete="off" data-i="${i}" data-f="serial_number" value="${esc(l.serial_number||"")}" placeholder="Скануйте або введіть номер"></label>`:"";
 const mg=l.cost>0&&l.price>0?`<br><span class="mg ${l.price<l.cost?'bad':''}">закуп ${money(l.cost)} · маржа ${money((l.price-l.cost)*l.qty)} ₴ (${Math.round((l.price-l.cost)/l.price*100)}%)</span>`:'';
 const tier=l.si?`<br><select data-i="${i}" data-f="tier"><option value="">${l.manual?'своя ціна':'націнка…'}</option>${init.tiers.map(t=>`<option value="${t.pct}" ${(!l.manual&&Math.abs(t.pct-l.pct)<0.005)?'selected':''}>${esc(t.name)} +${t.pct}%</option>`).join('')}</select>`:'';
 const sup=l.si?`<br><span class="sup">📦 під замовлення · ${esc(l.sup)}${l.avail!=null?' · у пост. '+l.avail:''}</span>`:'';
-return `<tr class="${l.key===lastId?'last':''}"><td>${esc(l.name)}${sup}${mg}<td class="n">${l.allow?`<input type="number" step="0.01" data-i="${i}" data-f="price" value="${l.price}">`:money(l.price)}${tier}
-<td class="n"><span class="qb"><button data-dec="${i}">−</button><input type="number" step="0.001" min="0" data-i="${i}" data-f="qty" value="${l.qty}"><button data-inc="${i}">+</button></span>
+return `<tr class="${l.key===lastId?'last':''}"><td>${esc(l.name)}${sup}${sn}${mg}<td class="n">${l.allow?`<input type="number" step="0.01" data-i="${i}" data-f="price" value="${l.price}">`:money(l.price)}${tier}
+<td class="n"><span class="qb"><button data-dec="${i}">−</button><input type="number" step="0.001" min="0" data-i="${i}" data-f="qty" value="${l.qty}" ${l.tm==="serial"?"disabled":""}><button data-inc="${i}">+</button></span>
 <td class="n">${money(l.qty*l.price)}<td><button class="btn red sm" data-del="${i}">×</button></tr>`}).join('')||'<tr><td colspan="5" style="color:var(--mute);text-align:center;padding:30px">Чек порожній — скануйте товар або натисніть плитку</td></tr>';
 $('total').textContent=money(total());$('cnt').textContent=+n.toFixed(3);$('cust').textContent=customer?customer.name+(customer.pct?' (+'+customer.pct+'%)':''):'Роздрібний покупець';renderCar();
 $('drw').textContent=drawer==null?'—':money(drawer)}
 const cb=$('cart').querySelector('tbody');
 cb.addEventListener('change',e=>{const i=e.target.dataset.i;if(i===undefined)return;const l=cart[i],f=e.target.dataset.f;
 if(f==='tier'){if(e.target.value!==''){l.pct=+e.target.value;l.price=sp(l.cost,l.pct,l.rl);l.manual=true}render();return}
-l[f]=Math.max(0,+e.target.value||0);if(f==='price'&&l.si){l.manual=true;l.pct=l.cost?Math.round((l.price/l.cost-1)*10000)/100:0}render()});
+if(f==='serial_number'){l.serial_number=e.target.value.trim();return}l[f]=Math.max(0,+e.target.value||0);if(f==='price'&&l.si){l.manual=true;l.pct=l.cost?Math.round((l.price/l.cost-1)*10000)/100:0}render()});
 cb.addEventListener('click',e=>{const t=e.target,d=t.dataset;if(d.del!==undefined)cart.splice(+d.del,1);else if(d.inc!==undefined)cart[+d.inc].qty=+(cart[+d.inc].qty+1).toFixed(3);
 else if(d.dec!==undefined){const l=cart[+d.dec];l.qty=+(l.qty-1).toFixed(3);if(l.qty<=0)cart.splice(+d.dec,1)}else return;render()});
-function add(p,q){q=q||1;let l=cart.find(x=>x.key==='p'+p.id);
-if(l)l.qty=+(l.qty+q).toFixed(3);else cart.push({key:'p'+p.id,id:p.id,name:(p.br?p.br+' ':'')+(p.n||p.name),price:p.p,orig:p.p,allow:p.a,unit:p.u,qty:q,cost:p.k||0});
+let serialLine=0;function add(p,q){q=q||1;if(p.tm==='serial'&&q!==1){toast('Серійний товар додається по одній одиниці');return}let l=p.tm==='serial'?null:cart.find(x=>x.key==='p'+p.id);
+if(l)l.qty=+(l.qty+q).toFixed(3);else cart.push({key:'p'+p.id+(p.tm==='serial'?'_'+(++serialLine):''),id:p.id,tm:p.tm||'none',serial_number:'',name:(p.br?p.br+' ':'')+(p.n||p.name),price:p.p,orig:p.p,allow:p.a,unit:p.u,qty:q,cost:p.k||0});
 if(p.st!==undefined&&p.st<=0)toast('⚠ Залишок '+p.st);else if(l&&p.st!==undefined&&l.qty>p.st)toast('⚠ Залишок лише '+p.st);
 lastId='p'+p.id;beep();$('q').value='';hideS();render();
 if(p.u&&p.u!=='шт'&&q===1){const el=cb.querySelector('tr.last input[data-f=qty]');if(el){el.focus();el.select();return}}
@@ -131,7 +132,7 @@ $('newcar').onclick=async()=>{if(!customer)return;const plate=prompt('Держн
 const [make,...rest]=mm.split(/\s+/);const year=prompt('Рік випуску (можна пропустити)')||'';const[ok,d]=await post('/pos/car/new/',{customer_id:customer.id,plate,make:make||'',model:rest.join(' '),year});
 if(ok){customer.cars=[d,...(customer.cars||[])];car=d;renderCar()}else toast(d.error||'Не вдалося додати авто')};
 $('newc').onclick=async()=>{const name=prompt("Ім'я клієнта");if(!name)return;const phone=prompt('Телефон');if(!phone)return;const[ok,d]=await post('/pos/customer/new/',{name,phone});if(ok){customer=d;car=null;reprice();render()}else $('msg').textContent=d.error};
-const base=()=>({items:cart.map(l=>({id:l.id,si:l.si||null,qty:l.qty,price:l.price})),customer_id:customer?customer.id:null,car_id:car?car.id:null,resume_id:init.resume_id});
+const base=()=>({items:cart.map(l=>({id:l.id,si:l.si||null,qty:l.qty,price:l.price,serial_number:l.serial_number||''})),customer_id:customer?customer.id:null,car_id:car?car.id:null,resume_id:init.resume_id});
 function reset(){cart=[];customer=null;car=null;init.resume_id=null;lastId=null;render();$('q').focus()}
 $('hold').onclick=async()=>{if(!cart.length)return;const[ok,d]=await post('/pos/hold/',Object.assign(base(),{payment:'cash'}));if(ok){toast('Чек відкладено');reset()}else $('msg').textContent=d.error};
 $('clear').onclick=()=>{if(cart.length&&confirm('Скасувати поточний чек?'))reset()};
