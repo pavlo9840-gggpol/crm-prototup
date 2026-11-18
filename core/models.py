@@ -480,6 +480,7 @@ class InventoryCountItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="inventory_count_items")
     expected_quantity = models.DecimalField(max_digits=14, decimal_places=3)
     counted_quantity = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    book_quantity_at_approval = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
     counted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -493,7 +494,8 @@ class InventoryCountItem(models.Model):
     def difference(self):
         if self.counted_quantity is None:
             return None
-        return self.counted_quantity - self.expected_quantity
+        baseline = self.book_quantity_at_approval if self.book_quantity_at_approval is not None else self.expected_quantity
+        return self.counted_quantity - baseline
 
 
 class StockMovement(models.Model):
