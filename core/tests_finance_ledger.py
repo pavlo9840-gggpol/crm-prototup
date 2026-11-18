@@ -59,3 +59,52 @@ class FinanceLedgerTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "999.00")
         self.assertEqual(response.context["income"], Decimal("0.00"))
+
+
+    def test_voided_entry_remains_auditable_but_is_excluded_from_totals(self):
+        entry = FinanceEntry.objects.create(
+            company=self.company, entry_type="expense", category="Оренда",
+            amount=Decimal("700.00"), payment_method="cash", created_by=self.owner,
+        )
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("finance_entry_void", args=[entry.pk]), {
+            "reason": "Помилково внесено",
+        })
+        self.assertEqual(response.status_code, 302)
+        entry.refresh_from_db()
+        self.assertTrue(entry.is_void)
+        self.assertEqual(entry.void_reason, "Помилково внесено")
+        self.assertEqual(entry.voided_by, self.owner)
+        self.assertIsNotNone(entry.voided_at)
+
+        ledger = self.client.get(reverse("finance_ledger"))
+        self.assertEqual(ledger.context["expense"], Decimal("0.00"))
+        self.assertContains(ledger, "Помилково внесено")
+        self.assertEqual(FinanceEntry.objects.filter(company=self.company).count(), 1)
+
+    def test_cannot_void_entry_from_another_company_or_void_twice(self):
+        other_owner = get_user_model().objects.create_superuser(
+            username="foreign-finance-owner", email="", password="secret"
+        )
+        other_company = create_test_company(other_owner, "Foreign finance", [])
+        foreign = FinanceEntry.objects.create(
+            company=other_company, entry_type="income", category="Other",
+            amount=Decimal("50.00"), payment_method="bank", created_by=other_owner,
+        )
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("finance_entry_void", args=[foreign.pk]), {
+            "reason": "Not mine",
+        })
+        self.assertEqual(response.status_code, 302)
+        foreign.refresh_from_db()
+        self.assertFalse(foreign.is_void)
+
+        own = FinanceEntry.objects.create(
+            company=self.company, entry_type="income", category="Other",
+            amount=Decimal("50.00"), payment_method="bank", created_by=self.owner,
+        )
+        url = reverse("finance_entry_void", args=[own.pk])
+        self.client.post(url, {"reason": "Correction"})
+        self.client.post(url, {"reason": "Second attempt"})
+        own.refresh_from_db()
+        self.assertEqual(own.void_reason, "Correction")
