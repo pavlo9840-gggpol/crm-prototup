@@ -58,10 +58,16 @@ PATH_FEATURES = (
     ("/shipments/", "nova_poshta"),
     ("/service/", "service_workshop"),
 )
+# Тимчасово вимкнені модулі не можна активувати навіть окремим доповненням ліцензії.
+# Код і міграції СТО залишаються в репозиторії для подальшого безпечного доопрацювання.
+TEMPORARILY_DISABLED_FEATURES = frozenset({"service_workshop"})
+
+
 def enabled_features(claims):
     if not claims:
         return frozenset()
-    return PLAN_FEATURES.get(claims.get("plan"), frozenset()) | frozenset(claims.get("features", ()))
+    features = PLAN_FEATURES.get(claims.get("plan"), frozenset()) | frozenset(claims.get("features", ()))
+    return features - TEMPORARILY_DISABLED_FEATURES
 def feature_is_enabled(claims, feature):
     return feature in enabled_features(claims)
 def feature_for_path(path):
