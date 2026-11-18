@@ -1,6 +1,7 @@
 {% extends "core/base.html" %}
 {% block content %}
 <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+  <a class="btn" href="{% url 'inventory_count_print' count.pk %}" target="_blank" rel="noopener">Друк відомості</a>
   <div><h2>{{ count.number }} — інвентаризація</h2><p class="muted">Створено {{ count.created_at|date:"d.m.Y H:i" }} · {{ count.created_by }}{% if count.note %} · {{ count.note }}{% endif %}</p></div>
   {% if count.status == "approved" %}<span class="badge green">Затверджено {{ count.approved_at|date:"d.m.Y H:i" }}</span>{% else %}<span class="badge gray">Чернетка</span>{% endif %}
 </div>
