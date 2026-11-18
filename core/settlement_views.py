@@ -93,7 +93,8 @@ def settlements_home(request):
             customer_total += balance
             customer_rows.append({"document": document, "balance": balance, "party": document.customer})
     payments = SettlementPayment.objects.filter(company=request.company).select_related(
-        "sale__customer", "purchase__supplier", "created_by", "voided_by"
+        "sale__customer", "purchase__supplier", "created_by", "voided_by",
+        "cash_operation__shift", "reversal_operation",
     )[:200]
     return render(request, "core/settlements.html", {
         "supplier_rows": supplier_rows, "customer_rows": customer_rows,
