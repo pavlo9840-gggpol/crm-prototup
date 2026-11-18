@@ -21,7 +21,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit)
+                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -812,6 +812,124 @@ def inventory_adjust(request):
         except StockError as e:
             messages.error(request, str(e))
     return render(request, "core/form.html", {"form": form, "title": "Коригування запасів", "back": "inventory"})
+
+
+@login_required
+@company_required
+@tenant_staff_only
+def inventory_count_list(request):
+    counts = InventoryCount.objects.filter(company=request.company).select_related("created_by", "approved_by")
+    return render(request, "core/inventory_count_list.html", {"counts": counts[:200]})
+
+
+@login_required
+@company_required
+@tenant_staff_only
+@require_POST
+def inventory_count_new(request):
+    from django.db import transaction as db_transaction
+    with db_transaction.atomic():
+        count = InventoryCount.objects.create(
+            company=request.company,
+            created_by=request.user,
+            note=(request.POST.get("note") or "").strip()[:2000],
+        )
+        products = Product.objects.filter(
+            company=request.company, is_active=True, product_kind="goods", tracking_mode="none"
+        ).order_by("pk")
+        InventoryCountItem.objects.bulk_create([
+            InventoryCountItem(
+                company=request.company, inventory_count=count, product=product,
+                expected_quantity=product.current_stock,
+            ) for product in products.iterator()
+        ], batch_size=500)
+    messages.success(request, f"Створено {count.number}. До документа додано товари зі звичайним складським обліком.")
+    return redirect("inventory_count_detail", pk=count.pk)
+
+
+@login_required
+@company_required
+@tenant_staff_only
+def inventory_count_detail(request, pk):
+    count = get_object_or_404(
+        InventoryCount.objects.select_related("created_by", "approved_by"),
+        pk=pk, company=request.company,
+    )
+    if request.method == "POST":
+        if count.status != InventoryCount.DRAFT:
+            messages.error(request, "Затверджений документ доступний лише для перегляду.")
+            return redirect("inventory_count_detail", pk=count.pk)
+        if request.POST.get("action") == "approve":
+            try:
+                services.approve_inventory_count(request.user, count, request.company)
+                messages.success(request, f"Інвентаризацію {count.number} затверджено. Різниці записані в рух товарів.")
+                return redirect("inventory_count_detail", pk=count.pk)
+            except StockError as exc:
+                messages.error(request, str(exc))
+        else:
+            items = InventoryCountItem.objects.filter(inventory_count=count, company=request.company).select_related("product")
+            updates = []
+            for item in items:
+                key = f"counted_{item.pk}"
+                if key not in request.POST:
+                    continue
+                raw = (request.POST.get(key) or "").strip().replace(",", ".")
+                if not raw:
+                    item.counted_quantity = None
+                    item.counted_at = None
+                else:
+                    value = dec(raw)
+                    if value is None or value < 0 or value > Decimal("99999999999.999"):
+                        messages.error(request, f"Некоректна кількість для товару «{item.product.name}».")
+                        return redirect("inventory_count_detail", pk=count.pk)
+                    item.counted_quantity = value
+                    item.counted_at = timezone.now()
+                updates.append(item)
+            if updates:
+                InventoryCountItem.objects.bulk_update(updates, ["counted_quantity", "counted_at"])
+            barcode = (request.POST.get("barcode") or "").strip()
+            if barcode:
+                product = Product.objects.filter(company=request.company).filter(
+                    Q(barcode=barcode) | Q(extra_barcodes__barcode=barcode)
+                ).distinct().first()
+                if not product:
+                    messages.error(request, f"Штрих-код «{barcode}» не знайдено.")
+                else:
+                    item = InventoryCountItem.objects.filter(
+                        inventory_count=count, company=request.company, product=product
+                    ).first()
+                    if not item:
+                        messages.error(request, f"Товар «{product.name}» не входить до цього документа. Перевірте тип складського обліку.")
+                    else:
+                        item.counted_quantity = (item.counted_quantity or Decimal("0")) + Decimal("1")
+                        item.counted_at = timezone.now()
+                        item.save(update_fields=["counted_quantity", "counted_at"])
+                        messages.success(request, f"{product.name}: зафіксовано {item.counted_quantity}.")
+            else:
+                messages.success(request, "Підраховані кількості збережено.")
+        return redirect("inventory_count_detail", pk=count.pk)
+
+    items = InventoryCountItem.objects.filter(
+        inventory_count=count, company=request.company
+    ).select_related("product")
+    q = request.GET.get("q", "").strip()
+    status = request.GET.get("status", "all")
+    if q:
+        items = items.filter(
+            Q(product__name__icontains=q) | Q(product__sku__icontains=q)
+            | Q(product__barcode__icontains=q) | Q(product__extra_barcodes__barcode__icontains=q)
+        ).distinct()
+    if status == "counted":
+        items = items.filter(counted_quantity__isnull=False)
+    elif status == "pending":
+        items = items.filter(counted_quantity__isnull=True)
+    summary = InventoryCountItem.objects.filter(inventory_count=count, company=request.company).aggregate(
+        total=Count("pk"), counted=Count("pk", filter=Q(counted_quantity__isnull=False)),
+        difference=Sum(F("counted_quantity") - F("expected_quantity")),
+    )
+    return render(request, "core/inventory_count_detail.html", {
+        "count": count, "items": items[:1000], "q": q, "status": status, "summary": summary,
+    })
 
 
 @login_required
