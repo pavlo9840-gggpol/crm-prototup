@@ -19,7 +19,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import cash as cashlib, pricing, services
-from .forms import AdjustForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
+from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
                      Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode)
 from .models import norm_plate, norm_sku
@@ -1093,6 +1093,19 @@ def drawer_view(request):
 @tenant_staff_only
 def settings_home(request):
     return redirect("designer_home")
+
+
+@login_required
+@company_required
+@tenant_staff_only
+def business_profile(request):
+    company = request.company
+    form = BusinessProfileForm(request.POST or None, instance=company)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Профіль магазину оновлено. Товари, залишки та історія не змінювалися.")
+        return redirect("business_profile")
+    return render(request, "core/business_profile.html", {"form": form, "company": company})
 
 
 @login_required
