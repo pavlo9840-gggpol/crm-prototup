@@ -1,0 +1,13 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>Профіль магазину</h2>
+<div class="card" style="max-width:760px">
+  <p>Оберіть тип бізнесу. Це налаштування визначає, які спеціалізовані розділи відображаються в меню.</p>
+  <div class="msg warning"><b>Важливо:</b> зміна профілю не видаляє товари, залишки, документи, клієнтів або автомобільні дані. Вони залишаються в базі. Частина спеціалізованих розділів може зникнути з меню, але дані збережуться.</div>
+  <form method="post">{% csrf_token %}
+    <div class="fld"><label for="id_business_type">Тип бізнесу</label>{{ form.business_type }}{{ form.business_type.errors }}</div>
+    <button class="btn" type="submit">Зберегти профіль</button>
+    <a class="btn gray" href="{% url 'settings_home' %}">Скасувати</a>
+  </form>
+</div>
+{% endblock %}
