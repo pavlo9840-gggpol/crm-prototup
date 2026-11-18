@@ -126,6 +126,8 @@ class ProductForm(forms.ModelForm):
                 self.add_error("tracking_mode", "Перед увімкненням серійного обліку обнуліть старий залишок або проведіть його інвентаризацію з реєстрацією кожного номера.")
             if old_tracking == "serial" and new_tracking != "serial" and self.instance.serial_units.filter(status="in_stock").exists():
                 self.add_error("tracking_mode", "Не можна вимкнути серійний облік, поки є зареєстровані серійні одиниці на складі.")
+        if d.get("tracking_mode") == "serial" and (d.get("initial_stock") or 0) > 0:
+            self.add_error("initial_stock", "Для серійного товару початковий залишок не задається числом. Зареєструйте кожен номер через накладну надходження.")
         if d.get("product_kind") == "service" and d.get("tracking_mode") in {"batch", "expiry", "serial"}:
             self.add_error("tracking_mode", "Для послуги складський партійний або серійний облік не застосовується.")
         condition, defect, description = d.get("condition"), d.get("has_defect"), (d.get("condition_description") or "").strip()
