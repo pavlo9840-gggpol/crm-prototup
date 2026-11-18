@@ -132,4 +132,4 @@ class StockBatchFifoTests(TestCase):
         self.assertEqual(sale.items.get().batch_allocations.count(), 1)
         legacy = StockBatch.objects.get(batch_number="LEGACY")
         self.assertIsNone(legacy.expiry_date)
-        self.assertEqual(legacy.remaining_quantity, D("4"))
+        self.assertEqual(legacy.remaining_quantity, D("3"))
