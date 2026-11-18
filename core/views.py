@@ -947,6 +947,19 @@ def inventory_count_detail(request, pk):
 @login_required
 @company_required
 @tenant_staff_only
+def inventory_count_print(request, pk):
+    count = get_object_or_404(InventoryCount, pk=pk, company=request.company)
+    items = InventoryCountItem.objects.filter(
+        inventory_count=count, company=request.company
+    ).select_related("product")
+    return render(request, "core/inventory_count_print.html", {
+        "count": count, "items": items, "printed_at": timezone.now(),
+    })
+
+
+@login_required
+@company_required
+@tenant_staff_only
 def stock_batches(request):
     today = timezone.localdate()
     qs = StockBatch.objects.select_related("product", "purchase_item__purchase").filter(
