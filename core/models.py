@@ -1273,3 +1273,41 @@ class LicenseWorkstationSession(models.Model):
 
     def __str__(self):
         return f"{self.user} · {self.last_seen:%d.%m.%Y %H:%M}"
+
+
+class FinanceEntry(models.Model):
+    """Ручний облік операційних доходів і витрат магазину.
+
+    Не є фіскальним чеком і не змінює касову шухляду: фізичний рух готівки
+    залишається в CashOperation, а цей запис формує управлінський фінансовий журнал.
+    """
+    INCOME, EXPENSE = "income", "expense"
+    TYPES = [(INCOME, "Дохід"), (EXPENSE, "Витрата")]
+    PAYMENT_METHODS = [
+        ("cash", "Готівка"),
+        ("card", "Картка"),
+        ("bank", "Банківський рахунок"),
+    ]
+
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="finance_entries")
+    entry_type = models.CharField("Тип операції", max_length=10, choices=TYPES, db_index=True)
+    category = models.CharField("Категорія", max_length=80)
+    amount = models.DecimalField("Сума", max_digits=14, decimal_places=2)
+    payment_method = models.CharField("Спосіб оплати", max_length=10, choices=PAYMENT_METHODS, default="cash")
+    description = models.CharField("Опис", max_length=250, blank=True)
+    document_ref = models.CharField("Номер документа", max_length=80, blank=True)
+    created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="finance_entries")
+    created_at = models.DateTimeField("Дата створення", auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["company", "created_at"], name="finance_company_date_idx"),
+            models.Index(fields=["company", "entry_type", "created_at"], name="finance_company_type_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="finance_entry_amount_positive"),
+        ]
+
+    def __str__(self):
+        return f"{self.get_entry_type_display()}: {self.amount} ₴ · {self.category}"
