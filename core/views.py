@@ -21,7 +21,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode)
+                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -811,6 +811,42 @@ def inventory_adjust(request):
         except StockError as e:
             messages.error(request, str(e))
     return render(request, "core/form.html", {"form": form, "title": "Коригування запасів", "back": "inventory"})
+
+
+@login_required
+@company_required
+@tenant_staff_only
+def stock_batches(request):
+    today = timezone.localdate()
+    qs = StockBatch.objects.select_related("product", "purchase_item__purchase").filter(
+        company=request.company, remaining_quantity__gt=0
+    )
+    q = request.GET.get("q", "").strip()
+    if q:
+        qs = qs.filter(Q(product__name__icontains=q) | Q(product__sku__icontains=q) | Q(batch_number__icontains=q))
+    status = request.GET.get("status", "all")
+    if status == "expired":
+        qs = qs.filter(expiry_date__lt=today)
+    elif status == "soon":
+        qs = qs.filter(expiry_date__gte=today, expiry_date__lte=today + timedelta(days=30))
+    elif status == "unknown":
+        qs = qs.filter(expiry_date__isnull=True)
+    batches = []
+    for batch in qs.order_by(F("expiry_date").asc(nulls_last=True), "received_at", "pk")[:500]:
+        days_left = (batch.expiry_date - today).days if batch.expiry_date else None
+        batches.append({"batch": batch, "days_left": days_left,
+                        "state": "expired" if days_left is not None and days_left < 0 else
+                                 "soon" if days_left is not None and days_left <= 30 else
+                                 "unknown" if days_left is None else "ok"})
+    counts = {
+        "expired": StockBatch.objects.filter(company=request.company, remaining_quantity__gt=0, expiry_date__lt=today).count(),
+        "soon": StockBatch.objects.filter(company=request.company, remaining_quantity__gt=0,
+            expiry_date__gte=today, expiry_date__lte=today + timedelta(days=30)).count(),
+        "unknown": StockBatch.objects.filter(company=request.company, remaining_quantity__gt=0, expiry_date__isnull=True).count(),
+    }
+    return render(request, "core/stock_batches.html", {
+        "batches": batches, "counts": counts, "status": status, "q": q,
+    })
 
 
 @login_required
