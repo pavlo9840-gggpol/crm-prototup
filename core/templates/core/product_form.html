@@ -38,7 +38,8 @@ details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more
 <div class="card"><div class="sec"><i>3</i><h3>Склад</h3></div>
  <div class="frow">{% if form.initial_stock %}<div class="fld"><label for="id_initial_stock">Початковий залишок</label>{{ form.initial_stock }}{{ form.initial_stock.errors }}</div>{% endif %}
  <div class="fld"><label for="id_min_stock">Мінімальний залишок</label>{{ form.min_stock }}{{ form.min_stock.errors }}<span class="helptext">Нижче цього числа товар вважається «закінчується»</span></div>
- <div class="fld"><label for="id_barcode">Штрих-код</label>{{ form.barcode }}{{ form.barcode.errors }}<span class="helptext">Необов'язково. Можна відсканувати.</span></div></div>
+ <div class="fld"><label for="id_barcode">Штрих-код</label>{{ form.barcode }}{{ form.barcode.errors }}<span class="helptext">Необов'язково. Основний код товару для сканера.</span></div></div>
+ <div class="fld"><label for="id_additional_barcodes">Додаткові штрих-коди</label>{{ form.additional_barcodes }}{{ form.additional_barcodes.errors }}{{ form.additional_barcodes.help_text }}</div>
  <div class="frow"><div class="fld"><label for="id_weight_kg">Вага, кг</label>{{ form.weight_kg }}{{ form.weight_kg.errors }}</div><div class="fld"><label for="id_length_cm">Довжина, см</label>{{ form.length_cm }}{{ form.length_cm.errors }}</div><div class="fld"><label for="id_width_cm">Ширина, см</label>{{ form.width_cm }}{{ form.width_cm.errors }}</div><div class="fld"><label for="id_height_cm">Висота, см</label>{{ form.height_cm }}{{ form.height_cm.errors }}</div></div>
 <div class="fld"><label for="id_photo">Завантажити фото з комп'ютера</label>{{ form.photo }}{{ form.photo.errors }}</div>
  <div class="fld"><label for="id_photo_url">Або посилання на фото (HTTPS)</label>{{ form.photo_url }}{{ form.photo_url.errors }}<span class="helptext">Використовуйте пряме посилання на зображення.</span></div>
