@@ -11,6 +11,8 @@
 <div class="card"><small>Повернення</small><h3>{{ account_totals.returned|floatformat:2 }} ₴</h3></div>
 <div class="card"><small>Поточний борг</small><h3>{{ account_totals.debt|floatformat:2 }} ₴</h3></div>
 </div>
+<div class="card"><h3>Аванси клієнта</h3><p>Невикористаний залишок: <b>{{ account_totals.advance_balance|floatformat:2 }} ₴</b></p><a class="btn green" href="{% url 'advance_new' 'customer' c.pk %}">＋ Прийняти аванс</a>
+<table><tr><th>Дата</th><th>Початкова сума</th><th>Залишок</th><th>Спосіб</th><th>Статус</th></tr>{% for adv in account_advances %}<tr><td>{{ adv.created_at|date:"d.m.Y H:i" }}</td><td>{{ adv.amount|floatformat:2 }} ₴</td><td>{{ adv.remaining|floatformat:2 }} ₴</td><td>{{ adv.get_payment_method_display }}</td><td>{% if adv.is_void %}Скасовано: {{ adv.void_reason }}{% else %}Активний{% endif %}</td></tr>{% empty %}<tr><td colspan="5">Авансів ще немає.</td></tr>{% endfor %}</table></div>
 <h3>Історія покупок та залишок за кожним чеком</h3>
 {% for row in sale_rows %}<div class="card"><b><a href="{% url 'sale_detail' row.document.pk %}">{{ row.document.number }}</a></b> · {{ row.document.created_at|date:"d.m.Y H:i" }} · {{ row.document.total|floatformat:2 }} ₴{% if row.document.car %} · 🚗 {{ row.document.car.title }}{% endif %}<br>
 Оплачено: {{ row.document.cash_amount|add:row.document.card_amount|add:row.paid_later|floatformat:2 }} ₴ · Повернено: {{ row.returned|floatformat:2 }} ₴ · <b>Борг: {{ row.balance|floatformat:2 }} ₴</b><br>
