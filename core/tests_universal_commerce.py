@@ -158,7 +158,7 @@ class UniversalProductFieldsTests(TestCase):
     def test_product_form_saves_extra_barcodes_and_pos_finds_them_exactly(self):
         form = ProductForm({
             "name": "Чай чорний", "sku": "TEA-002", "barcode": "4820000000200",
-            "additional_barcodes": "4820000000201\\n4820000000202",
+            "additional_barcodes": "4820000000201\n4820000000202",
             "unit": "шт", "condition": "new", "cost_price": "20", "price": "30", "min_stock": "0",
         }, company=self.company)
         self.assertTrue(form.is_valid(), form.errors)
