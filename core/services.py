@@ -596,13 +596,19 @@ def approve_inventory_count(user, inventory_count, company):
             raise StockError(f"Товар «{product.name}» використовує спеціальний облік. Його не можна коригувати загальною інвентаризацією.")
         if item.counted_quantity < 0:
             raise StockError(f"Фактична кількість товару «{product.name}» не може бути від'ємною.")
-        delta = item.counted_quantity - item.expected_quantity
+        later_movements = StockMovement.objects.filter(
+            company=company, product=product, created_at__gt=count.created_at
+        ).aggregate(total=models.Sum("quantity_change"))["total"] or D0
+        book_quantity = item.expected_quantity + later_movements
+        item.book_quantity_at_approval = book_quantity
+        delta = item.counted_quantity - book_quantity
         if delta:
             movement_type = "surplus" if delta > 0 else "shortage"
             add_movement(
                 product, delta, movement_type, count.number, user,
-                note=f"Інвентаризація {count.number}: {item.expected_quantity} → {item.counted_quantity}",
+                note=f"Інвентаризація {count.number}: облік {book_quantity} → факт {item.counted_quantity}",
             )
+    InventoryCountItem.objects.bulk_update(items, ["book_quantity_at_approval"])
     count.status = InventoryCount.APPROVED
     count.approved_by = user
     count.approved_at = timezone.now()
