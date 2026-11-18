@@ -130,3 +130,60 @@ def settlement_payment_void(request, pk):
         payment.save(update_fields=["is_void", "voided_at", "voided_by", "void_reason"])
     messages.success(request, "Оплату скасовано; запис залишився в історії.")
     return redirect("settlements_home")
+
+
+@tenant_staff_only
+@company_required
+def customer_account(request, pk):
+    from .models import Customer
+
+    customer = get_object_or_404(Customer.objects.filter(company=request.company), pk=pk)
+    sales = customer.sales.filter(company=request.company, status=Sale.DONE).select_related(
+        "cashier", "car"
+    ).prefetch_related("items__product", "settlement_payments", "returns")
+    rows = []
+    totals = {"sales": D0, "checkout_paid": D0, "later_paid": D0, "returned": D0, "debt": D0}
+    for sale in sales:
+        later_paid = _paid_for(sale)
+        returned = sum((item.total for item in sale._prefetched_objects_cache.get("returns", [])), D0)
+        balance = _balance_for(sale)
+        totals["sales"] += sale.total
+        totals["checkout_paid"] += sale.cash_amount + sale.card_amount
+        totals["later_paid"] += later_paid
+        totals["returned"] += returned
+        totals["debt"] += balance
+        rows.append({"document": sale, "paid_later": later_paid, "returned": returned, "balance": balance})
+    payments = SettlementPayment.objects.filter(company=request.company, sale__customer=customer).select_related(
+        "sale", "created_by", "voided_by"
+    )[:200]
+    return render(request, "core/customer_detail.html", {
+        "c": customer, "sales": sales, "sale_rows": rows, "account_totals": totals,
+        "account_payments": payments,
+    })
+
+
+@tenant_staff_only
+@company_required
+def supplier_account(request, pk):
+    from .models import Supplier
+
+    supplier = get_object_or_404(Supplier.objects.filter(company=request.company), pk=pk)
+    purchases = supplier.purchase_set.filter(company=request.company).select_related(
+        "user"
+    ).prefetch_related("items__product", "settlement_payments")
+    rows = []
+    totals = {"purchases": D0, "paid": D0, "debt": D0}
+    for purchase in purchases:
+        paid = _paid_for(purchase)
+        balance = _balance_for(purchase)
+        totals["purchases"] += purchase.total
+        totals["paid"] += paid
+        totals["debt"] += balance
+        rows.append({"document": purchase, "paid": paid, "balance": balance})
+    payments = SettlementPayment.objects.filter(company=request.company, purchase__supplier=supplier).select_related(
+        "purchase", "created_by", "voided_by"
+    )[:200]
+    return render(request, "core/supplier_detail.html", {
+        "supplier": supplier, "purchase_rows": rows, "account_totals": totals,
+        "account_payments": payments,
+    })
