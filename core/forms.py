@@ -1,11 +1,14 @@
 from django import forms
-from .models import CompanySettings, Category, Customer, Product, StockAdjustment, Supplier, norm_sku
+from .models import CompanySettings, Category, Customer, Product, ProductBarcode, StockAdjustment, Supplier, norm_sku
 
 
 class ProductForm(forms.ModelForm):
     """Універсальна картка товару; бренд і артикул залишаються доступними для автозапчастин."""
     initial_stock = forms.DecimalField(label="Початковий залишок", required=False, min_value=0,
                                        max_digits=12, decimal_places=3)
+    additional_barcodes = forms.CharField(label="Додаткові штрих-коди", required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Кожен додатковий штрих-код з нового рядка"}),
+        help_text="Для упаковок або варіантів одного товару. Основний штрих-код вказується вище.")
     field_order = ["name", "sku", "barcode", "brand", "category", "unit", "product_kind", "tracking_mode", "tax_category", "condition", "has_defect", "condition_description", "cost_price", "price", "initial_stock", "min_stock", "weight_kg", "length_cm", "width_cm", "height_cm", "photo", "photo_url", "is_favorite", "allow_price_change", "is_active", "notes"]
 
     class Meta:
@@ -47,6 +50,49 @@ class ProductForm(forms.ModelForm):
 
     def clean_sku(self):
         return self.cleaned_data["sku"].strip()
+
+    def clean_additional_barcodes(self):
+        raw = self.cleaned_data.get("additional_barcodes") or ""
+        codes = []
+        seen = set()
+        for line in raw.splitlines():
+            code = line.strip()
+            if not code:
+                continue
+            if len(code) > 80:
+                raise forms.ValidationError("Штрих-код не може бути довшим за 80 символів.")
+            if code in seen:
+                raise forms.ValidationError(f"Штрих-код {code} повторюється у списку.")
+            seen.add(code)
+            codes.append(code)
+        primary = (self.cleaned_data.get("barcode") or "").strip()
+        if primary and primary in seen:
+            raise forms.ValidationError("Основний і додатковий штрих-коди мають відрізнятися.")
+        if self.company:
+            for code in codes:
+                primary_match = Product.objects.filter(company=self.company, barcode=code)
+                extra_match = ProductBarcode.objects.filter(company=self.company, barcode=code)
+                if self.instance.pk:
+                    primary_match = primary_match.exclude(pk=self.instance.pk)
+                    extra_match = extra_match.exclude(product_id=self.instance.pk)
+                if primary_match.exists() or extra_match.exists():
+                    raise forms.ValidationError(f"Штрих-код {code} уже закріплений за іншим товаром.")
+            if primary:
+                extra_match = ProductBarcode.objects.filter(company=self.company, barcode=primary)
+                if self.instance.pk:
+                    extra_match = extra_match.exclude(product_id=self.instance.pk)
+                if extra_match.exists():
+                    self.add_error("barcode", "Цей основний штрих-код уже використовується як додатковий для іншого товару.")
+        return codes
+
+    def sync_additional_barcodes(self, product):
+        desired = set(self.cleaned_data.get("additional_barcodes") or [])
+        existing = {row.barcode: row for row in product.extra_barcodes.all()}
+        for code, row in existing.items():
+            if code not in desired:
+                row.delete()
+        for code in desired - set(existing):
+            ProductBarcode.objects.create(company=product.company, product=product, barcode=code)
 
     def clean_photo_url(self):
         value = (self.cleaned_data.get("photo_url") or "").strip()
