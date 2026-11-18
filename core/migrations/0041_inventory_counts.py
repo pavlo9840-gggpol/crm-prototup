@@ -30,6 +30,7 @@ class Migration(migrations.Migration):
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("expected_quantity", models.DecimalField(decimal_places=3, max_digits=14)),
                 ("counted_quantity", models.DecimalField(blank=True, decimal_places=3, max_digits=14, null=True)),
+                ("book_quantity_at_approval", models.DecimalField(blank=True, decimal_places=3, max_digits=14, null=True)),
                 ("counted_at", models.DateTimeField(blank=True, null=True)),
                 ("company", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="+", to="core.company")),
                 ("inventory_count", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="items", to="core.inventorycount")),
