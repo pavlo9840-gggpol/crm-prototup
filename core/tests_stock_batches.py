@@ -69,6 +69,7 @@ class StockBatchFifoTests(TestCase):
         allocations = list(item.batch_allocations.select_related("batch").order_by("pk"))
         self.assertEqual([(a.batch.batch_number, a.quantity) for a in allocations],
                          [("EARLY", D("3")), ("LATE", D("1"))])
+        self.assertEqual(item.cost_price, D("21.00"))
         early = StockBatch.objects.get(batch_number="EARLY")
         late = StockBatch.objects.get(batch_number="LATE")
         self.assertEqual((early.remaining_quantity, late.remaining_quantity), (D("0"), D("4")))
