@@ -1428,6 +1428,10 @@ class SettlementPayment(models.Model):
         if self.payment_method == "advance":
             if not self.advance_id or self.advance.company_id != self.company_id:
                 raise ValueError("Для оплати з авансу потрібен аванс цього магазину.")
+            if self.sale_id and (self.advance.party_type != AccountAdvance.CUSTOMER or self.advance.customer_id != self.sale.customer_id):
+                raise ValueError("Аванс не належить клієнту цього продажу.")
+            if self.purchase_id and (self.advance.party_type != AccountAdvance.SUPPLIER or self.advance.supplier_id != self.purchase.supplier_id):
+                raise ValueError("Аванс не належить постачальнику цієї закупівлі.")
         elif self.advance_id:
             raise ValueError("Аванс можна прив'язати лише до оплати з авансу.")
         super().save(*args, **kwargs)
