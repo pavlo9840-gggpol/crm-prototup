@@ -1220,7 +1220,12 @@ def report_stock(request):
 def shift_summary(shift):
     qs = done_sales(shift.company).filter(shift=shift)
     a = qs.aggregate(t=Sum("total"), c=Sum("cash_amount"), k=Sum("card_amount"), ch=Sum("change_given"))
+    settlement_ops = shift.cash_ops.filter(
+        company=shift.company, detail__source__in=["settlement", "settlement_reversal"]
+    )
+    settlement_net = settlement_ops.aggregate(total=Sum("amount"))["total"] or D0
     return {"total": a["t"] or D0, "count": qs.count(), "cash": a["c"] or D0, "card": a["k"] or D0,
+            "settlement_net": settlement_net,
             "expected": cashlib.to_dec(cashlib.total(shift.drawer))}
 
 
