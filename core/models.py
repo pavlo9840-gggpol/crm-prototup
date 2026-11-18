@@ -1287,7 +1287,6 @@ class FinanceEntry(models.Model):
         ("cash", "Готівка"),
         ("card", "Картка"),
         ("bank", "Банківський рахунок"),
-        ("advance", "З авансу"),
     ]
 
     company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="finance_entries")
@@ -1373,6 +1372,7 @@ class SettlementPayment(models.Model):
         ("cash", "Готівка"),
         ("card", "Картка"),
         ("bank", "Банківський рахунок"),
+        ("advance", "З авансу"),
     ]
 
     company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="settlement_payments")
