@@ -1361,6 +1361,16 @@ class SettlementPayment(models.Model):
             ),
         ]
 
+    def save(self, *args, **kwargs):
+        if bool(self.sale_id) == bool(self.purchase_id):
+            raise ValueError("Оплата має бути прив'язана рівно до одного документа.")
+        document = self.sale if self.sale_id else self.purchase
+        if document.company_id != self.company_id:
+            raise ValueError("Документ оплати належить іншому магазину.")
+        if self.sale_id and not self.sale.customer_id:
+            raise ValueError("Для обліку боргу продаж має бути прив'язаний до клієнта.")
+        super().save(*args, **kwargs)
+
     def __str__(self):
         document = self.sale or self.purchase
         return f"{self.amount} ₴ · {document or 'документ'}"
