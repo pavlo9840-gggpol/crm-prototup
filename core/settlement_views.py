@@ -146,6 +146,10 @@ def settlement_payment_new(request, document_type, pk):
         amount = form.cleaned_data["amount"]
         payment_method = form.cleaned_data["payment_method"]
         advance = form.cleaned_data.get("advance")
+        if payment_method == "advance" and advance:
+            advance = AccountAdvance.objects.select_for_update().filter(
+                pk=advance.pk, company=request.company, is_void=False
+            ).first()
         shift = None
         cash_plan = None
         if balance <= 0:
@@ -312,6 +316,7 @@ def supplier_account(request, pk):
 
 @tenant_staff_only
 @company_required
+@transaction.atomic
 def advance_new(request, party_type, pk):
     if party_type == AccountAdvance.CUSTOMER:
         party = get_object_or_404(Customer.objects.filter(company=request.company), pk=pk)
