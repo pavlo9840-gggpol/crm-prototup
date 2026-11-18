@@ -27,13 +27,18 @@ class SettlementVoidForm(forms.Form):
 
 
 def _paid_for(document):
+    cached = getattr(document, "_prefetched_objects_cache", {}).get("settlement_payments")
+    if cached is not None:
+        return sum((payment.amount for payment in cached if not payment.is_void), D0)
     return document.settlement_payments.filter(company=document.company, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
 
 
 def _balance_for(document):
     if isinstance(document, Purchase):
         return max(D0, document.total - _paid_for(document))
-    returned = document.returns.filter(company=document.company).aggregate(total=Sum("total"))["total"] or D0
+    cached_returns = getattr(document, "_prefetched_objects_cache", {}).get("returns")
+    returned = (sum((item.total for item in cached_returns), D0) if cached_returns is not None
+                else document.returns.filter(company=document.company).aggregate(total=Sum("total"))["total"] or D0)
     already_paid = document.cash_amount + document.card_amount + _paid_for(document)
     return max(D0, document.total - returned - already_paid)
 
@@ -45,12 +50,12 @@ def settlements_home(request):
     sale_docs = Sale.objects.filter(company=request.company, status=Sale.DONE, customer__isnull=False).select_related("customer").prefetch_related("settlement_payments", "returns")
     supplier_rows, customer_rows = [], []
     supplier_total = customer_total = D0
-    for document in purchase_docs[:1000]:
+    for document in purchase_docs:
         balance = _balance_for(document)
         if balance > 0:
             supplier_total += balance
             supplier_rows.append({"document": document, "balance": balance, "party": document.supplier})
-    for document in sale_docs[:1000]:
+    for document in sale_docs:
         balance = _balance_for(document)
         if balance > 0:
             customer_total += balance
