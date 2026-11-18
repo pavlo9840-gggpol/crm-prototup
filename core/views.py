@@ -549,7 +549,7 @@ def _parse_cart(request):
             if price < 0:
                 price = p.price
         lines.append((p, q, price, {"serial_number": str(it.get("serial_number") or "").strip()} if p.tracking_mode == "serial" else None))
-    pay = d.get("payment") if d.get("payment") in ("cash", "card", "mixed") else "cash"
+    pay = d.get("payment") if d.get("payment") in ("cash", "card", "mixed", "credit") else "cash"
     held = None
     if d.get("resume_id"):
         held = company_queryset(Sale.objects.filter(status=Sale.HELD), request).filter(pk=d["resume_id"]).first()
@@ -567,7 +567,7 @@ def _payment_inputs(d):
     def kop(x):
         v = dec(x)
         return cashlib.to_kop(v) if v is not None else None
-    return d.get("payment") if d.get("payment") in ("cash", "card", "mixed") else "cash", \
+    return d.get("payment") if d.get("payment") in ("cash", "card", "mixed", "credit") else "cash", \
         kop(d.get("card")) or 0, kop(d.get("received")), d.get("counts") or {}
 
 
