@@ -12,7 +12,7 @@ class ProductForm(forms.ModelForm):
         model = Product
         fields = ["name", "sku", "barcode", "brand", "category", "unit", "product_kind", "tracking_mode", "tax_category", "condition", "has_defect", "condition_description", "cost_price", "price", "min_stock", "weight_kg", "length_cm", "width_cm", "height_cm", "photo", "photo_url", "is_favorite", "allow_price_change", "auto_price", "is_active", "notes"]
         labels = {"sku": "Артикул / внутрішній код", "barcode": "Штрих-код (необов'язково)"}
-        help_texts = {"brand": "Оберіть зі списку або введіть нового виробника. Бренд і артикул разом однозначно "
+        help_texts = {"brand": "Необов’язково. Для автозапчастин бренд і артикул разом однозначно "
                                "визначають товар: однаковий артикул у різних брендів — це різні товари.",
                       "barcode": "Для запчастин зазвичай не потрібен: товар шукають за артикулом."}
         widgets = {"brand": forms.TextInput(attrs={"list": "brand-list", "autocomplete": "off",
