@@ -1344,11 +1344,6 @@ class AccountAdvance(models.Model):
         constraints = [
             models.CheckConstraint(condition=Q(amount__gt=0), name="account_advance_amount_positive"),
             models.CheckConstraint(condition=Q(remaining__gte=0), name="account_advance_remaining_nonnegative"),
-            models.CheckConstraint(
-                condition=(Q(party_type="customer", customer__isnull=False, supplier__isnull=True) |
-                           Q(party_type="supplier", customer__isnull=True, supplier__isnull=False)),
-                name="account_advance_exactly_one_party",
-            ),
         ]
         indexes = [models.Index(fields=["company", "party_type", "created_at"], name="advance_company_type_date_idx")]
 
