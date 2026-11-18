@@ -241,7 +241,17 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
             raise StockError("Зміну вже закрито. Відкрийте нову зміну.")
     need = {}
     for p, q, _pr, x in lines:
-        if not (x and x.get("si")):                  # товар постачальника склад не перевіряє
+        if not (x and x.get("si")):
+            if p.tracking_mode == "serial":
+                serial_value = str((x or {}).get("serial_number", "")).strip()
+                normalized = "".join(ch for ch in serial_value if ch.isalnum()).upper()
+                if q != D0 + 1 or not normalized:
+                    raise StockError(f"{p.name}: для продажу потрібно вказати один серійний номер / IMEI на одну одиницю.")
+                if not StockSerialUnit.objects.filter(company=company, product=p,
+                        normalized_serial=normalized, status=StockSerialUnit.IN_STOCK).exists():
+                    raise StockError(f"{p.name}: серійний номер / IMEI не знайдено на складі або його вже продано.")
+            elif (x or {}).get("serial_number"):
+                raise StockError(f"{p.name}: серійний номер передано для товару без серійного обліку.")
             need[p.pk] = need.get(p.pk, D0) + q
     # A cart can contain several stock products. Acquire every row lock in
     # the same order used by purchases and adjustments, regardless of cart order.
@@ -345,6 +355,14 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
         if mode == "stock" or (mode == "auto" and not pending):
             add_movement(item.product, q, mtype, ret.number, user)
             _restore_batch_allocations(item, q)
+            serial_unit = item.serial_units.select_for_update().first()
+            if serial_unit:
+                if q != 1:
+                    raise StockError(f"{item.product.name}: серійний товар повертається лише по одній одиниці.")
+                serial_unit.status = StockSerialUnit.IN_STOCK
+                serial_unit.sale_item = None
+                serial_unit.sold_at = None
+                serial_unit.save(update_fields=["status", "sale_item", "sold_at"])
         if pending and item.returned_qty >= item.quantity:
             item.fulfil_status = SaleItem.CANCELLED
             item.save(update_fields=["fulfil_status"])
