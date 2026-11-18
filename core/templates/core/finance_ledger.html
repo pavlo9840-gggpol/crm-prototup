@@ -1,0 +1,47 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>Фінанси магазину</h2>
+<p class="muted">Управлінський журнал доходів і витрат. Записи не є фіскальними чеками та не змінюють фізичний залишок готівки в касовій зміні.</p>
+
+<form method="get" class="filter">
+  <label>З дати <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
+  <label>По дату <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
+  <button class="btn">Показати</button>
+</form>
+
+<div class="kpi">
+  <div class="card">Дохід<b>{{ income|floatformat:2 }} ₴</b></div>
+  <div class="card">Витрати<b>{{ expense|floatformat:2 }} ₴</b></div>
+  <div class="card">Різниця<b>{{ balance|floatformat:2 }} ₴</b></div>
+</div>
+
+<div class="card">
+  <h3>Додати операцію</h3>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn primary">Зберегти операцію</button>
+  </form>
+</div>
+
+<h3>Історія операцій</h3>
+<table>
+  <thead><tr><th>Дата</th><th>Тип</th><th>Категорія</th><th>Опис</th><th>Оплата</th><th>Документ</th><th class="n">Сума</th><th>Автор</th></tr></thead>
+  <tbody>
+  {% for entry in entries %}
+    <tr>
+      <td>{{ entry.created_at|date:"d.m.Y H:i" }}</td>
+      <td>{{ entry.get_entry_type_display }}</td>
+      <td>{{ entry.category }}</td>
+      <td>{{ entry.description|default:"—" }}</td>
+      <td>{{ entry.get_payment_method_display }}</td>
+      <td>{{ entry.document_ref|default:"—" }}</td>
+      <td class="n">{{ entry.amount|floatformat:2 }} ₴</td>
+      <td>{{ entry.created_by.get_username }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="8">За вибраний період операцій немає.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
