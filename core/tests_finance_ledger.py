@@ -128,3 +128,69 @@ class FinanceLedgerTests(TestCase):
         self.assertEqual(response.context["payment_totals"]["cash"]["income"], Decimal("300.00"))
         self.assertEqual(response.context["payment_totals"]["cash"]["expense"], Decimal("80.00"))
         self.assertEqual(response.context["payment_totals"]["cash"]["balance"], Decimal("220.00"))
+
+
+class SettlementLedgerTests(TestCase):
+    def setUp(self):
+        from core.models import Customer, Supplier, Sale, Purchase, SettlementPayment
+        User = get_user_model()
+        self.owner = User.objects.create_superuser(username="settlement-owner", email="", password="secret")
+        self.cashier = User.objects.create_user(username="settlement-cashier", password="secret")
+        self.company = create_test_company(self.owner, "Settlement shop", [(self.cashier, "cashier")])
+        self.customer = Customer.objects.create(company=self.company, name="Клієнт", phone="0500000011")
+        self.supplier = Supplier.objects.create(company=self.company, name="Постачальник")
+        self.sale = Sale.objects.create(company=self.company, cashier=self.owner, customer=self.customer,
+                                        total=Decimal("1000.00"), cash_amount=Decimal("300.00"),
+                                        card_amount=Decimal("0.00"))
+        self.purchase = Purchase.objects.create(company=self.company, supplier=self.supplier, user=self.owner,
+                                                total=Decimal("2000.00"))
+        self.Payment = SettlementPayment
+
+    def test_supplier_purchase_accepts_multiple_partial_payments_and_updates_balance(self):
+        self.client.force_login(self.owner)
+        url = reverse("settlement_payment_new", args=["purchase", self.purchase.pk])
+        for amount in ("500.00", "700.00"):
+            response = self.client.post(url, {"amount": amount, "payment_method": "bank", "document_ref": "PAY-1"})
+            self.assertEqual(response.status_code, 302)
+        self.purchase.refresh_from_db()
+        response = self.client.get(reverse("purchase_detail", args=[self.purchase.pk]))
+        self.assertEqual(response.context["settlement_paid"], Decimal("1200.00"))
+        self.assertEqual(response.context["settlement_balance"], Decimal("800.00"))
+        self.assertEqual(self.Payment.objects.filter(purchase=self.purchase, is_void=False).count(), 2)
+
+    def test_customer_sale_receipt_cannot_exceed_outstanding_balance(self):
+        self.client.force_login(self.owner)
+        url = reverse("settlement_payment_new", args=["sale", self.sale.pk])
+        response = self.client.post(url, {"amount": "700.00", "payment_method": "cash"})
+        self.assertEqual(response.status_code, 302)
+        response = self.client.post(url, {"amount": "1.00", "payment_method": "cash"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.Payment.objects.filter(sale=self.sale, is_void=False).count(), 1)
+        detail = self.client.get(reverse("sale_detail", args=[self.sale.pk]))
+        self.assertEqual(detail.context["settlement_balance"], Decimal("0.00"))
+
+    def test_payment_void_restores_debt_and_keeps_audit_trail(self):
+        payment = self.Payment.objects.create(company=self.company, purchase=self.purchase,
+            amount=Decimal("400.00"), payment_method="cash", created_by=self.owner)
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("settlement_payment_void", args=[payment.pk]), {"reason": "Помилкова оплата"})
+        self.assertEqual(response.status_code, 302)
+        payment.refresh_from_db()
+        self.assertTrue(payment.is_void)
+        self.assertEqual(payment.void_reason, "Помилкова оплата")
+        self.assertEqual(payment.voided_by, self.owner)
+        detail = self.client.get(reverse("purchase_detail", args=[self.purchase.pk]))
+        self.assertEqual(detail.context["settlement_paid"], Decimal("0.00"))
+        self.assertEqual(detail.context["settlement_balance"], Decimal("2000.00"))
+
+    def test_foreign_document_and_cashier_cannot_register_payment(self):
+        other_owner = get_user_model().objects.create_superuser(username="other-settlement-owner", email="", password="secret")
+        other_company = create_test_company(other_owner, "Other settlement shop", [])
+        other_supplier = Supplier.objects.create(company=other_company, name="Інший")
+        other_purchase = Purchase.objects.create(company=other_company, supplier=other_supplier,
+            user=other_owner, total=Decimal("100.00"))
+        self.client.force_login(self.cashier)
+        response = self.client.post(reverse("settlement_payment_new", args=["purchase", other_purchase.pk]),
+                                    {"amount": "10.00", "payment_method": "cash"})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.Payment.objects.filter(purchase=other_purchase).count(), 0)
