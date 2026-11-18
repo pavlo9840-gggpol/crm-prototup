@@ -576,6 +576,40 @@ def apply_adjustment(user, adj_form, company=None):
     return adj
 
 
+@transaction.atomic
+def approve_inventory_count(user, inventory_count, company):
+    """Затверджує підраховані рядки і проводить різниці через єдиний журнал руху."""
+    from .models import InventoryCount, InventoryCountItem
+
+    count = InventoryCount.objects.select_for_update().get(pk=inventory_count.pk, company=company)
+    if count.status != InventoryCount.DRAFT:
+        raise StockError("Цю інвентаризацію вже затверджено або вона недоступна для змін.")
+    items = list(InventoryCountItem.objects.select_for_update().filter(
+        inventory_count=count, company=company, counted_quantity__isnull=False
+    ).select_related("product").order_by("product_id"))
+    if not items:
+        raise StockError("Спочатку внесіть фактичну кількість хоча б для одного товару.")
+
+    for item in items:
+        product = Product.objects.select_for_update().get(pk=item.product_id, company=company)
+        if product.tracking_mode != "none" or product.product_kind == "service":
+            raise StockError(f"Товар «{product.name}» використовує спеціальний облік. Його не можна коригувати загальною інвентаризацією.")
+        if item.counted_quantity < 0:
+            raise StockError(f"Фактична кількість товару «{product.name}» не може бути від'ємною.")
+        delta = item.counted_quantity - item.expected_quantity
+        if delta:
+            movement_type = "surplus" if delta > 0 else "shortage"
+            add_movement(
+                product, delta, movement_type, count.number, user,
+                note=f"Інвентаризація {count.number}: {item.expected_quantity} → {item.counted_quantity}",
+            )
+    count.status = InventoryCount.APPROVED
+    count.approved_by = user
+    count.approved_at = timezone.now()
+    count.save(update_fields=["status", "approved_by", "approved_at"])
+    return count
+
+
 # ====================================================== замовлення в дорозі (товар постачальника)
 def _own(user, item):
     return item.sale.cashier_id == user.id or _can_manage(user, item.sale.company)
