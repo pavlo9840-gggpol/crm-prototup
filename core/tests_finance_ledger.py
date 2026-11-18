@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from core.models import FinanceEntry
 from core.tests_tenant_helpers import create_test_company
@@ -132,7 +133,7 @@ class FinanceLedgerTests(TestCase):
 
 class SettlementLedgerTests(TestCase):
     def setUp(self):
-        from core.models import Customer, Supplier, Sale, Purchase, SettlementPayment
+        from core.models import Customer, Supplier, Sale, Purchase, SettlementPayment, Shift, CashOperation
         User = get_user_model()
         self.owner = User.objects.create_superuser(username="settlement-owner", email="", password="secret")
         self.cashier = User.objects.create_user(username="settlement-cashier", password="secret")
@@ -159,6 +160,7 @@ class SettlementLedgerTests(TestCase):
         self.assertEqual(self.Payment.objects.filter(purchase=self.purchase, is_void=False).count(), 2)
 
     def test_customer_sale_receipt_cannot_exceed_outstanding_balance(self):
+        Shift.objects.create(company=self.company, cashier=self.owner, drawer={})
         self.client.force_login(self.owner)
         url = reverse("settlement_payment_new", args=["sale", self.sale.pk])
         response = self.client.post(url, {"amount": "700.00", "payment_method": "cash"})
@@ -170,15 +172,26 @@ class SettlementLedgerTests(TestCase):
         self.assertEqual(detail.context["settlement_balance"], Decimal("0.00"))
 
     def test_payment_void_restores_debt_and_keeps_audit_trail(self):
-        payment = self.Payment.objects.create(company=self.company, purchase=self.purchase,
-            amount=Decimal("400.00"), payment_method="cash", created_by=self.owner)
+        shift = Shift.objects.create(company=self.company, cashier=self.owner, drawer={"20000": 2})
         self.client.force_login(self.owner)
+        response = self.client.post(reverse("settlement_payment_new", args=["purchase", self.purchase.pk]), {
+            "amount": "400.00", "payment_method": "cash",
+        })
+        self.assertEqual(response.status_code, 302)
+        payment = self.Payment.objects.get(purchase=self.purchase, is_void=False)
+        self.assertEqual(payment.cash_operation.kind, "out")
+        shift.refresh_from_db()
+        self.assertEqual(shift.drawer, {})
         response = self.client.post(reverse("settlement_payment_void", args=[payment.pk]), {"reason": "Помилкова оплата"})
         self.assertEqual(response.status_code, 302)
         payment.refresh_from_db()
+        shift.refresh_from_db()
         self.assertTrue(payment.is_void)
         self.assertEqual(payment.void_reason, "Помилкова оплата")
         self.assertEqual(payment.voided_by, self.owner)
+        self.assertIsNotNone(payment.reversal_operation_id)
+        self.assertEqual(payment.reversal_operation.kind, "in")
+        self.assertEqual(shift.drawer, {"20000": 2})
         detail = self.client.get(reverse("purchase_detail", args=[self.purchase.pk]))
         self.assertEqual(detail.context["settlement_paid"], Decimal("0.00"))
         self.assertEqual(detail.context["settlement_balance"], Decimal("2000.00"))
@@ -194,6 +207,65 @@ class SettlementLedgerTests(TestCase):
                                     {"amount": "10.00", "payment_method": "cash"})
         self.assertEqual(response.status_code, 403)
         self.assertEqual(self.Payment.objects.filter(purchase=other_purchase).count(), 0)
+
+    def test_customer_cash_settlement_updates_drawer_and_void_posts_compensating_movement(self):
+        shift = Shift.objects.create(company=self.company, cashier=self.owner, drawer={})
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("settlement_payment_new", args=["sale", self.sale.pk]), {
+            "amount": "250.00", "payment_method": "cash",
+        })
+        self.assertEqual(response.status_code, 302)
+        payment = self.Payment.objects.get(sale=self.sale, is_void=False)
+        self.assertEqual(payment.cash_operation.kind, "in")
+        shift.refresh_from_db()
+        self.assertEqual(sum(int(k) * v for k, v in shift.drawer.items()), 25000)
+        self.client.post(reverse("settlement_payment_void", args=[payment.pk]), {"reason": "Тест сторнування"})
+        payment.refresh_from_db()
+        shift.refresh_from_db()
+        self.assertTrue(payment.is_void)
+        self.assertEqual(payment.reversal_operation.kind, "out")
+        self.assertEqual(shift.drawer, {})
+
+    def test_supplier_cash_payment_rejects_insufficient_drawer_and_records_outflow(self):
+        shift = Shift.objects.create(company=self.company, cashier=self.owner, drawer={"20000": 1})
+        self.client.force_login(self.owner)
+        url = reverse("settlement_payment_new", args=["purchase", self.purchase.pk])
+        response = self.client.post(url, {"amount": "400.00", "payment_method": "cash"})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(self.Payment.objects.filter(purchase=self.purchase).exists())
+        shift.refresh_from_db()
+        self.assertEqual(shift.drawer, {"20000": 1})
+        shift.drawer = {"20000": 2}
+        shift.save(update_fields=["drawer"])
+        response = self.client.post(url, {"amount": "400.00", "payment_method": "cash"})
+        self.assertEqual(response.status_code, 302)
+        payment = self.Payment.objects.get(purchase=self.purchase)
+        self.assertEqual(payment.cash_operation.kind, "out")
+        shift.refresh_from_db()
+        self.assertEqual(shift.drawer, {})
+
+    def test_cash_settlement_requires_an_open_shift(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("settlement_payment_new", args=["sale", self.sale.pk]), {
+            "amount": "100.00", "payment_method": "cash",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(self.Payment.objects.filter(sale=self.sale).exists())
+
+    def test_cash_settlement_cannot_be_voided_after_its_shift_is_closed(self):
+        shift = Shift.objects.create(company=self.company, cashier=self.owner, drawer={})
+        self.client.force_login(self.owner)
+        self.client.post(reverse("settlement_payment_new", args=["sale", self.sale.pk]), {
+            "amount": "100.00", "payment_method": "cash",
+        })
+        payment = self.Payment.objects.get(sale=self.sale)
+        shift.refresh_from_db()
+        shift.closed_at = timezone.now()
+        shift.save(update_fields=["closed_at"])
+        self.client.post(reverse("settlement_payment_void", args=[payment.pk]), {"reason": "Помилка"})
+        payment.refresh_from_db()
+        self.assertFalse(payment.is_void)
+        self.assertIsNone(payment.reversal_operation_id)
 
     def test_customer_account_shows_customer_debt_and_payment_history(self):
         self.Payment.objects.create(company=self.company, sale=self.sale,
