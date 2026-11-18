@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from core import services
 from core.models import Product, Supplier, StockBatch, BatchAllocation
+from core.forms import ProductForm
 from core.services import StockError
 from core.tests_tenant_helpers import create_test_company
 
@@ -37,6 +38,11 @@ class StockBatchFifoTests(TestCase):
             self.user, [(self.product, D(qty), self.product.price, None)],
             "cash", None, None, company=self.company,
         )
+
+    def test_serial_tracking_is_not_offered_before_serial_workflow_is_ready(self):
+        form = ProductForm(company=self.company)
+        values = [value for value, _label in form.fields["tracking_mode"].choices]
+        self.assertNotIn("serial", values)
 
     def test_purchase_creates_expiry_batch_and_tracks_cost(self):
         expiry = timezone.localdate() + timedelta(days=30)
