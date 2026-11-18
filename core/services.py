@@ -4,7 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction, models
 from django.utils import timezone
 from . import cash as cashlib
-from .models import (Shift, CashOperation, Customer, Product, PurchaseItem, Sale, SaleItem, SaleReturn,
+from .models import (Shift, CashOperation, Customer, Product, Sale, SaleItem, SaleReturn,
                      SaleReturnItem, StockMovement, Purchase, PurchaseItem, StockBatch, BatchAllocation, PriceHistory, MarkupTier,
                      CompanySettings, StaffMembership, norm_sku)
 
