@@ -1,5 +1,5 @@
 from django import forms
-from .models import CompanySettings, Category, Customer, Product, ProductBarcode, StockAdjustment, Supplier, norm_sku
+from .models import Company, CompanySettings, Category, Customer, Product, ProductBarcode, StockAdjustment, Supplier, norm_sku
 
 
 class ProductForm(forms.ModelForm):
@@ -160,6 +160,13 @@ class ProductForm(forms.ModelForm):
                 self.add_error("sku", f"Такий код уже використовується: {dup.brand} {dup.sku} — «{dup.name}». "
                                       f"Коди порівнюються без пробілів і дефісів.")
         return d
+
+
+class BusinessProfileForm(forms.ModelForm):
+    class Meta:
+        model = Company
+        fields = ["business_type"]
+        labels = {"business_type": "Профіль магазину"}
 
 
 class CategoryForm(forms.ModelForm):
