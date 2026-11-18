@@ -144,6 +144,29 @@ class StockBatchFifoTests(TestCase):
         product.refresh_from_db()
         self.assertEqual(product.current_stock, D("1"))
 
+    def test_serial_register_page_filters_in_stock_and_sold_units(self):
+        product = Product.objects.create(
+            company=self.company, name="Ноутбук", sku="LAPTOP-1", price=D("25000"),
+            tracking_mode="serial",
+        )
+        services.create_purchase(
+            self.user, self.supplier,
+            [(product, D("2"), D("20000"), "", None, ["SN-LAPTOP-01", "SN-LAPTOP-02"])],
+            company=self.company,
+        )
+        sale = services.finalize_sale(
+            self.user, [(product, D("1"), product.price, {"serial_number": "SN-LAPTOP-01"})],
+            "cash", None, None, company=self.company,
+        )
+        self.client.force_login(self.user)
+        in_stock = self.client.get("/inventory/serials/?status=in_stock")
+        self.assertEqual(in_stock.status_code, 200)
+        self.assertContains(in_stock, "SN-LAPTOP-02")
+        self.assertNotContains(in_stock, "SN-LAPTOP-01")
+        sold = self.client.get("/inventory/serials/?status=sold")
+        self.assertContains(sold, "SN-LAPTOP-01")
+        self.assertContains(sold, sale.number)
+
     def test_serial_checkout_rejects_unknown_or_already_sold_serial(self):
         product = Product.objects.create(
             company=self.company, name="Планшет", sku="TAB-1", price=D("5000"),
