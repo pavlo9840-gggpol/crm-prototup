@@ -108,3 +108,23 @@ class FinanceLedgerTests(TestCase):
         self.client.post(url, {"reason": "Second attempt"})
         own.refresh_from_db()
         self.assertEqual(own.void_reason, "Correction")
+
+
+    def test_payment_method_totals_exclude_voided_entries(self):
+        FinanceEntry.objects.create(
+            company=self.company, entry_type="income", category="Продаж",
+            amount=Decimal("300.00"), payment_method="cash", created_by=self.owner,
+        )
+        FinanceEntry.objects.create(
+            company=self.company, entry_type="expense", category="Дрібні витрати",
+            amount=Decimal("80.00"), payment_method="cash", created_by=self.owner,
+        )
+        FinanceEntry.objects.create(
+            company=self.company, entry_type="income", category="Повернення",
+            amount=Decimal("900.00"), payment_method="cash", created_by=self.owner, is_void=True,
+        )
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("finance_ledger"))
+        self.assertEqual(response.context["payment_totals"]["cash"]["income"], Decimal("300.00"))
+        self.assertEqual(response.context["payment_totals"]["cash"]["expense"], Decimal("80.00"))
+        self.assertEqual(response.context["payment_totals"]["cash"]["balance"], Decimal("220.00"))
