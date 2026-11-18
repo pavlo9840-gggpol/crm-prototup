@@ -73,6 +73,7 @@ urlpatterns = [
     path("catalogue/", cat.catalogue_home, name="catalogue_home"),
     path("rates/", cv.rates, name="rates"),
     path("finance/", fv.finance_ledger, name="finance_ledger"),
+    path("finance/<int:pk>/void/", fv.finance_entry_void, name="finance_entry_void"),
     path("payroll/", pr.payroll_view, name="payroll"),
     path("pay-plans/", pr.pay_plans, name="pay_plans"),
     path("pay-plans/new/", pr.pay_plan_edit, name="pay_plan_new"),
