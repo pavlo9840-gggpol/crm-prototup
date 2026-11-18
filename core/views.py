@@ -853,6 +853,29 @@ def stock_batches(request):
 @login_required
 @company_required
 @tenant_staff_only
+def stock_serials(request):
+    qs = StockSerialUnit.objects.select_related("product", "purchase_item__purchase", "sale_item__sale").filter(
+        company=request.company
+    )
+    q = request.GET.get("q", "").strip()
+    if q:
+        qs = qs.filter(Q(serial_number__icontains=q) | Q(normalized_serial__icontains=q)
+                       | Q(product__name__icontains=q) | Q(product__sku__icontains=q))
+    status = request.GET.get("status", "all")
+    if status in {StockSerialUnit.IN_STOCK, StockSerialUnit.SOLD}:
+        qs = qs.filter(status=status)
+    counts = {
+        "in_stock": StockSerialUnit.objects.filter(company=request.company, status=StockSerialUnit.IN_STOCK).count(),
+        "sold": StockSerialUnit.objects.filter(company=request.company, status=StockSerialUnit.SOLD).count(),
+    }
+    return render(request, "core/stock_serials.html", {
+        "units": qs.order_by("-received_at", "pk")[:500], "counts": counts, "status": status, "q": q,
+    })
+
+
+@login_required
+@company_required
+@tenant_staff_only
 def inventory_movements(request):
     qs = company_queryset(StockMovement.objects.select_related("product", "user"), request)
     q = request.GET.get("q", "").strip()
