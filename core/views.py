@@ -475,10 +475,22 @@ def pos_search(request):
     if not q:
         return JsonResponse({"results": [], "exact": False})
     qs = company_queryset(Product.objects.filter(is_active=True), request)
-    exact = qs.filter(Q(barcode=q) | Q(sku__iexact=q) | Q(extra_barcodes__barcode=q)).distinct().first()
+    exact = qs.filter(Q(barcode=q) | Q(sku__iexact=q)).first()
+    if exact is None:
+        # Use a company-scoped subquery for additional barcodes.
+        extra_product_ids = ProductBarcode.objects.filter(
+            company=request.company, barcode=q
+        ).values("product_id")
+        exact = qs.filter(pk__in=extra_product_ids).first()
     if exact:
         return JsonResponse({"results": [product_json(exact)], "exact": True})
-    res = qs.filter(Q(name_lc__contains=q.lower()) | Q(sku__icontains=q) | Q(barcode__icontains=q) | Q(extra_barcodes__barcode__icontains=q)).distinct()[:15]
+    extra_product_ids = ProductBarcode.objects.filter(
+        company=request.company, barcode__icontains=q
+    ).values("product_id")
+    res = qs.filter(
+        Q(name_lc__contains=q.lower()) | Q(sku__icontains=q) | Q(barcode__icontains=q)
+        | Q(pk__in=extra_product_ids)
+    )[:15]
     return JsonResponse({"results": [product_json(p) for p in res], "exact": False})
 
 
