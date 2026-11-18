@@ -160,7 +160,7 @@ class ProductBarcode(models.Model):
         if self.product_id and self.company_id and self.product.company_id != self.company_id:
             raise ValidationError({"product": "Товар належить іншому магазину."})
         self.barcode = (self.barcode or "").strip()
-        primary_codes = Product.objects.filter(company_id=self.company_id, barcode=self.barcode).exclude(pk=self.product_id)
+        primary_codes = Product.objects.filter(company_id=self.company_id, barcode=self.barcode)
         if self.barcode and primary_codes.exists():
             raise ValidationError({"barcode": "Цей штрих-код уже є основним кодом іншого товару."})
         super().save(*args, **kwargs)
