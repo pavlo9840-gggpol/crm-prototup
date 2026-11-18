@@ -1,0 +1,70 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>Банківські рахунки та операції</h2>
+<p class="muted">Ручний управлінський журнал банківських рухів. Це не підключення до банку, не імпорт виписки та не підтвердження фактичного балансу банку. Дані потрібно звіряти з офіційною випискою.</p>
+
+<form method="get" class="filter">
+  <label>З дати <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
+  <label>По дату <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
+  <button class="btn">Показати</button>
+</form>
+
+<div class="kpi">
+  <div class="card">Надходження за період<b>{{ income|floatformat:2 }} ₴</b></div>
+  <div class="card">Списання за період<b>{{ expense|floatformat:2 }} ₴</b></div>
+  <div class="card">Різниця за період<b>{{ balance|floatformat:2 }} ₴</b></div>
+</div>
+
+<div class="card">
+  <h3>Рахунки магазину</h3>
+  <table>
+    <thead><tr><th>Банк</th><th>IBAN</th><th>Валюта</th><th class="n">Надійшло за весь журнал</th><th class="n">Списано</th><th class="n">Розрахункова різниця</th></tr></thead>
+    <tbody>
+    {% for row in balances %}
+      <tr><td>{{ row.account.bank_name }}{% if row.account.is_default %} · Основний{% endif %}</td><td>{{ row.account.iban }}</td><td>{{ row.account.currency }}</td><td class="n">{{ row.income|floatformat:2 }}</td><td class="n">{{ row.expense|floatformat:2 }}</td><td class="n">{{ row.balance|floatformat:2 }}</td></tr>
+    {% empty %}<tr><td colspan="6">Рахунки ще не додані.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3>Додати банківський рахунок</h3>
+    <form method="post">
+      {% csrf_token %}<input type="hidden" name="form_kind" value="account">
+      {{ account_form.as_p }}
+      <button class="btn primary">Додати рахунок</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>Додати рух за випискою</h3>
+    {% if accounts %}
+    <form method="post">
+      {% csrf_token %}<input type="hidden" name="form_kind" value="transaction">
+      {{ transaction_form.as_p }}
+      <button class="btn primary">Зберегти операцію</button>
+    </form>
+    {% else %}<p>Спочатку додайте банківський рахунок.</p>{% endif %}
+  </div>
+</div>
+
+<h3>Операції за період</h3>
+<table>
+  <thead><tr><th>Дата</th><th>Рахунок</th><th>Напрямок</th><th>Категорія</th><th>Контрагент</th><th>Документ / призначення</th><th class="n">Сума</th><th>Статус / дія</th></tr></thead>
+  <tbody>
+  {% for entry in entries %}
+    <tr>
+      <td>{{ entry.transaction_date|date:"d.m.Y" }}</td><td>{{ entry.account.bank_name }} · {{ entry.account.iban }}</td>
+      <td>{{ entry.get_direction_display }}</td><td>{{ entry.category }}</td><td>{{ entry.counterparty|default:"—" }}</td><td>{{ entry.document_ref|default:"—" }}</td>
+      <td class="n">{% if entry.is_void %}<s>{% endif %}{{ entry.amount|floatformat:2 }} {{ entry.account.currency }}{% if entry.is_void %}</s>{% endif %}</td>
+      <td>{% if entry.is_void %}<strong>Скасовано</strong><br><small>{{ entry.void_reason }} · {{ entry.voided_by.get_username }} · {{ entry.voided_at|date:"d.m.Y H:i" }}</small>{% else %}
+        <form method="post" action="{% url 'bank_transaction_void' entry.pk %}">{% csrf_token %}
+          <input name="reason" maxlength="250" placeholder="Причина скасування" required>
+          <button class="btn" type="submit" onclick="return confirm('Скасувати запис? Він залишиться в аудиті.')">Скасувати</button>
+        </form>
+      {% endif %}</td>
+    </tr>
+  {% empty %}<tr><td colspan="8">Операцій за вибраний період немає.</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}
