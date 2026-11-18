@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.db import IntegrityError, transaction
 
 from core.forms import ProductForm
 from core.models import Company, Product, ProductBarcode, StaffMembership
@@ -78,8 +79,9 @@ class UniversalProductFieldsTests(TestCase):
         product = Product.objects.create(company=self.company, name="Чай", sku="TEA-01")
         barcode = ProductBarcode.objects.create(product=product, barcode="4820000000100")
         self.assertEqual(barcode.company_id, self.company.pk)
-        with self.assertRaises(Exception):
-            ProductBarcode.objects.create(product=product, company=self.company, barcode="4820000000100")
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ProductBarcode.objects.create(product=product, company=self.company, barcode="4820000000100")
 
     def test_barcode_rejects_product_from_another_store(self):
         User = get_user_model()
