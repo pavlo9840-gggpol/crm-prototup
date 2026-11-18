@@ -25,7 +25,7 @@
         <td>{% if method == "cash" %}Готівка{% elif method == "card" %}Картка{% else %}Банківський рахунок{% endif %}</td>
         <td class="n">{{ totals.income|floatformat:2 }} ₴</td>
         <td class="n">{{ totals.expense|floatformat:2 }} ₴</td>
-        <td class="n">{{ totals.income|add:totals.expense|floatformat:2 }} ₴</td>
+        <td class="n">{{ totals.balance|floatformat:2 }} ₴</td>
       </tr>
     {% empty %}<tr><td colspan="4">Немає активних операцій.</td></tr>{% endfor %}
     </tbody>
