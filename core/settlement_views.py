@@ -304,3 +304,125 @@ def supplier_account(request, pk):
         "supplier": supplier, "purchase_rows": rows, "account_totals": totals,
         "account_payments": payments,
     })
+
+
+@tenant_staff_only
+@company_required
+def advance_new(request, party_type, pk):
+    if party_type == AccountAdvance.CUSTOMER:
+        party = get_object_or_404(Customer.objects.filter(company=request.company), pk=pk)
+        party_kwargs = {"customer": party, "party_type": AccountAdvance.CUSTOMER}
+        is_customer = True
+    elif party_type == AccountAdvance.SUPPLIER:
+        party = get_object_or_404(Supplier.objects.filter(company=request.company), pk=pk)
+        party_kwargs = {"supplier": party, "party_type": AccountAdvance.SUPPLIER}
+        is_customer = False
+    else:
+        messages.error(request, "Невідомий тип контрагента.")
+        return redirect("settlements_home")
+
+    form = AdvanceForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        amount = form.cleaned_data["amount"]
+        method = form.cleaned_data["payment_method"]
+        shift = None
+        drawer_after = counts = kind = None
+        if method == "cash":
+            shift = Shift.objects.select_for_update().filter(
+                company=request.company, cashier=request.user, closed_at__isnull=True
+            ).first()
+            if not shift:
+                messages.error(request, "Для готівкового авансу відкрийте власну касову зміну.")
+                return redirect("advance_new", party_type=party_type, pk=pk)
+            drawer = cashlib.clean(shift.drawer)
+            if is_customer:
+                counts = cashlib.decompose(cashlib.to_kop(amount))
+                drawer_after, kind = cashlib.add(drawer, counts), "in"
+            else:
+                counts = cashlib.make_change(cashlib.to_kop(amount), drawer)
+                if counts is None:
+                    messages.error(request, "У касі недостатньо готівки потрібного номіналу для авансу постачальнику.")
+                    return redirect("advance_new", party_type=party_type, pk=pk)
+                drawer_after, kind = cashlib.add(drawer, counts, -1), "out"
+
+        with transaction.atomic():
+            advance = AccountAdvance.objects.create(
+                company=request.company, created_by=request.user, amount=amount, remaining=amount,
+                payment_method=method, document_ref=form.cleaned_data["document_ref"].strip(),
+                note=form.cleaned_data["note"].strip(), **party_kwargs,
+            )
+            if method == "cash":
+                signed = amount if kind == "in" else -amount
+                op = CashOperation.objects.create(
+                    company=request.company, shift=shift, user=request.user, kind=kind, amount=signed,
+                    detail={"source": "advance", "advance_id": advance.pk, "counts": cashlib.store(counts)},
+                    note=("Отримано аванс від клієнта" if is_customer else "Видано аванс постачальнику") + f" · {party}",
+                )
+                advance.cash_operation = op
+                advance.save(update_fields=["cash_operation"])
+                shift.drawer = cashlib.store(drawer_after)
+                shift.save(update_fields=["drawer"])
+        messages.success(request, f"Аванс {amount:.2f} ₴ зареєстровано.")
+        return redirect("customer_account" if is_customer else "supplier_account", pk=pk)
+
+    return render(request, "core/advance_form.html", {
+        "form": form, "party": party, "party_type": party_type,
+        "title": "Аванс від клієнта" if is_customer else "Аванс постачальнику",
+        "back_url": ("customer_account" if is_customer else "supplier_account"),
+        "party_id": pk,
+    })
+
+
+@tenant_staff_only
+@company_required
+def advance_void(request, pk):
+    if request.method != "POST":
+        return redirect("settlements_home")
+    form = SettlementVoidForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Вкажіть причину скасування.")
+        return redirect("settlements_home")
+    with transaction.atomic():
+        advance = AccountAdvance.objects.select_for_update().filter(
+            pk=pk, company=request.company, is_void=False
+        ).select_related("cash_operation").first()
+        if not advance:
+            messages.error(request, "Аванс не знайдено або вже скасовано.")
+            return redirect("settlements_home")
+        if advance.applications.filter(is_void=False).exists():
+            messages.error(request, "Не можна скасувати аванс, доки його частина використана в документах. Спочатку сторнуйте застосування.")
+            return redirect("settlements_home")
+        if advance.cash_operation_id:
+            shift = Shift.objects.select_for_update().filter(
+                pk=advance.cash_operation.shift_id, company=request.company, closed_at__isnull=True
+            ).first()
+            if not shift:
+                messages.error(request, "Готівковий аванс можна скасувати лише у відкритій зміні, де його провели.")
+                return redirect("settlements_home")
+            original = advance.cash_operation
+            drawer = cashlib.clean(shift.drawer)
+            amount_kop = cashlib.to_kop(advance.amount)
+            if original.kind == "in":
+                counts = cashlib.make_change(amount_kop, drawer)
+                if counts is None:
+                    messages.error(request, "У касі недостатньо готівки для повернення авансу.")
+                    return redirect("settlements_home")
+                drawer_after, kind, signed = cashlib.add(drawer, counts, -1), "out", -advance.amount
+            else:
+                counts = cashlib.clean(original.detail.get("counts", {}))
+                drawer_after, kind, signed = cashlib.add(drawer, counts), "in", advance.amount
+            CashOperation.objects.create(
+                company=request.company, shift=shift, user=request.user, kind=kind, amount=signed,
+                detail={"source": "advance_reversal", "advance_id": advance.pk, "counts": cashlib.store(counts)},
+                note=f"Сторнування авансу #{advance.pk}",
+            )
+            shift.drawer = cashlib.store(drawer_after)
+            shift.save(update_fields=["drawer"])
+        advance.is_void = True
+        advance.remaining = Decimal("0.00")
+        advance.voided_at = timezone.now()
+        advance.voided_by = request.user
+        advance.void_reason = form.cleaned_data["reason"].strip()
+        advance.save(update_fields=["is_void", "remaining", "voided_at", "voided_by", "void_reason"])
+    messages.success(request, "Аванс скасовано; історію та касове сторнування збережено.")
+    return redirect("settlements_home")
