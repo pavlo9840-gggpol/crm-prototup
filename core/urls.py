@@ -102,6 +102,7 @@ urlpatterns = [
     path("inventory/counts/", v.inventory_count_list, name="inventory_count_list"),
     path("inventory/counts/new/", v.inventory_count_new, name="inventory_count_new"),
     path("inventory/counts/<int:pk>/", v.inventory_count_detail, name="inventory_count_detail"),
+    path("inventory/counts/<int:pk>/print/", v.inventory_count_print, name="inventory_count_print"),
     path("customers/", v.customer_list, name="customer_list"),
     path("customers/new/", v.customer_edit, name="customer_new"),
     path("customers/<int:pk>/", v.customer_detail, name="customer_detail"),
