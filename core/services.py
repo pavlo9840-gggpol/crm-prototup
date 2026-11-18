@@ -558,6 +558,8 @@ def apply_adjustment(user, adj_form, company=None):
     company = company or getattr(adj.product, "company", None)
     if company is None or adj.product.company_id != company.pk:
         raise StockError("Товар належить іншому магазину")
+    if adj.product.tracking_mode == "serial":
+        raise StockError("Для серійного товару коригування виконується лише через операцію з конкретним серійним номером. Загальне коригування залишку заблоковано.")
     adj.company = company
     adj.user = user
     sign = 1 if adj.kind == "surplus" else -1
