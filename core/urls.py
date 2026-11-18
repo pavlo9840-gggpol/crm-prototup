@@ -9,6 +9,7 @@ from . import carparts as cp
 from . import catalog_views as cat
 from . import payroll_views as pr
 from . import finance_views as fv
+from . import bank_views as bv
 from . import settlement_views as sv
 from . import currency_views as cv
 from . import receive_views as rv
@@ -74,6 +75,8 @@ urlpatterns = [
     path("catalogue/", cat.catalogue_home, name="catalogue_home"),
     path("rates/", cv.rates, name="rates"),
     path("finance/", fv.finance_ledger, name="finance_ledger"),
+    path("bank/", bv.bank_ledger, name="bank_ledger"),
+    path("bank/<int:pk>/void/", bv.bank_transaction_void, name="bank_transaction_void"),
     path("finance/<int:pk>/void/", fv.finance_entry_void, name="finance_entry_void"),
     path("customers/<int:pk>/account/", sv.customer_account, name="customer_account"),
     path("suppliers/<int:pk>/account/", sv.supplier_account, name="supplier_account"),
