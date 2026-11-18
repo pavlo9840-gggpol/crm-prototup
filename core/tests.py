@@ -91,6 +91,36 @@ class CashTest(TestCase):
         s = Sale.objects.get(); self.assertEqual((s.card_amount, s.cash_amount), (Decimal("50"), Decimal("40")))
         self.assertTrue(self.pay(payment="card").json()["ok"])
 
+    def test_credit_sale_is_recorded_as_customer_debt_without_cash_drawer_movement(self):
+        from core.models import Customer, Shift
+        self.cs.post("/shift/", {"action": "open", "c_1000": "5"})
+        customer = Customer.objects.create(name="Боржник", phone="0501234567")
+        before = Shift.objects.get().drawer.copy()
+        response = self.cs.post("/pos/checkout/", json.dumps({
+            "items": [{"id": self.p.pk, "qty": 2, "price": "30.00"}],
+            "payment": "credit", "customer_id": customer.pk,
+        }), content_type="application/json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()["ok"], response.json())
+        sale = Sale.objects.get(pk=response.json()["id"])
+        self.assertEqual(sale.payment_method, "credit")
+        self.assertEqual((sale.cash_amount, sale.card_amount, sale.cash_received), (
+            Decimal("0.00"), Decimal("0.00"), Decimal("0.00")
+        ))
+        self.assertEqual(sale.customer_id, customer.pk)
+        self.assertEqual(sale.total - sale.cash_amount - sale.card_amount, Decimal("60.00"))
+        self.assertEqual(Shift.objects.get().drawer, before)
+
+    def test_credit_sale_requires_customer(self):
+        self.cs.post("/shift/", {"action": "open"})
+        response = self.cs.post("/pos/checkout/", json.dumps({
+            "items": [{"id": self.p.pk, "qty": 1, "price": "30.00"}],
+            "payment": "credit",
+        }), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("оберіть", response.json()["error"].lower())
+        self.assertEqual(Sale.objects.count(), 0)
+
     def test_print_and_company_settings(self):
         self.cs.post("/shift/", {"action": "open"})
         sale = self.pay(payment="cash", received="90").json()
