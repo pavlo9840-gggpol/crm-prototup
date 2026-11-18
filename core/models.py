@@ -1298,6 +1298,10 @@ class FinanceEntry(models.Model):
     document_ref = models.CharField("Номер документа", max_length=80, blank=True)
     created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="finance_entries")
     created_at = models.DateTimeField("Дата створення", auto_now_add=True)
+    is_void = models.BooleanField("Скасовано", default=False, db_index=True)
+    voided_at = models.DateTimeField("Дата скасування", null=True, blank=True)
+    voided_by = models.ForeignKey(USER, on_delete=models.PROTECT, null=True, blank=True, related_name="voided_finance_entries")
+    void_reason = models.CharField("Причина скасування", max_length=250, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]
