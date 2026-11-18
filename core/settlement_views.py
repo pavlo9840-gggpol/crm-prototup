@@ -11,7 +11,7 @@ from django.utils import timezone
 from . import cash as cashlib
 from .models import CashOperation, Purchase, Sale, SettlementPayment, Shift
 from .tenant_context import company_required
-from .views import current_shift, tenant_staff_only
+from .views import tenant_staff_only
 
 D0 = Decimal("0.00")
 
