@@ -1287,6 +1287,7 @@ class FinanceEntry(models.Model):
         ("cash", "Готівка"),
         ("card", "Картка"),
         ("bank", "Банківський рахунок"),
+        ("advance", "З авансу"),
     ]
 
     company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="finance_entries")
@@ -1317,6 +1318,50 @@ class FinanceEntry(models.Model):
         return f"{self.get_entry_type_display()}: {self.amount} ₴ · {self.category}"
 
 
+class AccountAdvance(models.Model):
+    """Customer prepayment held as a liability, or supplier advance paid ahead of a purchase."""
+    CUSTOMER, SUPPLIER = "customer", "supplier"
+    PARTY_TYPES = [(CUSTOMER, "Аванс клієнта"), (SUPPLIER, "Аванс постачальнику")]
+
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="account_advances")
+    party_type = models.CharField(max_length=10, choices=PARTY_TYPES, db_index=True)
+    customer = models.ForeignKey(Customer, null=True, blank=True, on_delete=models.PROTECT, related_name="account_advances")
+    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.PROTECT, related_name="account_advances")
+    amount = models.DecimalField("Початкова сума", max_digits=14, decimal_places=2)
+    remaining = models.DecimalField("Невикористаний залишок", max_digits=14, decimal_places=2)
+    payment_method = models.CharField(max_length=10, choices=[("cash", "Готівка"), ("card", "Картка"), ("bank", "Банк")])
+    document_ref = models.CharField(max_length=80, blank=True)
+    note = models.CharField(max_length=250, blank=True)
+    cash_operation = models.OneToOneField(CashOperation, null=True, blank=True, on_delete=models.PROTECT, related_name="account_advance")
+    created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="account_advances")
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_void = models.BooleanField(default=False, db_index=True)
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(USER, null=True, blank=True, on_delete=models.PROTECT, related_name="voided_account_advances")
+    void_reason = models.CharField(max_length=250, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="account_advance_amount_positive"),
+            models.CheckConstraint(condition=Q(remaining__gte=0), name="account_advance_remaining_nonnegative"),
+            models.CheckConstraint(
+                condition=(Q(party_type="customer", customer__isnull=False, supplier__isnull=True) |
+                           Q(party_type="supplier", customer__isnull=True, supplier__isnull=False)),
+                name="account_advance_exactly_one_party",
+            ),
+        ]
+        indexes = [models.Index(fields=["company", "party_type", "created_at"], name="advance_company_type_date_idx")]
+
+    def save(self, *args, **kwargs):
+        party = self.customer if self.party_type == self.CUSTOMER else self.supplier
+        if (self.party_type == self.CUSTOMER and self.supplier_id) or (self.party_type == self.SUPPLIER and self.customer_id):
+            raise ValueError("Аванс має належати одному контрагенту.")
+        if party and party.company_id != self.company_id:
+            raise ValueError("Контрагент авансу належить іншому магазину.")
+        super().save(*args, **kwargs)
+
+
 class SettlementPayment(models.Model):
     """Auditable payment against a customer sale or supplier purchase document.
 
@@ -1335,6 +1380,8 @@ class SettlementPayment(models.Model):
                              related_name="settlement_payments")
     purchase = models.ForeignKey("Purchase", null=True, blank=True, on_delete=models.PROTECT,
                                  related_name="settlement_payments")
+    advance = models.ForeignKey(AccountAdvance, null=True, blank=True, on_delete=models.PROTECT,
+                                related_name="applications")
     amount = models.DecimalField("Сума", max_digits=14, decimal_places=2)
     payment_method = models.CharField("Спосіб оплати", max_length=10, choices=PAYMENT_METHODS, default="cash")
     document_ref = models.CharField("Номер документа оплати", max_length=80, blank=True)
@@ -1378,6 +1425,11 @@ class SettlementPayment(models.Model):
             raise ValueError("Документ оплати належить іншому магазину.")
         if self.sale_id and not self.sale.customer_id:
             raise ValueError("Для обліку боргу продаж має бути прив'язаний до клієнта.")
+        if self.payment_method == "advance":
+            if not self.advance_id or self.advance.company_id != self.company_id:
+                raise ValueError("Для оплати з авансу потрібен аванс цього магазину.")
+        elif self.advance_id:
+            raise ValueError("Аванс можна прив'язати лише до оплати з авансу.")
         super().save(*args, **kwargs)
 
     def __str__(self):
