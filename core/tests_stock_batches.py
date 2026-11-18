@@ -6,7 +6,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from core import services
-from core.models import Product, Supplier, StockBatch, BatchAllocation
+from core.models import Product, Supplier, StockBatch, BatchAllocation, StockSerialUnit
 from core.forms import ProductForm
 from core.services import StockError
 from core.tests_tenant_helpers import create_test_company
@@ -111,6 +111,71 @@ class StockBatchFifoTests(TestCase):
         self.assertEqual(self.product.current_stock, D("2"))
         self.assertEqual(batch.remaining_quantity, D("2"))
         self.assertEqual(BatchAllocation.objects.count(), 0)
+
+    def test_serial_purchase_checkout_and_customer_return_lifecycle(self):
+        product = Product.objects.create(
+            company=self.company, name="Смартфон", sku="PHONE-1", price=D("12000"),
+            cost_price=D("9000"), tracking_mode="serial",
+        )
+        services.create_purchase(
+            self.user, self.supplier,
+            [(product, D("1"), D("9000"), "", None, ["IMEI-123456789012345"])],
+            company=self.company,
+        )
+        unit = StockSerialUnit.objects.get(normalized_serial="IMEI123456789012345")
+        self.assertEqual(unit.status, StockSerialUnit.IN_STOCK)
+        product.refresh_from_db()
+        self.assertEqual(product.current_stock, D("1"))
+
+        sale = services.finalize_sale(
+            self.user, [(product, D("1"), product.price, {"serial_number": "IMEI-123456789012345"})],
+            "cash", None, None, company=self.company,
+        )
+        unit.refresh_from_db()
+        self.assertEqual(unit.status, StockSerialUnit.SOLD)
+        self.assertEqual(unit.sale_item_id, sale.items.get().pk)
+        product.refresh_from_db()
+        self.assertEqual(product.current_stock, D("0"))
+
+        services.create_return(self.user, sale, {sale.items.get().pk: D("1")}, company=self.company)
+        unit.refresh_from_db()
+        self.assertEqual(unit.status, StockSerialUnit.IN_STOCK)
+        self.assertIsNone(unit.sale_item_id)
+        product.refresh_from_db()
+        self.assertEqual(product.current_stock, D("1"))
+
+    def test_serial_checkout_rejects_unknown_or_already_sold_serial(self):
+        product = Product.objects.create(
+            company=self.company, name="Планшет", sku="TAB-1", price=D("5000"),
+            tracking_mode="serial",
+        )
+        with self.assertRaises(StockError):
+            services.finalize_sale(
+                self.user, [(product, D("1"), product.price, {"serial_number": "UNKNOWN"})],
+                "cash", None, None, company=self.company,
+            )
+        self.assertEqual(product.current_stock, D("0"))
+
+    def test_serial_purchase_requires_one_unique_serial_per_unit(self):
+        product = Product.objects.create(
+            company=self.company, name="Навушники", sku="HEAD-1", price=D("1000"),
+            tracking_mode="serial",
+        )
+        with self.assertRaises(StockError):
+            services.create_purchase(
+                self.user, self.supplier,
+                [(product, D("2"), D("500"), "", None, ["SERIAL-1"])],
+                company=self.company,
+            )
+        with self.assertRaises(StockError):
+            services.create_purchase(
+                self.user, self.supplier,
+                [(product, D("2"), D("500"), "", None, ["SERIAL-1", "SERIAL-1"])],
+                company=self.company,
+            )
+        self.assertEqual(StockSerialUnit.objects.count(), 0)
+        product.refresh_from_db()
+        self.assertEqual(product.current_stock, D("0"))
 
     def test_batch_monitor_page_filters_expired_and_soon_lots(self):
         today = timezone.localdate()
