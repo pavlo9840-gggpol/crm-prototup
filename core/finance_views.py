@@ -72,6 +72,8 @@ def finance_ledger(request):
     for row in payment_rows:
         payment_totals.setdefault(row["payment_method"], {"income": Decimal("0.00"), "expense": Decimal("0.00")})
         payment_totals[row["payment_method"]][row["entry_type"]] = row["total"] or Decimal("0.00")
+    for totals_by_method in payment_totals.values():
+        totals_by_method["balance"] = totals_by_method["income"] - totals_by_method["expense"]
     return render(request, "core/finance_ledger.html", {
         "form": form, "entries": entries, "date_from": date_from, "date_to": date_to,
         "income": income, "expense": expense, "balance": income - expense,
