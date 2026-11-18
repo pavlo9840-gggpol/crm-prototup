@@ -7,7 +7,7 @@
 {% if user.is_staff %}
 <p><label>Спосіб повернення коштів
 <select name="refund_method" id="refund-method">
-<option value="card">На картку</option><option value="cash">Готівкою з каси</option><option value="mixed">Змішано</option>
+<option value="pending"{% if sale.payment_method == "credit" %} selected{% endif %}>Зарахувати в борг</option><option value="card">На картку</option><option value="cash">Готівкою з каси</option><option value="mixed">Змішано</option>
 </select></label>
 <label id="refund-cash-wrap" hidden>Сума готівкою, ₴
 <input type="number" name="refund_cash_amount" min="0.01" step="0.01" value="" style="width:120px">
