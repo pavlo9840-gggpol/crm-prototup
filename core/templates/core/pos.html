@@ -38,8 +38,9 @@
 <section class="right"><div id="chips"></div><div id="tiles"></div></section></div>
 
 <div class="modal" id="pm"><div class="mbox"><h2 style="margin-top:0">Оплата: <span id="ptotal"></span> ₴</h2>
-<div class="tabs" id="tabs"><button data-m="cash" class="on">Готівка</button><button data-m="card">Картка</button><button data-m="mixed">Змішана</button></div>
+<div class="tabs" id="tabs"><button data-m="cash" class="on">Готівка</button><button data-m="card">Картка</button><button data-m="mixed">Змішана</button><button data-m="credit">У борг</button></div>
 <div id="cardrow" style="display:none;margin-bottom:8px">Карткою: <input id="cardin" type="number" step="0.01" min="0" style="width:120px"> Готівкою: <b id="cashdue"></b> ₴</div>
+<div id="creditinfo" style="display:none;padding:12px;background:#fff3d6;border-radius:8px;margin:8px 0">Буде створено продаж із заборгованістю клієнта. Оберіть клієнта перед підтвердженням. Гроші до касової шухляди не надходять.</div>
 <div id="cashbox"><label>Отримано від клієнта: <input id="recv" type="number" step="0.01" min="0" style="font-size:22px;width:170px;text-align:right"></label>
 <button class="btn gray sm" id="exact">Рівно</button> <button class="btn gray sm" id="rst">Скинути</button>
 <div class="den" id="den"></div><div id="rcounts" style="color:var(--mute);font-size:13px"></div>
@@ -143,6 +144,9 @@ let lastPlan=null,rt;
 function sumCounts(){return Object.entries(counts).reduce((s,[k,v])=>s+k*v,0)}
 function showCounts(){$('rcounts').textContent=Object.keys(counts).length?'Прийнято: '+Object.entries(counts).sort((a,b)=>b[0]-a[0]).map(([k,v])=>(k>=100?k/100:'0.'+k)+'×'+v).join(', '):''}
 function calc(){clearTimeout(rt);rt=setTimeout(async()=>{
+const credit=mode==='credit';
+$('creditinfo').style.display=credit?'block':'none';
+if(credit){$('cashbox').style.display='none';$('cardrow').style.display='none';lastPlan={ok:!!customer};$('pmsg').textContent=customer?'Борг буде записано на рахунок клієнта.':'Оберіть клієнта, щоб оформити продаж у борг.';$('pok').disabled=!customer;return}
 const due=kop(total())-cardKop();$('cashdue').textContent=money(due/100);$('cashbox').style.display=due>0?'block':'none';
 if(due<=0){lastPlan={ok:true};$('pok').disabled=false;return}
 const[ok,d]=await post('/pos/change/',{total:total(),payment:mode,card:(cardKop()/100),received:$('recv').value||null,counts});
