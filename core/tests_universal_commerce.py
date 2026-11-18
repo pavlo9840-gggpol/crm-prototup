@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from decimal import Decimal
 from django.db import IntegrityError, transaction
 
 from core.forms import ProductForm
@@ -93,7 +94,7 @@ class UniversalProductFieldsTests(TestCase):
             attributes={"duration_minutes": 60, "skill": "installation"},
         )
         self.assertEqual(product.product_kind, "service")
-        self.assertEqual(product.weight_kg, 1.250)
+        self.assertEqual(product.weight_kg, Decimal("1.250"))
         self.assertEqual(product.attributes["duration_minutes"], 60)
 
     def test_multiple_barcodes_are_scoped_to_store_and_product(self):
