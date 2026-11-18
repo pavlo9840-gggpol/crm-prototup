@@ -21,7 +21,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem)
+                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -397,8 +397,13 @@ def purchase_new(request):
 @company_required
 @tenant_staff_only
 def purchase_detail(request, pk):
-    return render(request, "core/purchase_detail.html",
-                  {"p": get_object_or_404(company_queryset(Purchase.objects.select_related("supplier"), request), pk=pk)})
+    purchase = get_object_or_404(company_queryset(Purchase.objects.select_related("supplier"), request), pk=pk)
+    payments = purchase.settlement_payments.filter(company=request.company, is_void=False)
+    paid = payments.aggregate(total=Sum("amount"))["total"] or D0
+    return render(request, "core/purchase_detail.html", {
+        "p": purchase, "settlement_payments": purchase.settlement_payments.select_related("created_by", "voided_by"),
+        "settlement_paid": paid, "settlement_balance": max(D0, purchase.total - paid),
+    })
 
 
 # ---------- POS ----------
@@ -731,8 +736,17 @@ def sale_detail(request, pk):
     sale = get_object_or_404(company_queryset(Sale.objects.select_related("cashier", "customer"), request), pk=pk)
     if not _can_manage_company(request) and sale.cashier_id != request.user.id:
         raise PermissionDenied
-    return render(request, "core/sale_detail.html", {"sale": sale, "items": sale.items.filter(company=request.company).select_related("product"),
-                                                     "returns": sale.returns.filter(company=request.company)})
+    returns = sale.returns.filter(company=request.company)
+    returned = returns.aggregate(total=Sum("total"))["total"] or D0
+    settlement_payments = sale.settlement_payments.filter(company=request.company)
+    paid_later = settlement_payments.filter(is_void=False).aggregate(total=Sum("amount"))["total"] or D0
+    paid_at_checkout = sale.cash_amount + sale.card_amount
+    balance = max(D0, sale.total - returned - paid_at_checkout - paid_later)
+    return render(request, "core/sale_detail.html", {
+        "sale": sale, "items": sale.items.filter(company=request.company).select_related("product"),
+        "returns": returns, "settlement_payments": settlement_payments.select_related("created_by", "voided_by"),
+        "settlement_paid": paid_later, "settlement_balance": balance,
+    })
 
 
 @login_required
