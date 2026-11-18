@@ -32,7 +32,7 @@ class ProductFormUxTest(TestCase):
 
     def test_page_structure_and_numbers_are_js_safe(self):
         html = self.adm.get("/products/new/").content.decode()
-        for needle in ("Що це за деталь", "Ціни", "Склад", "Зберегти й додати ще", "id=\"mk\"", "brand-list"):
+        for needle in ("Основна інформація про товар", "Ціни", "Склад", "Зберегти й додати ще", "id=\"mk\"", "brand-list"):
             self.assertIn(needle, html)
         # дробові числа в JS/атрибутах не мають комою (локаль uk), інакше розрахунок ціни зламається
         self.assertEqual(re.findall(r'data-pct="([^"]+)"', html), ["15.000000", "30.000000"])
