@@ -8,9 +8,10 @@ from django.db.models import Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .models import Purchase, Sale, SettlementPayment
+from . import cash as cashlib
+from .models import CashOperation, Purchase, Sale, SettlementPayment, Shift
 from .tenant_context import company_required
-from .views import tenant_staff_only
+from .views import current_shift, tenant_staff_only
 
 D0 = Decimal("0.00")
 
@@ -41,6 +42,37 @@ def _balance_for(document):
                 else document.returns.filter(company=document.company).aggregate(total=Sum("total"))["total"] or D0)
     already_paid = document.cash_amount + document.card_amount + _paid_for(document)
     return max(D0, document.total - returned - already_paid)
+
+
+def _settlement_cash_plan(document, amount, shift):
+    """Return drawer delta/counts for a cash settlement; None means insufficient notes."""
+    drawer = cashlib.clean(shift.drawer)
+    amount_kop = cashlib.to_kop(amount)
+    if isinstance(document, Purchase):
+        counts = cashlib.make_change(amount_kop, drawer)
+        if counts is None:
+            return None
+        return cashlib.add(drawer, counts, -1), counts, "out"
+    counts = cashlib.decompose(amount_kop)
+    return cashlib.add(drawer, counts), counts, "in"
+
+
+def _reverse_settlement_cash(payment, shift):
+    """Create a compensating cash movement; never rewrite/delete the original one."""
+    original = payment.cash_operation
+    drawer = cashlib.clean(shift.drawer)
+    amount_kop = cashlib.to_kop(payment.amount)
+    if original.kind == "in":
+        counts = cashlib.make_change(amount_kop, drawer)
+        if counts is None:
+            return None
+        drawer_after = cashlib.add(drawer, counts, -1)
+        kind, signed_amount = "out", -payment.amount
+    else:
+        counts = cashlib.clean(original.detail.get("counts", {}))
+        drawer_after = cashlib.add(drawer, counts)
+        kind, signed_amount = "in", payment.amount
+    return drawer_after, counts, kind, signed_amount
 
 
 @tenant_staff_only
@@ -91,19 +123,46 @@ def settlement_payment_new(request, document_type, pk):
             return redirect("purchase_detail" if document_type == "purchase" else "sale_detail", pk=document.pk)
         balance = _balance_for(document)
         amount = form.cleaned_data["amount"]
+        payment_method = form.cleaned_data["payment_method"]
+        shift = None
+        cash_plan = None
         if balance <= 0:
             messages.error(request, "За цим документом немає непогашеної заборгованості.")
         elif amount > balance:
             messages.error(request, f"Сума перевищує залишок боргу: {balance:.2f} ₴.")
+        elif payment_method == "cash" and not (shift := Shift.objects.select_for_update().filter(
+            company=request.company, cashier=request.user, closed_at__isnull=True
+        ).first()):
+            messages.error(request, "Для готівкової оплати відкрийте касову зміну під своїм обліковим записом.")
         else:
-            kwargs = {"purchase": document} if document_type == "purchase" else {"sale": document}
-            SettlementPayment.objects.create(
-                company=request.company, created_by=request.user, amount=amount,
-                payment_method=form.cleaned_data["payment_method"],
-                document_ref=form.cleaned_data["document_ref"].strip(),
-                note=form.cleaned_data["note"].strip(), **kwargs,
-            )
-            messages.success(request, f"Оплату {amount:.2f} ₴ зареєстровано.")
+            if payment_method == "cash":
+                cash_plan = _settlement_cash_plan(document, amount, shift)
+                if cash_plan is None:
+                    messages.error(request, "У касі недостатньо готівки потрібного номіналу для виплати постачальнику.")
+            if payment_method != "cash" or cash_plan is not None:
+                kwargs = {"purchase": document} if document_type == "purchase" else {"sale": document}
+                payment = SettlementPayment.objects.create(
+                    company=request.company, created_by=request.user, amount=amount,
+                    payment_method=payment_method,
+                    document_ref=form.cleaned_data["document_ref"].strip(),
+                    note=form.cleaned_data["note"].strip(), **kwargs,
+                )
+                if cash_plan is not None:
+                    drawer_after, counts, kind = cash_plan
+                    signed_amount = amount if kind == "in" else -amount
+                    operation = CashOperation.objects.create(
+                        company=request.company, shift=shift, user=request.user, kind=kind,
+                        amount=signed_amount,
+                        detail={"source": "settlement", "settlement_payment_id": payment.pk,
+                                "counts": cashlib.store(counts)},
+                        note=("Погашення боргу клієнта" if kind == "in" else "Оплата постачальнику") +
+                             f" · {document}",
+                    )
+                    payment.cash_operation = operation
+                    payment.save(update_fields=["cash_operation"])
+                    shift.drawer = cashlib.store(drawer_after)
+                    shift.save(update_fields=["drawer"])
+                messages.success(request, f"Оплату {amount:.2f} ₴ зареєстровано.")
     return redirect("purchase_detail" if document_type == "purchase" else "sale_detail", pk=document.pk)
 
 
@@ -119,16 +178,38 @@ def settlement_payment_void(request, pk):
     with transaction.atomic():
         payment = SettlementPayment.objects.select_for_update().filter(
             pk=pk, company=request.company, is_void=False
-        ).select_related("sale", "purchase").first()
+        ).select_related("sale", "purchase", "cash_operation").first()
         if not payment:
             messages.error(request, "Оплату не знайдено або її вже скасовано.")
             return redirect("settlements_home")
+        if payment.cash_operation_id:
+            shift = Shift.objects.select_for_update().filter(
+                pk=payment.cash_operation.shift_id, company=request.company, closed_at__isnull=True
+            ).first()
+            if not shift:
+                messages.error(request, "Готівкову оплату можна скасувати лише у відкритій зміні, де її провели. Закриту зміну не змінюємо заднім числом.")
+                return redirect("settlements_home")
+            reversal = _reverse_settlement_cash(payment, shift)
+            if reversal is None:
+                messages.error(request, "У касі недостатньо готівки для сторнування надходження. Спочатку звірте касу.")
+                return redirect("settlements_home")
+            drawer_after, counts, kind, signed_amount = reversal
+            reversal_operation = CashOperation.objects.create(
+                company=request.company, shift=shift, user=request.user, kind=kind,
+                amount=signed_amount,
+                detail={"source": "settlement_reversal", "settlement_payment_id": payment.pk,
+                        "counts": cashlib.store(counts)},
+                note=f"Сторнування оплати #{payment.pk}",
+            )
+            payment.reversal_operation = reversal_operation
+            shift.drawer = cashlib.store(drawer_after)
+            shift.save(update_fields=["drawer"])
         payment.is_void = True
         payment.voided_at = timezone.now()
         payment.voided_by = request.user
         payment.void_reason = form.cleaned_data["reason"].strip()
-        payment.save(update_fields=["is_void", "voided_at", "voided_by", "void_reason"])
-    messages.success(request, "Оплату скасовано; запис залишився в історії.")
+        payment.save(update_fields=["is_void", "voided_at", "voided_by", "void_reason", "reversal_operation"])
+    messages.success(request, "Оплату скасовано; її касовий рух сторновано окремою операцією, історію збережено.")
     return redirect("settlements_home")
 
 
