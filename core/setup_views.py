@@ -11,6 +11,7 @@ from .tenancy import create_local_store
 
 
 class InstallationSetupForm(forms.Form):
+    business_type = forms.ChoiceField(label="Тип магазину", choices=Company.BUSINESS_TYPES, initial="auto_parts")
     shop_name = forms.CharField(label="Назва магазину", max_length=150)
     username = forms.CharField(label="Логін адміністратора", max_length=150)
     email = forms.EmailField(label="Email", required=False)
@@ -74,7 +75,7 @@ def installation_setup(request):
                     password=data["password"],
                 )
 
-            company = create_local_store(owner, data["shop_name"])
+            company = create_local_store(owner, data["shop_name"], data["business_type"])
 
         if not user_count:
             login(request, owner)
