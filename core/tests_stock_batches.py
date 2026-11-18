@@ -91,6 +91,19 @@ class StockBatchFifoTests(TestCase):
         self.assertEqual(batch.remaining_quantity, D("2"))
         self.assertEqual(BatchAllocation.objects.count(), 0)
 
+    def test_batch_monitor_page_filters_expired_and_soon_lots(self):
+        today = timezone.localdate()
+        self.purchase("2", "20", "OLD", today - timedelta(days=1))
+        self.purchase("3", "21", "SOON", today + timedelta(days=7))
+        self.client.force_login(self.user)
+        expired = self.client.get("/inventory/batches/?status=expired")
+        self.assertEqual(expired.status_code, 200)
+        self.assertContains(expired, "OLD")
+        self.assertNotContains(expired, "SOON")
+        soon = self.client.get("/inventory/batches/?status=soon")
+        self.assertContains(soon, "SOON")
+        self.assertNotContains(soon, "OLD")
+
     def test_legacy_stock_is_migrated_to_unknown_date_batch_on_first_sale(self):
         self.product.current_stock = D("5")
         self.product.save(update_fields=["current_stock"])
