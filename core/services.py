@@ -223,7 +223,7 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
         raise StockError("Касова зміна належить іншому магазину")
     if shift and shift.cashier_id != user.pk and not _can_manage(user, company):
         raise StockError("Немає доступу до цієї касової зміни")
-    if any(x and (x["si"].company_id != company.pk or x["si"].supplier.company_id != company.pk) for *_a, x in lines):
+    if any(x and x.get("si") and (x["si"].company_id != company.pk or x["si"].supplier.company_id != company.pk) for *_a, x in lines):
         raise StockError("Позиція постачальника належить іншому магазину")
     if not lines:
         raise StockError("Чек порожній")
@@ -491,7 +491,7 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
     # Lock all affected stock rows before changing any of them. Sorting makes
     # two purchases with the same products acquire locks in a consistent order.
     locked = _lock_products((p.pk for p, _q, _cost, _batch, _expiry, _serials in normalized_lines), company=company)
-    if len(locked) != len({p.pk for p, _q, _cost, _batch, _expiry in normalized_lines}):
+    if len(locked) != len({p.pk for p, _q, _cost, _batch, _expiry, _serials in normalized_lines}):
         raise StockError("Один із товарів не належить цьому магазину")
     pur = Purchase.objects.create(company=company, supplier=supplier, user=user)
     _num(pur, "NK")
