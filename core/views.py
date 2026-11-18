@@ -217,7 +217,8 @@ def product_edit(request, pk=None):
     dt = MarkupTier.objects.filter(company=request.company, is_default=True).first()
     return render(request, "core/product_form.html", {
         "form": form, "obj": obj, "history": history, "brands": all_brands(request), "tiers": tiers,
-        "default_pct": float(dt.percent) if dt else 30.0})
+        "default_pct": float(dt.percent) if dt else 30.0,
+        "is_auto_parts": request.company.business_type == "auto_parts"})
 
 
 @tenant_staff_only
@@ -232,9 +233,10 @@ def product_lookup(request):
         return JsonResponse({"empty": True})
     exclude = request.GET.get("pk") or 0
     same = company_queryset(Product.objects.filter(sku_norm=sn), request).exclude(pk=exclude)
-    dup = same.filter(brand__iexact=brand).first() if brand else same.filter(brand="").first()
-    others = [{"brand": p.brand or "—", "name": p.name, "url": reverse("product_edit", args=[p.pk])}
-              for p in same.exclude(pk=dup.pk if dup else 0)[:5]]
+    is_auto_parts = request.company.business_type == "auto_parts"
+    dup = (same.filter(brand__iexact=brand).first() if brand else same.filter(brand="").first()) if is_auto_parts else same.first()
+    others = ([{"brand": p.brand or "—", "name": p.name, "url": reverse("product_edit", args=[p.pk])}
+               for p in same.exclude(pk=dup.pk if dup else 0)[:5]] if is_auto_parts else [])
     default_tier = MarkupTier.objects.filter(company=request.company, is_default=True).first()
     pct = default_tier.percent if default_tier else D0
     offers_qs = company_queryset(SupplierItem.objects.filter(sku_norm=sn), request).select_related("supplier").order_by("-available", "cost")
@@ -244,12 +246,12 @@ def product_lookup(request):
                "qty": float(o.qty_avail) if o.qty_avail is not None else None, "available": o.available,
                "price": float(services.markup_price(o.cost, pct))} for o in offers_qs[:8]]
     ib = brand or (offers[0]["brand"] if offers else "")
-    info = PartInfo.objects.filter(brand=ib, sku_norm=sn).first()
+    info = PartInfo.objects.filter(brand=ib, sku_norm=sn).first() if is_auto_parts else None
     card = reverse("part_card") + "?" + urlencode({"b": ib, "s": sn})
     data = {"dup": {"name": dup.name, "brand": dup.brand, "sku": dup.sku, "stock": float(dup.current_stock),
                     "url": reverse("product_edit", args=[dup.pk])} if dup else None,
             "others": others, "offers": offers, "card": card}
-    if info or PartOe.objects.filter(brand=ib, sku_norm=sn).exists() or offers:
+    if is_auto_parts and (info or PartOe.objects.filter(brand=ib, sku_norm=sn).exists() or offers):
         data["info"] = {"description": (info.description[:260] if info else ""), "image": info.image_url if info else "",
                         "oe": PartOe.objects.filter(brand=ib, sku_norm=sn).count(),
                         "analogs": len(crosses.analogs(ib, sn, limit=50, company=request.company))}
