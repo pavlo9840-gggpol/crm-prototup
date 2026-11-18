@@ -39,6 +39,20 @@ class StockBatchFifoTests(TestCase):
             "cash", None, None, company=self.company,
         )
 
+    def test_product_cannot_disable_batch_tracking_with_remaining_stock(self):
+        expiry = timezone.localdate() + timedelta(days=10)
+        self.purchase("2", "20", "ACTIVE", expiry)
+        form = ProductForm({
+            "name": self.product.name, "sku": self.product.sku, "barcode": "",
+            "brand": "", "category": "", "unit": "шт", "product_kind": "goods",
+            "tracking_mode": "none", "tax_category": "general", "condition": "new",
+            "has_defect": "", "condition_description": "", "cost_price": "25", "price": "45",
+            "min_stock": "0", "weight_kg": "", "length_cm": "", "width_cm": "", "height_cm": "",
+            "additional_barcodes": "", "photo_url": "", "notes": "",
+        }, instance=self.product, company=self.company)
+        self.assertFalse(form.is_valid())
+        self.assertIn("tracking_mode", form.errors)
+
     def test_serial_tracking_is_not_offered_before_serial_workflow_is_ready(self):
         form = ProductForm(company=self.company)
         values = [value for value, _label in form.fields["tracking_mode"].choices]
