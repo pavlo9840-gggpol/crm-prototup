@@ -154,8 +154,11 @@ class ProductBarcode(models.Model):
         self.barcode = (self.barcode or "").strip()
 
     def save(self, *args, **kwargs):
+        from django.core.exceptions import ValidationError
         if self.product_id and not self.company_id:
             self.company_id = self.product.company_id
+        if self.product_id and self.company_id and self.product.company_id != self.company_id:
+            raise ValidationError({"product": "Товар належить іншому магазину."})
         self.barcode = (self.barcode or "").strip()
         super().save(*args, **kwargs)
 
