@@ -9,6 +9,7 @@ from . import carparts as cp
 from . import catalog_views as cat
 from . import payroll_views as pr
 from . import finance_views as fv
+from . import settlement_views as sv
 from . import currency_views as cv
 from . import receive_views as rv
 from . import views as v
@@ -74,6 +75,9 @@ urlpatterns = [
     path("rates/", cv.rates, name="rates"),
     path("finance/", fv.finance_ledger, name="finance_ledger"),
     path("finance/<int:pk>/void/", fv.finance_entry_void, name="finance_entry_void"),
+    path("settlements/", sv.settlements_home, name="settlements_home"),
+    path("settlements/<str:document_type>/<int:pk>/payment/", sv.settlement_payment_new, name="settlement_payment_new"),
+    path("settlements/payments/<int:pk>/void/", sv.settlement_payment_void, name="settlement_payment_void"),
     path("payroll/", pr.payroll_view, name="payroll"),
     path("pay-plans/", pr.pay_plans, name="pay_plans"),
     path("pay-plans/new/", pr.pay_plan_edit, name="pay_plan_new"),
