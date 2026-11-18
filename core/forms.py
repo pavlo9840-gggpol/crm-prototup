@@ -69,16 +69,22 @@ class ProductForm(forms.ModelForm):
                     categories = categories.filter(company=self.company)
                 d["category"] = categories.first()
         brand, sku = d.get("brand"), d.get("sku")
-        if brand and sku:
-            dup = Product.objects.filter(sku_norm=norm_sku(sku), brand__iexact=brand)
+        if sku:
+            dup = Product.objects.filter(sku_norm=norm_sku(sku))
             if self.company is not None:
                 dup = dup.filter(company=self.company)
+                # Автозапчастини ідентифікуються парою бренд + артикул.
+                # В інших профілях внутрішній SKU має бути унікальним у межах магазину.
+                if self.company.business_type == "auto_parts":
+                    dup = dup.filter(brand__iexact=brand or "")
+            elif brand:
+                dup = dup.filter(brand__iexact=brand)
             if self.instance.pk:
                 dup = dup.exclude(pk=self.instance.pk)
             dup = dup.first()
             if dup:
-                self.add_error("sku", f"Такий товар уже є в базі: {dup.brand} {dup.sku} — «{dup.name}». "
-                                      f"Артикули порівнюються без пробілів і дефісів.")
+                self.add_error("sku", f"Такий код уже використовується: {dup.brand} {dup.sku} — «{dup.name}». "
+                                      f"Коди порівнюються без пробілів і дефісів.")
         return d
 
 
