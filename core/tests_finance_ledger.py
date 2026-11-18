@@ -400,3 +400,108 @@ class BankLedgerTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)
         self.assertEqual(BankTransaction.objects.filter(company=self.company).count(), 0)
+
+
+class AdvanceLedgerTests(TestCase):
+    def setUp(self):
+        from core.models import Customer, Purchase, Sale, Supplier
+        User = get_user_model()
+        self.owner = User.objects.create_superuser(username="advance-owner", email="", password="secret")
+        self.company = create_test_company(self.owner, "Advance shop", [])
+        self.customer = Customer.objects.create(company=self.company, name="Аванс клієнт", phone="0501112233")
+        self.supplier = Supplier.objects.create(company=self.company, name="Аванс постачальник")
+        self.sale = Sale.objects.create(
+            company=self.company, cashier=self.owner, customer=self.customer,
+            total=Decimal("1000.00"), cash_amount=Decimal("0.00"), card_amount=Decimal("0.00"),
+        )
+        self.purchase = Purchase.objects.create(
+            company=self.company, supplier=self.supplier, user=self.owner, total=Decimal("900.00"),
+        )
+        self.client.force_login(self.owner)
+
+    def test_customer_advance_can_be_partially_applied_and_restored_when_application_voided(self):
+        from core.models import AccountAdvance, SettlementPayment
+        response = self.client.post(reverse("advance_new", args=["customer", self.customer.pk]), {
+            "amount": "600.00", "payment_method": "bank", "document_ref": "Передоплата-1", "note": "",
+        })
+        self.assertEqual(response.status_code, 302)
+        advance = AccountAdvance.objects.get(customer=self.customer)
+        self.assertEqual(advance.remaining, Decimal("600.00"))
+        response = self.client.post(reverse("settlement_payment_new", args=["sale", self.sale.pk]), {
+            "amount": "500.00", "payment_method": "advance", "advance": advance.pk,
+        })
+        self.assertEqual(response.status_code, 302)
+        advance.refresh_from_db()
+        self.assertEqual(advance.remaining, Decimal("100.00"))
+        payment = SettlementPayment.objects.get(sale=self.sale)
+        self.assertEqual(payment.advance_id, advance.pk)
+        detail = self.client.get(reverse("sale_detail", args=[self.sale.pk]))
+        self.assertEqual(detail.context["settlement_balance"], Decimal("500.00"))
+
+        self.client.post(reverse("settlement_payment_void", args=[payment.pk]), {"reason": "Помилкове застосування"})
+        advance.refresh_from_db()
+        payment.refresh_from_db()
+        self.assertEqual(advance.remaining, Decimal("600.00"))
+        self.assertTrue(payment.is_void)
+        self.assertEqual(payment.void_reason, "Помилкове застосування")
+
+    def test_supplier_advance_is_applied_only_to_its_supplier_purchase(self):
+        from core.models import AccountAdvance, SettlementPayment
+        self.client.post(reverse("advance_new", args=["supplier", self.supplier.pk]), {
+            "amount": "700.00", "payment_method": "bank",
+        })
+        advance = AccountAdvance.objects.get(supplier=self.supplier)
+        self.client.post(reverse("settlement_payment_new", args=["purchase", self.purchase.pk]), {
+            "amount": "400.00", "payment_method": "advance", "advance": advance.pk,
+        })
+        advance.refresh_from_db()
+        self.assertEqual(advance.remaining, Decimal("300.00"))
+        payment = SettlementPayment.objects.get(purchase=self.purchase)
+        self.assertEqual(payment.advance_id, advance.pk)
+        detail = self.client.get(reverse("purchase_detail", args=[self.purchase.pk]))
+        self.assertEqual(detail.context["settlement_balance"], Decimal("500.00"))
+
+    def test_cash_customer_advance_updates_drawer_and_void_posts_reversal(self):
+        from core.models import AccountAdvance
+        shift = Shift.objects.create(company=self.company, cashier=self.owner, drawer={})
+        response = self.client.post(reverse("advance_new", args=["customer", self.customer.pk]), {
+            "amount": "250.00", "payment_method": "cash",
+        })
+        self.assertEqual(response.status_code, 302)
+        advance = AccountAdvance.objects.get(customer=self.customer)
+        shift.refresh_from_db()
+        self.assertEqual(sum(int(k) * v for k, v in shift.drawer.items()), 25000)
+        self.client.post(reverse("advance_void", args=[advance.pk]), {"reason": "Повернення авансу"})
+        advance.refresh_from_db()
+        shift.refresh_from_db()
+        self.assertTrue(advance.is_void)
+        self.assertEqual(shift.drawer, {})
+
+    def test_advance_cannot_be_applied_to_another_customer_or_supplier(self):
+        from core.models import AccountAdvance, Customer
+        foreign_customer = Customer.objects.create(company=self.company, name="Інший", phone="0501112244")
+        self.client.post(reverse("advance_new", args=["customer", foreign_customer.pk]), {
+            "amount": "100.00", "payment_method": "bank",
+        })
+        advance = AccountAdvance.objects.get(customer=foreign_customer)
+        response = self.client.post(reverse("settlement_payment_new", args=["sale", self.sale.pk]), {
+            "amount": "50.00", "payment_method": "advance", "advance": advance.pk,
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(self.sale.settlement_payments.exists())
+        advance.refresh_from_db()
+        self.assertEqual(advance.remaining, Decimal("100.00"))
+
+    def test_advance_with_active_applications_cannot_be_cancelled(self):
+        from core.models import AccountAdvance
+        self.client.post(reverse("advance_new", args=["customer", self.customer.pk]), {
+            "amount": "300.00", "payment_method": "bank",
+        })
+        advance = AccountAdvance.objects.get(customer=self.customer)
+        self.client.post(reverse("settlement_payment_new", args=["sale", self.sale.pk]), {
+            "amount": "100.00", "payment_method": "advance", "advance": advance.pk,
+        })
+        self.client.post(reverse("advance_void", args=[advance.pk]), {"reason": "Не можна"})
+        advance.refresh_from_db()
+        self.assertFalse(advance.is_void)
+        self.assertEqual(advance.remaining, Decimal("200.00"))
