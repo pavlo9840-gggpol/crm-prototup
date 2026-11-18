@@ -42,12 +42,6 @@ class ProductForm(forms.ModelForm):
             self.fields[field_name].initial = (
                 getattr(self.instance, field_name) if self.instance.pk else default_value
             )
-        # Serial-number workflow is not yet implemented end-to-end. Do not offer
-        # a mode that would appear enabled but would not enforce serial scans.
-        tracking_choices = [choice for choice in self.fields["tracking_mode"].choices if choice[0] != "serial"]
-        if self.instance.pk and self.instance.tracking_mode == "serial":
-            tracking_choices.append(("serial", "Серійні номери (застарілий режим — лише перегляд)"))
-        self.fields["tracking_mode"].choices = tracking_choices
         if self.instance.pk:
             del self.fields["initial_stock"]
 
