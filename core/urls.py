@@ -110,6 +110,7 @@ urlpatterns = [
     path("drawer/", v.drawer_view, name="drawer"),
     path("settings/", v.settings_home, name="settings_home"),
     path("settings/company/", v.company_settings, name="company_settings"),
+    path("settings/business-profile/", v.business_profile, name="business_profile"),
     path("sales/<int:pk>/print/", d.sale_print, name="sale_print"),
     path("purchases/<int:pk>/print/", d.purchase_print, name="purchase_print"),
     path("print/stock_report/", d.print_docs, {"doc_type": "stock_report"}, name="print_stock_report"),
