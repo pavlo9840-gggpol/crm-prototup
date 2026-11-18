@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from . import cash as cashlib
 from .models import (Shift, CashOperation, Customer, Product, PurchaseItem, Sale, SaleItem, SaleReturn,
-                     SaleReturnItem, StockMovement, Purchase, PriceHistory, MarkupTier,
+                     SaleReturnItem, StockMovement, Purchase, PurchaseItem, StockBatch, BatchAllocation, PriceHistory, MarkupTier,
                      CompanySettings, StaffMembership, norm_sku)
 
 D0 = Decimal("0")
@@ -114,6 +114,60 @@ def _make_item(sale, p, q, pr, x, done):
             markup_pct=((pr / si.cost - 1) * 100).quantize(Decimal("0.01")) if si.cost else None)
     return SaleItem.objects.create(company=sale.company, sale=sale, product=p, quantity=q, original_price=p.price,
                                    price=pr, cost_price=p.cost_price, earned_at=timezone.now() if done else None)
+
+
+def _consume_batches(product, quantity, sale_item, user=None):
+    """FIFO by expiry/receipt. Creates a legacy batch for pre-feature stock once."""
+    if product.tracking_mode not in {"batch", "expiry"}:
+        return
+    from django.db.models import Sum
+    from django.db.models.functions import Coalesce
+    tracked = StockBatch.objects.select_for_update().filter(company=product.company, product=product).aggregate(
+        total=Coalesce(Sum("remaining_quantity"), D0))["total"]
+    # Existing stock predating batch accounting remains sellable and is represented
+    # explicitly as an unknown-date legacy lot rather than disappearing.
+    legacy = product.current_stock - tracked
+    if legacy > D0:
+        StockBatch.objects.create(company=product.company, product=product, batch_number="LEGACY",
+                                  received_quantity=legacy, remaining_quantity=legacy,
+                                  cost_price=product.cost_price)
+    batches = StockBatch.objects.select_for_update().filter(
+        company=product.company, product=product, remaining_quantity__gt=0
+    )
+    if product.tracking_mode == "expiry":
+        batches = batches.filter(models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gte=timezone.localdate()))
+    batches = batches.order_by(models.F("expiry_date").asc(nulls_last=True), "received_at", "pk")
+    remaining = quantity
+    for batch in batches:
+        take = min(batch.remaining_quantity, remaining)
+        if take <= D0:
+            continue
+        batch.remaining_quantity -= take
+        batch.save(update_fields=["remaining_quantity"])
+        BatchAllocation.objects.create(company=product.company, sale_item=sale_item, batch=batch, quantity=take)
+        remaining -= take
+        if remaining <= D0:
+            break
+    if remaining > D0:
+        raise StockError(f"{product.name}: недостатньо доступного залишку в партіях. Не вистачає {remaining.normalize():f}. Перевірте прострочені партії або інвентаризацію.")
+
+
+def _restore_batch_allocations(sale_item, quantity):
+    remaining = quantity
+    allocations = sale_item.batch_allocations.select_for_update().select_related("batch").order_by("pk")
+    for allocation in allocations:
+        available = allocation.quantity - allocation.returned_quantity
+        restore = min(available, remaining)
+        if restore <= D0:
+            continue
+        batch = StockBatch.objects.select_for_update().get(pk=allocation.batch_id)
+        batch.remaining_quantity += restore
+        batch.save(update_fields=["remaining_quantity"])
+        allocation.returned_quantity += restore
+        allocation.save(update_fields=["returned_quantity"])
+        remaining -= restore
+        if remaining <= D0:
+            break
 
 
 def _can_manage(user, company):
@@ -389,15 +443,24 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
         raise StockError("Додайте хоча б один товар")
     # Validate every line before creating the document or touching stock.
     # Forms normally enforce this, but the service is also a business-rule boundary.
-    for p, q, cost in lines:
+    normalized_lines = []
+    for line in lines:
+        p, q, cost = line[:3]
+        batch_number = line[3] if len(line) > 3 else ""
+        expiry_date = line[4] if len(line) > 4 else None
         if q is None or q <= D0:
             raise StockError(f"{p.name}: кількість має бути більшою за нуль")
         if cost is None or cost < D0:
             raise StockError(f"{p.name}: закупівельна ціна не може бути від'ємною")
+        if p.tracking_mode == "expiry" and not expiry_date:
+            raise StockError(f"{p.name}: для товару з обліком терміну придатності вкажіть дату придатності.")
+        if p.tracking_mode not in {"batch", "expiry"} and (batch_number or expiry_date):
+            raise StockError(f"{p.name}: товар не налаштований на облік партій.")
+        normalized_lines.append((p, q, cost, batch_number or "", expiry_date))
     # Lock all affected stock rows before changing any of them. Sorting makes
     # two purchases with the same products acquire locks in a consistent order.
-    locked = _lock_products((p.pk for p, _q, _cost in lines), company=company)
-    if len(locked) != len({p.pk for p, _q, _cost in lines}):
+    locked = _lock_products((p.pk for p, _q, _cost, _batch, _expiry in normalized_lines), company=company)
+    if len(locked) != len({p.pk for p, _q, _cost, _batch, _expiry in normalized_lines}):
         raise StockError("Один із товарів не належить цьому магазину")
     pur = Purchase.objects.create(company=company, supplier=supplier, user=user)
     _num(pur, "NK")
@@ -408,7 +471,11 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
         # contain the same product more than once.
         movement = add_movement(product, q, "purchase", pur.number, user)
         p = movement.product
-        PurchaseItem.objects.create(company=company, purchase=pur, product=p, quantity=q, cost_price=cost)
+        purchase_item = PurchaseItem.objects.create(company=company, purchase=pur, product=p, quantity=q, cost_price=cost)
+        if p.tracking_mode in {"batch", "expiry"}:
+            StockBatch.objects.create(company=company, product=p, purchase_item=purchase_item,
+                batch_number=batch_number, expiry_date=expiry_date, received_quantity=q,
+                remaining_quantity=q, cost_price=cost)
         total += q * cost
         if update_cost and p.cost_price != cost:
             PriceHistory.objects.create(company=company, product=p, field="cost_price", old_value=p.cost_price,
