@@ -461,7 +461,7 @@ def _cart_line_json(i):
                     rl=pricing.rule_json(pricing.RuleSet(company=i.product.company).for_(si.brand, i.product.category_id)),
                     sup=si.supplier.name, avail=float(si.qty_avail) if si.qty_avail is not None else None)
     return dict(base, key=f"p{i.product_id}", allow=i.product.allow_price_change,
-                name=f"{i.product.brand} {i.product.name}".strip())
+                name=f"{i.product.brand} {i.product.name}".strip(), tm=i.product.tracking_mode, serial_number="")
 
 
 def product_json(p):
