@@ -194,3 +194,15 @@ class SettlementLedgerTests(TestCase):
                                     {"amount": "10.00", "payment_method": "cash"})
         self.assertEqual(response.status_code, 403)
         self.assertEqual(self.Payment.objects.filter(purchase=other_purchase).count(), 0)
+
+    def test_model_rejects_payment_linked_to_foreign_company_document(self):
+        other_owner = get_user_model().objects.create_superuser(
+            username="foreign-settlement-owner", email="", password="secret"
+        )
+        other_company = create_test_company(other_owner, "Foreign settlement ledger", [])
+        other_supplier = Supplier.objects.create(company=other_company, name="Чужий постачальник")
+        other_purchase = Purchase.objects.create(company=other_company, supplier=other_supplier,
+            user=other_owner, total=Decimal("100.00"))
+        with self.assertRaises(ValueError):
+            self.Payment.objects.create(company=self.company, purchase=other_purchase,
+                amount=Decimal("10.00"), payment_method="cash", created_by=self.owner)
