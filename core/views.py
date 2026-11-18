@@ -400,9 +400,15 @@ def purchase_detail(request, pk):
     purchase = get_object_or_404(company_queryset(Purchase.objects.select_related("supplier"), request), pk=pk)
     payments = purchase.settlement_payments.filter(company=request.company, is_void=False)
     paid = payments.aggregate(total=Sum("amount"))["total"] or D0
+    from .models import AccountAdvance
+    available_advances = AccountAdvance.objects.filter(
+        company=request.company, party_type=AccountAdvance.SUPPLIER, supplier_id=purchase.supplier_id,
+        is_void=False, remaining__gt=0,
+    )
     return render(request, "core/purchase_detail.html", {
-        "p": purchase, "settlement_payments": purchase.settlement_payments.select_related("created_by", "voided_by"),
+        "p": purchase, "settlement_payments": purchase.settlement_payments.select_related("created_by", "voided_by", "advance"),
         "settlement_paid": paid, "settlement_balance": max(D0, purchase.total - paid),
+        "available_advances": available_advances,
     })
 
 
@@ -742,10 +748,16 @@ def sale_detail(request, pk):
     paid_later = settlement_payments.filter(is_void=False).aggregate(total=Sum("amount"))["total"] or D0
     paid_at_checkout = sale.cash_amount + sale.card_amount
     balance = max(D0, sale.total - returned - paid_at_checkout - paid_later)
+    from .models import AccountAdvance
+    available_advances = AccountAdvance.objects.filter(
+        company=request.company, party_type=AccountAdvance.CUSTOMER, customer_id=sale.customer_id,
+        is_void=False, remaining__gt=0,
+    ) if sale.customer_id else AccountAdvance.objects.none()
     return render(request, "core/sale_detail.html", {
         "sale": sale, "items": sale.items.filter(company=request.company).select_related("product"),
-        "returns": returns, "settlement_payments": settlement_payments.select_related("created_by", "voided_by"),
+        "returns": returns, "settlement_payments": settlement_payments.select_related("created_by", "voided_by", "advance"),
         "settlement_paid": paid_later, "settlement_balance": balance,
+        "available_advances": available_advances,
     })
 
 
