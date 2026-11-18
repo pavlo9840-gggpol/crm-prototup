@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import FinanceEntry, Shift
+from core.models import BankAccount, BankTransaction, FinanceEntry, Shift
 from core.tests_tenant_helpers import create_test_company
 
 
@@ -315,3 +315,88 @@ class SettlementLedgerTests(TestCase):
         with self.assertRaises(ValueError):
             self.Payment.objects.create(company=self.company, purchase=other_purchase,
                 amount=Decimal("10.00"), payment_method="cash", created_by=self.owner)
+
+
+class BankLedgerTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.owner = User.objects.create_superuser(username="bank-owner", email="", password="secret")
+        self.cashier = User.objects.create_user(username="bank-cashier", password="secret")
+        self.company = create_test_company(self.owner, "Bank ledger shop", [(self.cashier, "cashier")])
+        self.account = BankAccount.objects.create(
+            company=self.company, bank_name="Тест Банк", iban="UA123456789012345678901234567",
+            currency="UAH", is_default=True,
+        )
+
+    def test_registers_bank_income_and_expense_and_calculates_balance(self):
+        self.client.force_login(self.owner)
+        url = reverse("bank_ledger")
+        for payload in (
+            {"form_kind": "transaction", "account": self.account.pk, "transaction_date": "2026-11-18",
+             "direction": "income", "category": "Оплата клієнта", "amount": "1200.00",
+             "counterparty": "Клієнт", "document_ref": "Виписка 1", "note": ""},
+            {"form_kind": "transaction", "account": self.account.pk, "transaction_date": "2026-11-18",
+             "direction": "expense", "category": "Оренда", "amount": "300.00",
+             "counterparty": "Орендодавець", "document_ref": "INV-2", "note": ""},
+        ):
+            response = self.client.post(url, payload)
+            self.assertEqual(response.status_code, 302)
+        response = self.client.get(url)
+        self.assertEqual(response.context["income"], Decimal("1200.00"))
+        self.assertEqual(response.context["expense"], Decimal("300.00"))
+        self.assertEqual(response.context["balance"], Decimal("900.00"))
+        self.assertEqual(response.context["balances"][0]["balance"], Decimal("900.00"))
+        self.assertEqual(BankTransaction.objects.filter(company=self.company).count(), 2)
+
+    def test_account_creation_normalizes_iban_and_prevents_duplicates(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("bank_ledger"), {
+            "form_kind": "account", "bank_name": "Інший банк",
+            "iban": "UA 123456789012345678901234567", "currency": "UAH",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Такий рахунок уже додано")
+        self.assertEqual(BankAccount.objects.filter(company=self.company).count(), 1)
+
+    def test_void_keeps_audit_record_and_removes_it_from_account_balance(self):
+        entry = BankTransaction.objects.create(
+            company=self.company, account=self.account, transaction_date="2026-11-18",
+            direction="income", category="Повернення", amount=Decimal("500.00"),
+            created_by=self.owner,
+        )
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("bank_transaction_void", args=[entry.pk]), {
+            "reason": "Помилкова сума",
+        })
+        self.assertEqual(response.status_code, 302)
+        entry.refresh_from_db()
+        self.assertTrue(entry.is_void)
+        self.assertEqual(entry.void_reason, "Помилкова сума")
+        self.assertEqual(entry.voided_by, self.owner)
+        page = self.client.get(reverse("bank_ledger"))
+        self.assertEqual(page.context["balances"][0]["balance"], Decimal("0.00"))
+        self.assertContains(page, "Помилкова сума")
+
+    def test_cashier_cannot_view_or_write_bank_ledger(self):
+        self.client.force_login(self.cashier)
+        self.assertEqual(self.client.get(reverse("bank_ledger")).status_code, 403)
+        response = self.client.post(reverse("bank_ledger"), {
+            "form_kind": "transaction", "account": self.account.pk, "transaction_date": "2026-11-18",
+            "direction": "income", "category": "Test", "amount": "10.00",
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(BankTransaction.objects.filter(company=self.company).count(), 0)
+
+    def test_foreign_company_account_cannot_be_used(self):
+        other_owner = get_user_model().objects.create_superuser(username="bank-other-owner", email="", password="secret")
+        other_company = create_test_company(other_owner, "Other bank shop", [])
+        other_account = BankAccount.objects.create(
+            company=other_company, bank_name="Інший", iban="UA999999999999999999999999999",
+        )
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("bank_ledger"), {
+            "form_kind": "transaction", "account": other_account.pk, "transaction_date": "2026-11-18",
+            "direction": "income", "category": "Test", "amount": "10.00",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(BankTransaction.objects.filter(company=self.company).count(), 0)
