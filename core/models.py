@@ -1320,8 +1320,9 @@ class FinanceEntry(models.Model):
 class SettlementPayment(models.Model):
     """Auditable payment against a customer sale or supplier purchase document.
 
-    This is a management subledger. It does not issue a fiscal receipt or mutate
-    the cash-shift drawer; those operations remain in the POS/cash workflow.
+    A cash payment is linked to its original cash-drawer movement and, if voided,
+    to a separate compensating movement. Card/bank payments never alter the drawer.
+    This is not a fiscal receipt or a bank statement integration.
     """
     PAYMENT_METHODS = [
         ("cash", "Готівка"),
@@ -1338,6 +1339,14 @@ class SettlementPayment(models.Model):
     payment_method = models.CharField("Спосіб оплати", max_length=10, choices=PAYMENT_METHODS, default="cash")
     document_ref = models.CharField("Номер документа оплати", max_length=80, blank=True)
     note = models.CharField("Примітка", max_length=250, blank=True)
+    cash_operation = models.OneToOneField(
+        CashOperation, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="settlement_payment",
+    )
+    reversal_operation = models.OneToOneField(
+        CashOperation, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="reversed_settlement_payment",
+    )
     created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="settlement_payments")
     created_at = models.DateTimeField("Дата оплати", auto_now_add=True)
     is_void = models.BooleanField("Скасовано", default=False, db_index=True)
