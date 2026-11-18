@@ -222,6 +222,10 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
         raise StockError("Товари належать іншому магазину або магазин не вибрано")
     if customer and customer.company_id != company.pk:
         raise StockError("Клієнт належить іншому магазину")
+    if payment == "credit" and customer is None:
+        raise StockError("Для продажу в борг спочатку оберіть або створіть клієнта.")
+    if payment not in {"cash", "card", "mixed", "credit"}:
+        raise StockError("Невідомий спосіб оплати.")
     if shift and shift.company_id != company.pk:
         raise StockError("Касова зміна належить іншому магазину")
     if shift and shift.cashier_id != user.pk and not _can_manage(user, company):
@@ -271,11 +275,18 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
     sale.car = car if customer else None
     sale.total = sum((q * pr for _, q, pr, _x in lines), D0)
     pay = pay or {}
-    sale.card_amount = pay.get("card", D0 if payment != "card" else sale.total)
-    sale.cash_amount = sale.total - sale.card_amount
-    sale.cash_received = pay.get("received", D0)
-    sale.change_given = pay.get("change", D0)
-    sale.change_detail = pay.get("detail", {})
+    if payment == "credit":
+        sale.card_amount = D0
+        sale.cash_amount = D0
+        sale.cash_received = D0
+        sale.change_given = D0
+        sale.change_detail = {}
+    else:
+        sale.card_amount = pay.get("card", D0 if payment != "card" else sale.total)
+        sale.cash_amount = sale.total - sale.card_amount
+        sale.cash_received = pay.get("received", D0)
+        sale.change_given = pay.get("change", D0)
+        sale.change_detail = pay.get("detail", {})
     sale.save()
     if not sale.number:
         _num(sale, "CH")
