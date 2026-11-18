@@ -498,7 +498,7 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
             if q != q.to_integral_value() or int(q) != len(serial_numbers):
                 raise StockError(f"{p.name}: для серійного обліку кількість має дорівнювати числу введених серійних номерів.")
             normalized = ["".join(ch for ch in value if ch.isalnum()).upper() for value in serial_numbers]
-            if any(not value for value in normalized) or len(set(normalized)) != len(normalized):
+            if any(not value or len(value) > 100 for value in normalized) or len(set(normalized)) != len(normalized):
                 raise StockError(f"{p.name}: серійні номери порожні або повторюються в накладній.")
             if StockSerialUnit.objects.filter(company=company, normalized_serial__in=normalized).exists():
                 raise StockError(f"{p.name}: один із серійних номерів уже зареєстрований у цьому магазині.")
@@ -509,6 +509,13 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
         if p.tracking_mode not in {"batch", "expiry"} and (batch_number or expiry_date):
             raise StockError(f"{p.name}: товар не налаштований на облік партій.")
         normalized_lines.append((p, q, cost, batch_number or "", expiry_date, serial_numbers))
+    all_serials = [
+        "".join(ch for ch in value if ch.isalnum()).upper()
+        for *_fields, serials in normalized_lines for value in serials
+    ]
+    if len(all_serials) != len(set(all_serials)):
+        raise StockError("У накладній є повторювані серійні номери.")
+
     # Lock all affected stock rows before changing any of them. Sorting makes
     # two purchases with the same products acquire locks in a consistent order.
     locked = _lock_products((p.pk for p, _q, _cost, _batch, _expiry, _serials in normalized_lines), company=company)
@@ -529,10 +536,8 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
                 batch_number=batch_number, expiry_date=expiry_date, received_quantity=q,
                 remaining_quantity=q, cost_price=cost)
         elif p.tracking_mode == "serial":
-            StockSerialUnit.objects.bulk_create([
-                StockSerialUnit(company=company, product=p, purchase_item=purchase_item, serial_number=value)
-                for value in serial_numbers
-            ])
+            for value in serial_numbers:
+                StockSerialUnit.objects.create(company=company, product=p, purchase_item=purchase_item, serial_number=value)
         total += q * cost
         if update_cost and p.cost_price != cost:
             PriceHistory.objects.create(company=company, product=p, field="cost_price", old_value=p.cost_price,
