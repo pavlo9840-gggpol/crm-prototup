@@ -271,11 +271,13 @@ def customer_account(request, pk):
         totals["debt"] += balance
         rows.append({"document": sale, "paid_later": later_paid, "returned": returned, "balance": balance})
     payments = SettlementPayment.objects.filter(company=request.company, sale__customer=customer).select_related(
-        "sale", "created_by", "voided_by"
+        "sale", "created_by", "voided_by", "advance"
     )[:200]
+    advances = AccountAdvance.objects.filter(company=request.company, customer=customer).order_by("-created_at")
+    totals["advance_balance"] = advances.filter(is_void=False).aggregate(total=Sum("remaining"))["total"] or D0
     return render(request, "core/customer_detail.html", {
         "c": customer, "sales": sales, "sale_rows": rows, "account_totals": totals,
-        "account_payments": payments,
+        "account_payments": payments, "account_advances": advances,
     })
 
 
@@ -298,11 +300,13 @@ def supplier_account(request, pk):
         totals["debt"] += balance
         rows.append({"document": purchase, "paid": paid, "balance": balance})
     payments = SettlementPayment.objects.filter(company=request.company, purchase__supplier=supplier).select_related(
-        "purchase", "created_by", "voided_by"
+        "purchase", "created_by", "voided_by", "advance"
     )[:200]
+    advances = AccountAdvance.objects.filter(company=request.company, supplier=supplier).order_by("-created_at")
+    totals["advance_balance"] = advances.filter(is_void=False).aggregate(total=Sum("remaining"))["total"] or D0
     return render(request, "core/supplier_detail.html", {
         "supplier": supplier, "purchase_rows": rows, "account_totals": totals,
-        "account_payments": payments,
+        "account_payments": payments, "account_advances": advances,
     })
 
 
