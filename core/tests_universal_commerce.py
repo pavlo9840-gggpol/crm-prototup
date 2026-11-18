@@ -64,6 +64,27 @@ class UniversalProductFieldsTests(TestCase):
         self.assertEqual(product.tracking_mode, "expiry")
         self.assertEqual(product.current_stock, 0)  # opening stock is recorded by the view's stock ledger
 
+    def test_retail_profile_requires_unique_internal_sku(self):
+        self.company.business_type = "grocery"
+        self.company.save(update_fields=["business_type"])
+        Product.objects.create(company=self.company, name="Молоко 1 л", sku="MILK-001")
+        form = ProductForm({
+            "name": "Молоко 2.5%", "sku": "MILK 001", "unit": "шт",
+            "product_kind": "goods", "tracking_mode": "expiry", "tax_category": "general",
+            "cost_price": "30", "price": "42", "min_stock": "0", "condition": "new",
+        }, company=self.company)
+        self.assertFalse(form.is_valid())
+        self.assertIn("sku", form.errors)
+
+    def test_auto_parts_profile_allows_same_sku_for_different_brands(self):
+        Product.objects.create(company=self.company, name="Амортизатор Bilstein", sku="19-152", brand="BILSTEIN")
+        form = ProductForm({
+            "name": "Амортизатор Sachs", "sku": "19152", "brand": "SACHS", "unit": "шт",
+            "product_kind": "goods", "tracking_mode": "none", "tax_category": "general",
+            "cost_price": "100", "price": "130", "min_stock": "0", "condition": "new",
+        }, company=self.company)
+        self.assertTrue(form.is_valid(), form.errors)
+
     def test_product_supports_service_serial_and_shipping_attributes(self):
         product = Product.objects.create(
             company=self.company, name="Налаштування обладнання", sku="SERVICE-01",
