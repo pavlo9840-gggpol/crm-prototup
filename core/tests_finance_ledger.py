@@ -158,6 +158,7 @@ class SettlementLedgerTests(TestCase):
         self.assertEqual(response.context["settlement_paid"], Decimal("1200.00"))
         self.assertEqual(response.context["settlement_balance"], Decimal("800.00"))
         self.assertEqual(self.Payment.objects.filter(purchase=self.purchase, is_void=False).count(), 2)
+        self.assertFalse(self.Payment.objects.filter(purchase=self.purchase, cash_operation__isnull=False).exists())
 
     def test_customer_sale_receipt_cannot_exceed_outstanding_balance(self):
         Shift.objects.create(company=self.company, cashier=self.owner, drawer={})
@@ -219,6 +220,8 @@ class SettlementLedgerTests(TestCase):
         self.assertEqual(payment.cash_operation.kind, "in")
         shift.refresh_from_db()
         self.assertEqual(sum(int(k) * v for k, v in shift.drawer.items()), 25000)
+        from core.views import shift_summary
+        self.assertEqual(shift_summary(shift)["settlement_net"], Decimal("250.00"))
         self.client.post(reverse("settlement_payment_void", args=[payment.pk]), {"reason": "Тест сторнування"})
         payment.refresh_from_db()
         shift.refresh_from_db()
