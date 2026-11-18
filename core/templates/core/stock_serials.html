@@ -1,0 +1,32 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>Серійні номери та IMEI</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:12px 0">
+  <a class="card" href="?status=in_stock"><b>На складі</b><div style="font-size:26px">{{ counts.in_stock }}</div></a>
+  <a class="card" href="?status=sold"><b>Продано</b><div style="font-size:26px">{{ counts.sold }}</div></a>
+  <a class="card" href="?status=all"><b>Усі номери</b><div style="font-size:26px">Показати</div></a>
+</div>
+<form method="get" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+  <label>Пошук товару або серійного номера<br><input name="q" value="{{ q }}" placeholder="IMEI, серійний номер, назва, артикул"></label>
+  <label>Стан<br><select name="status"><option value="all" {% if status == "all" %}selected{% endif %}>Усі</option><option value="in_stock" {% if status == "in_stock" %}selected{% endif %}>На складі</option><option value="sold" {% if status == "sold" %}selected{% endif %}>Продано</option></select></label>
+  <button class="btn">Знайти</button>
+</form>
+<div class="card" style="overflow:auto">
+<table style="width:100%">
+<thead><tr><th>Товар</th><th>Серійний номер / IMEI</th><th>Статус</th><th>Надійшов</th><th>Закупівля</th><th>Продано</th><th>Чек</th></tr></thead>
+<tbody>
+{% for unit in units %}
+<tr>
+<td>{{ unit.product.name }}<small style="display:block">{{ unit.product.sku }}</small></td>
+<td><code>{{ unit.serial_number }}</code></td>
+<td>{% if unit.status == "in_stock" %}<span class="badge green">На складі</span>{% else %}<span class="badge gray">Продано</span>{% endif %}</td>
+<td>{{ unit.received_at|date:"d.m.Y H:i" }}</td>
+<td>{% if unit.purchase_item %}<a href="{% url 'purchase_detail' unit.purchase_item.purchase_id %}">{{ unit.purchase_item.purchase.number }}</a>{% else %}—{% endif %}</td>
+<td>{% if unit.sold_at %}{{ unit.sold_at|date:"d.m.Y H:i" }}{% else %}—{% endif %}</td>
+<td>{% if unit.sale_item %}<a href="{% url 'sale_detail' unit.sale_item.sale_id %}">{{ unit.sale_item.sale.number }}</a>{% else %}—{% endif %}</td>
+</tr>
+{% empty %}<tr><td colspan="7">Серійних номерів не знайдено.</td></tr>{% endfor %}
+</tbody></table>
+<p class="muted">Показано до 500 записів. Серійний номер не можна повторно зареєструвати в межах магазину.</p>
+</div>
+{% endblock %}
