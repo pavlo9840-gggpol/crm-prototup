@@ -3,15 +3,15 @@ from .models import CompanySettings, Category, Customer, Product, StockAdjustmen
 
 
 class ProductForm(forms.ModelForm):
-    """Картка товару для автозапчастин: однозначно товар визначають БРЕНД + АРТИКУЛ."""
+    """Універсальна картка товару; бренд і артикул залишаються доступними для автозапчастин."""
     initial_stock = forms.DecimalField(label="Початковий залишок", required=False, min_value=0,
                                        max_digits=12, decimal_places=3)
-    field_order = ["brand", "sku", "name", "category", "unit", "condition", "has_defect", "condition_description", "cost_price", "price", "initial_stock", "min_stock", "barcode", "photo", "photo_url", "is_favorite", "allow_price_change", "is_active", "notes"]
+    field_order = ["name", "sku", "barcode", "brand", "category", "unit", "product_kind", "tracking_mode", "tax_category", "condition", "has_defect", "condition_description", "cost_price", "price", "initial_stock", "min_stock", "weight_kg", "length_cm", "width_cm", "height_cm", "photo", "photo_url", "is_favorite", "allow_price_change", "is_active", "notes"]
 
     class Meta:
         model = Product
-        fields = ["brand", "sku", "name", "category", "unit", "condition", "has_defect", "condition_description", "cost_price", "price", "min_stock", "barcode", "photo", "photo_url", "is_favorite", "allow_price_change", "auto_price", "is_active", "notes"]
-        labels = {"sku": "Артикул (номер запчастини)", "barcode": "Штрих-код (необов'язково)"}
+        fields = ["name", "sku", "barcode", "brand", "category", "unit", "product_kind", "tracking_mode", "tax_category", "condition", "has_defect", "condition_description", "cost_price", "price", "min_stock", "weight_kg", "length_cm", "width_cm", "height_cm", "photo", "photo_url", "is_favorite", "allow_price_change", "auto_price", "is_active", "notes"]
+        labels = {"sku": "Артикул / внутрішній код", "barcode": "Штрих-код (необов'язково)"}
         help_texts = {"brand": "Оберіть зі списку або введіть нового виробника. Бренд і артикул разом однозначно "
                                "визначають товар: однаковий артикул у різних брендів — це різні товари.",
                       "barcode": "Для запчастин зазвичай не потрібен: товар шукають за артикулом."}
@@ -25,7 +25,7 @@ class ProductForm(forms.ModelForm):
         self.company = company
         if company is not None:
             self.fields["category"].queryset = Category.objects.filter(company=company)
-        self.fields["brand"].required = True
+        self.fields["brand"].required = False
         if self.instance.pk:
             del self.fields["initial_stock"]
 
