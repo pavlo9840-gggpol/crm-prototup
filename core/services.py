@@ -1,7 +1,7 @@
 """Business logic. All stock changes go through add_movement()."""
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from django.db import transaction
+from django.db import transaction, models
 from django.utils import timezone
 from . import cash as cashlib
 from .models import (Shift, CashOperation, Customer, Product, PurchaseItem, Sale, SaleItem, SaleReturn,
