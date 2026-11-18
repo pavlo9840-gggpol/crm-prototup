@@ -359,6 +359,40 @@ class PurchaseItem(models.Model):
         return self.quantity * self.cost_price
 
 
+class StockBatch(models.Model):
+    """Окрема партія надходження з власною собівартістю та залишком."""
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="stock_batches")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="stock_batches")
+    purchase_item = models.ForeignKey(PurchaseItem, null=True, blank=True, on_delete=models.SET_NULL,
+                                      related_name="batches")
+    batch_number = models.CharField("Номер партії", max_length=80, blank=True)
+    expiry_date = models.DateField("Термін придатності", null=True, blank=True, db_index=True)
+    received_quantity = models.DecimalField("Отримано", max_digits=12, decimal_places=3)
+    remaining_quantity = models.DecimalField("Залишок партії", max_digits=12, decimal_places=3)
+    cost_price = models.DecimalField("Собівартість одиниці", max_digits=12, decimal_places=2)
+    received_at = models.DateTimeField("Дата надходження", auto_now_add=True)
+
+    class Meta:
+        ordering = ["expiry_date", "received_at", "pk"]
+        indexes = [models.Index(fields=["company", "product", "expiry_date"], name="batch_stock_exp_idx")]
+
+    def __str__(self):
+        return f"{self.product} / {self.batch_number or self.pk}"
+
+
+class BatchAllocation(models.Model):
+    """Фіксує, з яких партій списано позицію продажу; повернення відновлює саме їх."""
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="batch_allocations")
+    sale_item = models.ForeignKey(SaleItem, on_delete=models.CASCADE, related_name="batch_allocations")
+    batch = models.ForeignKey(StockBatch, on_delete=models.PROTECT, related_name="allocations")
+    quantity = models.DecimalField(max_digits=12, decimal_places=3)
+    returned_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+
+    class Meta:
+        ordering = ["pk"]
+        constraints = [models.UniqueConstraint(fields=["sale_item", "batch"], name="uniq_sale_item_batch")]
+
+
 class StockAdjustment(models.Model):
     company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)
     KINDS = [("writeoff", "Списання"), ("surplus", "Надлишок"), ("shortage", "Нестача")]
