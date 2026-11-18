@@ -232,7 +232,7 @@ class Shift(models.Model):
 class Sale(models.Model):
     company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)
     DONE, HELD = "done", "held"
-    PAYMENTS = [("cash", "Готівка"), ("card", "Картка"), ("mixed", "Змішана")]
+    PAYMENTS = [("cash", "Готівка"), ("card", "Картка"), ("mixed", "Змішана"), ("credit", "У борг")]
     number = models.CharField(max_length=20, blank=True)
     status = models.CharField(max_length=10, default=DONE, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
