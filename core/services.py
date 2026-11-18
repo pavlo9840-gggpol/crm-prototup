@@ -139,6 +139,7 @@ def _consume_batches(product, quantity, sale_item, user=None):
         batches = batches.filter(models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gte=timezone.localdate()))
     batches = batches.order_by(models.F("expiry_date").asc(nulls_last=True), "received_at", "pk")
     remaining = quantity
+    allocated_cost = D0
     for batch in batches:
         take = min(batch.remaining_quantity, remaining)
         if take <= D0:
@@ -146,11 +147,14 @@ def _consume_batches(product, quantity, sale_item, user=None):
         batch.remaining_quantity -= take
         batch.save(update_fields=["remaining_quantity"])
         BatchAllocation.objects.create(company=product.company, sale_item=sale_item, batch=batch, quantity=take)
+        allocated_cost += take * batch.cost_price
         remaining -= take
         if remaining <= D0:
             break
     if remaining > D0:
         raise StockError(f"{product.name}: недостатньо доступного залишку в партіях. Не вистачає {remaining.normalize():f}. Перевірте прострочені партії або інвентаризацію.")
+    sale_item.cost_price = (allocated_cost / quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    sale_item.save(update_fields=["cost_price"])
 
 
 def _restore_batch_allocations(sale_item, quantity):
