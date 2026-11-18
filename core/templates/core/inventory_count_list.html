@@ -1,0 +1,23 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>Інвентаризація складу</h2>
+<div class="card" style="margin-bottom:14px">
+  <h3>Нова інвентаризація</h3>
+  <p class="muted">Створюється знімок поточних залишків. До документа потрапляють активні товари зі звичайним складським обліком; партійні, серійні товари та послуги поки не коригуються цим інструментом.</p>
+  <form method="post" action="{% url 'inventory_count_new' %}">{% csrf_token %}
+    <label>Примітка (необов'язково)<input name="note" maxlength="2000" placeholder="Наприклад: повний перерахунок магазину"></label>
+    <button class="btn green" style="margin-top:10px">Створити документ</button>
+  </form>
+</div>
+<div class="card" style="overflow:auto">
+<table style="width:100%">
+<thead><tr><th>Документ</th><th>Створено</th><th>Автор</th><th>Статус</th><th>Примітка</th><th></th></tr></thead>
+<tbody>
+{% for c in counts %}
+<tr><td><b>{{ c.number }}</b></td><td>{{ c.created_at|date:"d.m.Y H:i" }}</td><td>{{ c.created_by }}</td>
+<td>{% if c.status == "approved" %}<span class="badge green">Затверджено</span>{% else %}<span class="badge gray">Чернетка</span>{% endif %}</td>
+<td>{{ c.note|default:"—" }}</td><td><a class="btn" href="{% url 'inventory_count_detail' c.pk %}">Відкрити</a></td></tr>
+{% empty %}<tr><td colspan="6">Інвентаризацій ще немає.</td></tr>{% endfor %}
+</tbody></table>
+</div>
+{% endblock %}
