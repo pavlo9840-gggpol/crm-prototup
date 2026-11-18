@@ -159,7 +159,7 @@ class UniversalProductFieldsTests(TestCase):
         form = ProductForm({
             "name": "Чай чорний", "sku": "TEA-002", "barcode": "4820000000200",
             "additional_barcodes": "4820000000201\n4820000000202",
-            "unit": "шт", "condition": "new", "cost_price": "20", "price": "30", "min_stock": "0",
+            "unit": "шт", "condition": "new", "cost_price": "20", "price": "30", "min_stock": "0", "is_active": "on",
         }, company=self.company)
         self.assertTrue(form.is_valid(), form.errors)
         product = form.save(commit=False)
