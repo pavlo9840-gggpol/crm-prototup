@@ -68,6 +68,17 @@ class Product(models.Model):
     category = models.ForeignKey(Category, null=True, blank=True, on_delete=models.SET_NULL,
                                  verbose_name="Категорія")
     unit = models.CharField("Одиниця виміру", max_length=20, default="шт")
+    PRODUCT_KINDS = [("goods", "Товар"), ("service", "Послуга")]
+    product_kind = models.CharField("Тип позиції", max_length=12, choices=PRODUCT_KINDS, default="goods", db_index=True)
+    TRACKING_MODES = [("none", "Без додаткового обліку"), ("batch", "Партії"), ("expiry", "Партії та термін придатності"), ("serial", "Серійні номери")]
+    tracking_mode = models.CharField("Спосіб обліку", max_length=12, choices=TRACKING_MODES, default="none")
+    TAX_CATEGORIES = [("general", "Загальна категорія"), ("vat_standard", "ПДВ — основна ставка"), ("vat_reduced", "ПДВ — знижена ставка"), ("vat_exempt", "Без ПДВ / звільнено"), ("excise", "Підакцизний товар")]
+    tax_category = models.CharField("Податкова категорія", max_length=20, choices=TAX_CATEGORIES, default="general")
+    weight_kg = models.DecimalField("Вага, кг", max_digits=10, decimal_places=3, null=True, blank=True)
+    length_cm = models.DecimalField("Довжина, см", max_digits=10, decimal_places=2, null=True, blank=True)
+    width_cm = models.DecimalField("Ширина, см", max_digits=10, decimal_places=2, null=True, blank=True)
+    height_cm = models.DecimalField("Висота, см", max_digits=10, decimal_places=2, null=True, blank=True)
+    attributes = models.JSONField("Додаткові характеристики", default=dict, blank=True)
     cost_price = models.DecimalField("Ціна закупівлі", max_digits=10, decimal_places=2, default=0)
     price = models.DecimalField("Ціна продажу", max_digits=10, decimal_places=2, default=0)
     allow_price_change = models.BooleanField("Дозволити зміну ціни на касі", default=False)
@@ -118,6 +129,35 @@ class Product(models.Model):
     @property
     def is_low(self):
         return self.current_stock <= self.min_stock
+
+
+
+class ProductBarcode(models.Model):
+    """Додаткові штрих-коди товару; основний код лишається у Product.barcode для сумісності."""
+    company = models.ForeignKey("Company", on_delete=models.CASCADE, related_name="product_barcodes")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="extra_barcodes")
+    barcode = models.CharField("Штрих-код", max_length=80)
+    label = models.CharField("Позначення", max_length=80, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["barcode"]
+        constraints = [models.UniqueConstraint(fields=["company", "barcode"], name="uniq_company_extra_barcode")]
+        indexes = [models.Index(fields=["product", "barcode"], name="pbarcode_prod_idx")]
+        verbose_name = "Додатковий штрих-код"
+        verbose_name_plural = "Додаткові штрих-коди"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.product_id and self.company_id and self.product.company_id != self.company_id:
+            raise ValidationError({"product": "Товар належить іншому магазину."})
+        self.barcode = (self.barcode or "").strip()
+
+    def save(self, *args, **kwargs):
+        if self.product_id and not self.company_id:
+            self.company_id = self.product.company_id
+        self.barcode = (self.barcode or "").strip()
+        super().save(*args, **kwargs)
 
 
 class PriceHistory(models.Model):
@@ -984,7 +1024,16 @@ from .service_models import ServiceAppointment, ServiceOrder, ServiceOrderLine, 
 # ====================================================== Local store identity
 class Company(models.Model):
     """The single local store for this installation; not a SaaS tenant."""
+    BUSINESS_TYPES = [
+        ("general_retail", "Роздрібна торгівля"),
+        ("grocery", "Продуктовий магазин"),
+        ("auto_parts", "Автозапчастини"),
+        ("electronics", "Електроніка та техніка"),
+        ("online_store", "Інтернет-магазин"),
+    ]
     name = models.CharField("Назва магазину", max_length=150)
+    business_type = models.CharField("Профіль бізнесу", max_length=24, choices=BUSINESS_TYPES, default="auto_parts")
+    enabled_modules = models.JSONField("Увімкнені модулі", default=list, blank=True)
     slug = models.SlugField("Ідентифікатор", max_length=180, unique=True)
     owner = models.ForeignKey(USER, null=True, blank=True, on_delete=models.PROTECT, related_name="owned_companies")
     created_at = models.DateTimeField(auto_now_add=True)
