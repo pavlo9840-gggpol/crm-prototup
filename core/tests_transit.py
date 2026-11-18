@@ -71,6 +71,36 @@ class TransitTest(TestCase):
              ["Gone", "X-1", "Зникне", "10", "0"]]
 
     # ---------- тести
+    def test_credit_sale_creates_customer_receivable_without_changing_drawer(self):
+        product = Product.objects.create(company=self.company, name="Тестовий товар", sku="CREDIT-1",
+                                         price=D("250.00"), cost_price=D("100.00"), current_stock=D("5"))
+        customer = Customer.objects.create(company=self.company, name="Клієнт у борг", phone="0507770011")
+        from core.models import Shift
+        shift = Shift.objects.get(company=self.company, cashier=self.mgr_user, closed_at__isnull=True)
+        before = shift.drawer.copy()
+        response = self.mgr.post("/pos/checkout/", json.dumps({
+            "items": [{"id": product.pk, "qty": 2, "price": "250.00"}],
+            "payment": "credit", "customer_id": customer.pk,
+        }), content_type="application/json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()["ok"], response.json())
+        sale = Sale.objects.get(pk=response.json()["id"])
+        self.assertEqual(sale.payment_method, "credit")
+        self.assertEqual((sale.cash_amount, sale.card_amount), (D("0.00"), D("0.00")))
+        self.assertEqual(sale.customer_id, customer.pk)
+        self.assertEqual(sale.total, D("500.00"))
+        shift.refresh_from_db()
+        self.assertEqual(shift.drawer, before)
+
+    def test_credit_sale_requires_a_customer(self):
+        product = Product.objects.create(company=self.company, name="Товар", sku="CREDIT-2",
+                                         price=D("50.00"), current_stock=D("2"))
+        response = self.mgr.post("/pos/checkout/", json.dumps({
+            "items": [{"id": product.pk, "qty": 1}], "payment": "credit",
+        }), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("оберіть", response.json()["error"].lower())
+
     def test_norm_sku(self):
         self.assertEqual(norm_sku("19-152 615"), norm_sku("19152615"))
         self.assertEqual(norm_sku(" ab.12/3 "), "AB123")
