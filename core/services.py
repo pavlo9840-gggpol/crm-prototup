@@ -118,6 +118,7 @@ def _make_item(sale, p, q, pr, x, done):
 
 def _consume_batches(product, quantity, sale_item, user=None):
     """FIFO by expiry/receipt. Creates a legacy batch for pre-feature stock once."""
+    product = Product.objects.get(pk=product.pk, company_id=product.company_id)
     if product.tracking_mode not in {"batch", "expiry"}:
         return
     from django.db.models import Sum
@@ -265,9 +266,10 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
         Shift.objects.filter(pk=shift.pk).update(drawer=cashlib.store(pay["drawer"]))
     sale.items.all().delete()
     for p, q, pr, x in lines:
-        _make_item(sale, p, q, pr, x, done=True)
+        sale_item = _make_item(sale, p, q, pr, x, done=True)
         if not x:
             add_movement(p, -q, "sale", sale.number, user)
+            _consume_batches(p, q, sale_item, user)
     _customer_delta(customer, sale.total, 1, company=company)
     return sale
 
@@ -326,6 +328,7 @@ def create_return(user, sale, qty_map, mode="auto", mtype="customer_return",
         pending = item.is_pending
         if mode == "stock" or (mode == "auto" and not pending):
             add_movement(item.product, q, mtype, ret.number, user)
+            _restore_batch_allocations(item, q)
         if pending and item.returned_qty >= item.quantity:
             item.fulfil_status = SaleItem.CANCELLED
             item.save(update_fields=["fulfil_status"])
@@ -465,7 +468,7 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
     pur = Purchase.objects.create(company=company, supplier=supplier, user=user)
     _num(pur, "NK")
     total = D0
-    for product, q, cost in lines:
+    for product, q, cost, batch_number, expiry_date in normalized_lines:
         # Use the locked, fresh product row for both stock and cost updates. The
         # caller may have supplied a stale Product instance, and one purchase can
         # contain the same product more than once.
