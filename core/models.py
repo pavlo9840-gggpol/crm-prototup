@@ -453,6 +453,49 @@ class StockAdjustment(models.Model):
     user = models.ForeignKey(USER, on_delete=models.PROTECT)
 
 
+
+class InventoryCount(models.Model):
+    """Знімок залишків на момент початку інвентаризації."""
+    DRAFT, APPROVED = "draft", "approved"
+    STATUS_CHOICES = [(DRAFT, "Чернетка"), (APPROVED, "Затверджено")]
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="inventory_counts")
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=DRAFT, db_index=True)
+    note = models.TextField("Примітка", blank=True)
+    created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="created_inventory_counts")
+    approved_by = models.ForeignKey(USER, null=True, blank=True, on_delete=models.PROTECT, related_name="approved_inventory_counts")
+    created_at = models.DateTimeField(auto_now_add=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    @property
+    def number(self):
+        return f"INV-{self.pk:06d}"
+
+
+class InventoryCountItem(models.Model):
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="+")
+    inventory_count = models.ForeignKey(InventoryCount, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="inventory_count_items")
+    expected_quantity = models.DecimalField(max_digits=14, decimal_places=3)
+    counted_quantity = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    counted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["product__name", "product__sku"]
+        constraints = [
+            models.UniqueConstraint(fields=["inventory_count", "product"], name="uniq_inventory_count_product"),
+        ]
+        indexes = [models.Index(fields=["company", "inventory_count"], name="inv_count_item_company_idx")]
+
+    @property
+    def difference(self):
+        if self.counted_quantity is None:
+            return None
+        return self.counted_quantity - self.expected_quantity
+
+
 class StockMovement(models.Model):
     company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)
     TYPES = [
