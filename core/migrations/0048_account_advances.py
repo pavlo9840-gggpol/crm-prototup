@@ -36,7 +36,6 @@ class Migration(migrations.Migration):
         migrations.AddIndex(model_name="accountadvance", index=models.Index(fields=["company", "party_type", "created_at"], name="advance_company_type_date_idx")),
         migrations.AddConstraint(model_name="accountadvance", constraint=models.CheckConstraint(condition=models.Q(("amount__gt", 0)), name="account_advance_amount_positive")),
         migrations.AddConstraint(model_name="accountadvance", constraint=models.CheckConstraint(condition=models.Q(("remaining__gte", 0)), name="account_advance_remaining_nonnegative")),
-        migrations.AddConstraint(model_name="accountadvance", constraint=models.CheckConstraint(condition=(models.Q(("customer__isnull", False), ("party_type", "customer"), ("supplier__isnull", True)) | models.Q(("customer__isnull", True), ("party_type", "supplier"), ("supplier__isnull", False))), name="account_advance_exactly_one_party")),
         migrations.AddField(
             model_name="settlementpayment", name="advance",
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="applications", to="core.accountadvance"),
