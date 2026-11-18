@@ -14,7 +14,7 @@ STAFF_NAV = [
         ("Закупівлі", "purchase_list"), ("Продажі менеджерів і маржа", "manager_sales"),
     ]),
     ("Склад", [
-        ("Залишки", "inventory"), ("Партії та терміни", "stock_batches"), ("Серійні номери / IMEI", "stock_serials"), ("Товари", "product_list"),
+        ("Залишки", "inventory"), ("Інвентаризація", "inventory_count_list"), ("Партії та терміни", "stock_batches"), ("Серійні номери / IMEI", "stock_serials"), ("Товари", "product_list"),
         ("Рух товарів", "inventory_movements"), ("Списання / коригування", "adjustment_list"),
         ("Категорії", "category_list"), ("Імпорт / експорт товарів", "product_import"),
     ]),
@@ -55,7 +55,7 @@ ALIASES = {
     "supplier_new": "supplier_list", "supplier_edit": "supplier_list",
     "purchase_new": "purchase_list", "purchase_detail": "purchase_list",
     "sale_detail": "sale_list", "sale_return": "sale_list",
-    "inventory_adjust": "adjustment_list",
+    "inventory_adjust": "adjustment_list", "inventory_count_new": "inventory_count_list", "inventory_count_detail": "inventory_count_list",
     "customer_new": "customer_list", "customer_edit": "customer_list",
     "part_card": "product_list", "markup_new": "markup_list", "markup_edit": "markup_list",
     "price_map": "supplier_prices", "pay_plan_new": "pay_plans", "pay_plan_edit": "pay_plans",
