@@ -834,7 +834,7 @@ def inventory_count_new(request):
             created_by=request.user,
             note=(request.POST.get("note") or "").strip()[:2000],
         )
-        products = Product.objects.filter(
+        products = Product.objects.select_for_update().filter(
             company=request.company, is_active=True, product_kind="goods", tracking_mode="none"
         ).order_by("pk")
         InventoryCountItem.objects.bulk_create([
