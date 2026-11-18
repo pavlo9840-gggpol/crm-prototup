@@ -126,6 +126,7 @@ class UniversalProductFieldsTests(TestCase):
             weight_kg="1.250", length_cm="10.00", width_cm="20.00", height_cm="30.00",
             attributes={"duration_minutes": 60, "skill": "installation"},
         )
+        product.refresh_from_db()
         self.assertEqual(product.product_kind, "service")
         self.assertEqual(product.weight_kg, Decimal("1.250"))
         self.assertEqual(product.attributes["duration_minutes"], 60)
