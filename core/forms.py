@@ -123,7 +123,8 @@ class ProductForm(forms.ModelForm):
             self.add_error("condition_description", "Опишіть дефект товару.")
         if condition != "used" and defect:
             self.add_error("has_defect", "Позначка дефекту доступна лише для товару Б/В.")
-        if not d.get("category") and d.get("name"):
+        if (not d.get("category") and d.get("name")
+                and (self.company is None or self.company.business_type == "auto_parts")):
             text = (d.get("name") or "").casefold()
             rules = [
                 (("амортиз", "пружин", "важіл", "важіль", "шарова", "сайлентблок", "ступиц", "підшипник ступ"), "Підвіска та кермування"),
