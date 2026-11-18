@@ -122,6 +122,14 @@ class ProductForm(forms.ModelForm):
                 d[field_name] = (
                     getattr(self.instance, field_name) if self.instance.pk else default_value
                 )
+        if self.instance.pk:
+            old_tracking = self.instance.tracking_mode
+            new_tracking = d.get("tracking_mode")
+            if (old_tracking in {"batch", "expiry"} and new_tracking not in {"batch", "expiry"}
+                    and self.instance.stock_batches.filter(remaining_quantity__gt=0).exists()):
+                self.add_error("tracking_mode", "Не можна вимкнути партійний облік, поки на складі є залишки партій. Спочатку спишіть або реалізуйте їх.")
+        if d.get("product_kind") == "service" and d.get("tracking_mode") in {"batch", "expiry"}:
+            self.add_error("tracking_mode", "Для послуги партійний облік не застосовується.")
         condition, defect, description = d.get("condition"), d.get("has_defect"), (d.get("condition_description") or "").strip()
         if condition == "incomplete" and not description:
             self.add_error("condition_description", "Опишіть, яких деталей не вистачає.")
