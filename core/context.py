@@ -14,7 +14,7 @@ STAFF_NAV = [
         ("Закупівлі", "purchase_list"), ("Продажі менеджерів і маржа", "manager_sales"),
     ]),
     ("Склад", [
-        ("Залишки", "inventory"), ("Партії та терміни", "stock_batches"), ("Товари", "product_list"),
+        ("Залишки", "inventory"), ("Партії та терміни", "stock_batches"), ("Серійні номери / IMEI", "stock_serials"), ("Товари", "product_list"),
         ("Рух товарів", "inventory_movements"), ("Списання / коригування", "adjustment_list"),
         ("Категорії", "category_list"), ("Імпорт / експорт товарів", "product_import"),
     ]),
