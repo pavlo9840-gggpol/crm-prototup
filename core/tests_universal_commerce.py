@@ -1,11 +1,12 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import TestCase, RequestFactory
 from decimal import Decimal
 from django.db import IntegrityError, transaction
 
 from core.forms import ProductForm
 from core.models import Company, Product, ProductBarcode, StaffMembership
+from core.context import layout
 
 
 class UniversalStoreProfileTests(TestCase):
@@ -23,6 +24,36 @@ class UniversalStoreProfileTests(TestCase):
         self.assertEqual(store.business_type, "grocery")
         self.assertEqual(store.name, "Продуктовий магазин")
         self.assertEqual(StaffMembership.objects.get(company=store).role, "owner")
+
+    def test_automotive_navigation_is_hidden_for_grocery_profile(self):
+        User = get_user_model()
+        owner = User.objects.create_superuser("grocery-nav-owner", "", "secret")
+        store = Company.objects.create(name="Grocery", slug="grocery-nav", owner=owner, business_type="grocery")
+        membership = StaffMembership.objects.create(company=store, user=owner, role="owner")
+        request = RequestFactory().get("/")
+        request.user = owner
+        request.company = store
+        request.company_access = True
+        request.staff_membership = membership
+        request.active_license = None
+        nav = layout(request)
+        group_titles = [group["title"] for group in nav["nav_groups"]]
+        self.assertNotIn("Каталог автозапчастин", group_titles)
+
+    def test_automotive_navigation_remains_for_auto_parts_profile(self):
+        User = get_user_model()
+        owner = User.objects.create_superuser("auto-nav-owner", "", "secret")
+        store = Company.objects.create(name="Auto", slug="auto-nav", owner=owner, business_type="auto_parts")
+        membership = StaffMembership.objects.create(company=store, user=owner, role="owner")
+        request = RequestFactory().get("/")
+        request.user = owner
+        request.company = store
+        request.company_access = True
+        request.staff_membership = membership
+        request.active_license = None
+        nav = layout(request)
+        group_titles = [group["title"] for group in nav["nav_groups"]]
+        self.assertIn("Каталог автозапчастин", group_titles)
 
     def test_existing_local_store_defaults_to_automotive_without_data_loss(self):
         User = get_user_model()
