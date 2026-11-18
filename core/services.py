@@ -5,7 +5,7 @@ from django.db import transaction, models
 from django.utils import timezone
 from . import cash as cashlib
 from .models import (Shift, CashOperation, Customer, Product, Sale, SaleItem, SaleReturn,
-                     SaleReturnItem, StockMovement, Purchase, PurchaseItem, StockBatch, BatchAllocation, PriceHistory, MarkupTier,
+                     SaleReturnItem, StockMovement, Purchase, PurchaseItem, StockBatch, BatchAllocation, StockSerialUnit, PriceHistory, MarkupTier,
                      CompanySettings, StaffMembership, norm_sku)
 
 D0 = Decimal("0")
@@ -96,7 +96,7 @@ def merge_lines(lines):
     for ln in lines:
         p, q, pr = ln[:3]
         x = ln[3] if len(ln) > 3 else None
-        key = (p.pk, x["si"].pk if x else None)
+        key = (p.pk, x["si"].pk if x and x.get("si") else None, (x or {}).get("serial_number", ""))
         if key in merged:
             merged[key][1] += q
         else:
@@ -105,7 +105,7 @@ def merge_lines(lines):
 
 
 def _make_item(sale, p, q, pr, x, done):
-    if x:
+    if x and x.get("si"):
         si = x["si"]
         return SaleItem.objects.create(
             company=sale.company, sale=sale, product=p, quantity=q, original_price=x["list"], price=pr, cost_price=si.cost,
@@ -196,7 +196,7 @@ def save_held(user, lines, payment, customer, shift, held=None, car=None, compan
         raise StockError("Чернетка належить іншому магазину")
     if held and held.cashier_id != user.pk and not _can_manage(user, company):
         raise StockError("Немає доступу до цієї чернетки")
-    if any(x and (x["si"].company_id != company.pk or x["si"].supplier.company_id != company.pk) for *_a, x in lines):
+    if any(x and x.get("si") and (x["si"].company_id != company.pk or x["si"].supplier.company_id != company.pk) for *_a, x in lines):
         raise StockError("Позиція постачальника належить іншому магазину")
     sale = held or Sale(company=company, cashier=user, status=Sale.HELD)
     sale.shift, sale.customer, sale.payment_method = shift, customer, payment
@@ -241,7 +241,7 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
             raise StockError("Зміну вже закрито. Відкрийте нову зміну.")
     need = {}
     for p, q, _pr, x in lines:
-        if not x:                                   # товар постачальника склад не перевіряє
+        if not (x and x.get("si")):                  # товар постачальника склад не перевіряє
             need[p.pk] = need.get(p.pk, D0) + q
     # A cart can contain several stock products. Acquire every row lock in
     # the same order used by purchases and adjustments, regardless of cart order.
@@ -271,9 +271,21 @@ def finalize_sale(user, lines, payment, customer, shift, held=None, pay=None, ca
     sale.items.all().delete()
     for p, q, pr, x in lines:
         sale_item = _make_item(sale, p, q, pr, x, done=True)
-        if not x:
+        if not (x and x.get("si")):
             add_movement(p, -q, "sale", sale.number, user)
             _consume_batches(p, q, sale_item, user)
+            if p.tracking_mode == "serial":
+                serial_value = (x or {}).get("serial_number", "")
+                normalized = "".join(ch for ch in serial_value if ch.isalnum()).upper()
+                unit = StockSerialUnit.objects.select_for_update().filter(
+                    company=company, product=p, normalized_serial=normalized, status=StockSerialUnit.IN_STOCK
+                ).first()
+                if not unit:
+                    raise StockError(f"{p.name}: серійний номер/IMEI не знайдено на складі або його вже продано.")
+                unit.status = StockSerialUnit.SOLD
+                unit.sale_item = sale_item
+                unit.sold_at = timezone.now()
+                unit.save(update_fields=["status", "sale_item", "sold_at"])
     _customer_delta(customer, sale.total, 1, company=company)
     return sale
 
@@ -455,24 +467,36 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
         p, q, cost = line[:3]
         batch_number = line[3] if len(line) > 3 else ""
         expiry_date = line[4] if len(line) > 4 else None
+        serial_numbers = line[5] if len(line) > 5 else []
         if q is None or q <= D0:
             raise StockError(f"{p.name}: кількість має бути більшою за нуль")
         if cost is None or cost < D0:
             raise StockError(f"{p.name}: закупівельна ціна не може бути від'ємною")
+        if p.tracking_mode == "serial":
+            serial_numbers = [str(value).strip() for value in (serial_numbers or []) if str(value).strip()]
+            if q != q.to_integral_value() or int(q) != len(serial_numbers):
+                raise StockError(f"{p.name}: для серійного обліку кількість має дорівнювати числу введених серійних номерів.")
+            normalized = ["".join(ch for ch in value if ch.isalnum()).upper() for value in serial_numbers]
+            if any(not value for value in normalized) or len(set(normalized)) != len(normalized):
+                raise StockError(f"{p.name}: серійні номери порожні або повторюються в накладній.")
+            if StockSerialUnit.objects.filter(company=company, normalized_serial__in=normalized).exists():
+                raise StockError(f"{p.name}: один із серійних номерів уже зареєстрований у цьому магазині.")
+        elif serial_numbers:
+            raise StockError(f"{p.name}: серійні номери можна вводити лише для товару з відповідним режимом обліку.")
         if p.tracking_mode == "expiry" and not expiry_date:
             raise StockError(f"{p.name}: для товару з обліком терміну придатності вкажіть дату придатності.")
         if p.tracking_mode not in {"batch", "expiry"} and (batch_number or expiry_date):
             raise StockError(f"{p.name}: товар не налаштований на облік партій.")
-        normalized_lines.append((p, q, cost, batch_number or "", expiry_date))
+        normalized_lines.append((p, q, cost, batch_number or "", expiry_date, serial_numbers))
     # Lock all affected stock rows before changing any of them. Sorting makes
     # two purchases with the same products acquire locks in a consistent order.
-    locked = _lock_products((p.pk for p, _q, _cost, _batch, _expiry in normalized_lines), company=company)
+    locked = _lock_products((p.pk for p, _q, _cost, _batch, _expiry, _serials in normalized_lines), company=company)
     if len(locked) != len({p.pk for p, _q, _cost, _batch, _expiry in normalized_lines}):
         raise StockError("Один із товарів не належить цьому магазину")
     pur = Purchase.objects.create(company=company, supplier=supplier, user=user)
     _num(pur, "NK")
     total = D0
-    for product, q, cost, batch_number, expiry_date in normalized_lines:
+    for product, q, cost, batch_number, expiry_date, serial_numbers in normalized_lines:
         # Use the locked, fresh product row for both stock and cost updates. The
         # caller may have supplied a stale Product instance, and one purchase can
         # contain the same product more than once.
@@ -483,6 +507,11 @@ def create_purchase(user, supplier, lines, update_cost=True, company=None):
             StockBatch.objects.create(company=company, product=p, purchase_item=purchase_item,
                 batch_number=batch_number, expiry_date=expiry_date, received_quantity=q,
                 remaining_quantity=q, cost_price=cost)
+        elif p.tracking_mode == "serial":
+            StockSerialUnit.objects.bulk_create([
+                StockSerialUnit(company=company, product=p, purchase_item=purchase_item, serial_number=value)
+                for value in serial_numbers
+            ])
         total += q * cost
         if update_cost and p.cost_price != cost:
             PriceHistory.objects.create(company=company, product=p, field="cost_price", old_value=p.cost_price,
