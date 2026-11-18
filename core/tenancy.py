@@ -4,7 +4,7 @@ from .models import Company, StaffMembership
 
 
 @transaction.atomic
-def create_local_store(owner, name):
+def create_local_store(owner, name, business_type="auto_parts"):
     """Create the one store for this installation and assign its local owner role."""
     clean_name = (name or "").strip()
     if not clean_name:
@@ -21,13 +21,16 @@ def create_local_store(owner, name):
             raise ValueError("Локальний магазин уже налаштований. Зміну назви виконайте в налаштуваннях магазину.")
         store.name = clean_name
         store.owner = owner
-        store.save(update_fields=["name", "owner", "updated_at"])
+        if business_type in dict(Company.BUSINESS_TYPES):
+            store.business_type = business_type
+        store.save(update_fields=["name", "owner", "business_type", "updated_at"])
     else:
         slug = "local-autozapaz"
         store = Company.objects.create(
             name=clean_name,
             slug=slug,
             owner=owner,
+            business_type=business_type if business_type in dict(Company.BUSINESS_TYPES) else "auto_parts",
         )
 
     StaffMembership.objects.update_or_create(
