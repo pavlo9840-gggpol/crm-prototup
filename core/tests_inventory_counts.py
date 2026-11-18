@@ -109,6 +109,14 @@ class InventoryCountWorkflowTests(TestCase):
         self.assertEqual(self.product.current_stock, D("12"))
         self.assertEqual(StockMovement.objects.filter(doc_ref=count.number).count(), 0)
 
+    def test_printable_inventory_sheet_is_scoped_to_company(self):
+        count = self.create_count()
+        response = self.client.get(f"/inventory/counts/{count.pk}/print/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, count.number)
+        self.assertContains(response, self.product.name)
+        self.assertContains(response, "Друкувати / зберегти PDF")
+
     def test_approved_document_cannot_be_changed_or_approved_twice(self):
         count = self.create_count()
         item = count.items.get(product=self.product)
