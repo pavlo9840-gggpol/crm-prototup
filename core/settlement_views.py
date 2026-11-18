@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from . import cash as cashlib
-from .models import CashOperation, Purchase, Sale, SettlementPayment, Shift
+from .models import AccountAdvance, CashOperation, Customer, Purchase, Sale, SettlementPayment, Shift, Supplier
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -17,8 +17,25 @@ D0 = Decimal("0.00")
 
 
 class SettlementPaymentForm(forms.Form):
+    advance = forms.ModelChoiceField(queryset=AccountAdvance.objects.none(), required=False, label="Використати аванс")
     amount = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"), label="Сума оплати")
     payment_method = forms.ChoiceField(choices=SettlementPayment.PAYMENT_METHODS, label="Спосіб оплати")
+    document_ref = forms.CharField(max_length=80, required=False, label="Документ оплати")
+    note = forms.CharField(max_length=250, required=False, label="Примітка")
+
+    def __init__(self, *args, company=None, party_type=None, party_id=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        qs = AccountAdvance.objects.filter(company=company, party_type=party_type, is_void=False, remaining__gt=0)
+        if party_type == AccountAdvance.CUSTOMER:
+            qs = qs.filter(customer_id=party_id)
+        else:
+            qs = qs.filter(supplier_id=party_id)
+        self.fields["advance"].queryset = qs
+
+
+class AdvanceForm(forms.Form):
+    amount = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"), label="Сума авансу")
+    payment_method = forms.ChoiceField(choices=[("cash", "Готівка"), ("card", "Картка"), ("bank", "Банківський рахунок")])
     document_ref = forms.CharField(max_length=80, required=False, label="Документ оплати")
     note = forms.CharField(max_length=250, required=False, label="Примітка")
 
@@ -94,12 +111,13 @@ def settlements_home(request):
             customer_rows.append({"document": document, "balance": balance, "party": document.customer})
     payments = SettlementPayment.objects.filter(company=request.company).select_related(
         "sale__customer", "purchase__supplier", "created_by", "voided_by",
-        "cash_operation__shift", "reversal_operation",
+        "cash_operation__shift", "reversal_operation", "advance",
     )[:200]
     return render(request, "core/settlements.html", {
         "supplier_rows": supplier_rows, "customer_rows": customer_rows,
         "supplier_total": supplier_total, "customer_total": customer_total,
         "payments": payments,
+        "advances": AccountAdvance.objects.filter(company=request.company).select_related("customer", "supplier", "created_by").order_by("-created_at")[:200],
     })
 
 
@@ -118,19 +136,26 @@ def settlement_payment_new(request, document_type, pk):
             document = get_object_or_404(Sale.objects.select_for_update().filter(
                 company=request.company, status=Sale.DONE, customer__isnull=False
             ), pk=pk)
-        form = SettlementPaymentForm(request.POST)
+        party_type = AccountAdvance.CUSTOMER if document_type == "sale" else AccountAdvance.SUPPLIER
+        party_id = document.customer_id if document_type == "sale" else document.supplier_id
+        form = SettlementPaymentForm(request.POST, company=request.company, party_type=party_type, party_id=party_id)
         if not form.is_valid():
             messages.error(request, "Перевірте суму та спосіб оплати.")
             return redirect("purchase_detail" if document_type == "purchase" else "sale_detail", pk=document.pk)
         balance = _balance_for(document)
         amount = form.cleaned_data["amount"]
         payment_method = form.cleaned_data["payment_method"]
+        advance = form.cleaned_data.get("advance")
         shift = None
         cash_plan = None
         if balance <= 0:
             messages.error(request, "За цим документом немає непогашеної заборгованості.")
         elif amount > balance:
             messages.error(request, f"Сума перевищує залишок боргу: {balance:.2f} ₴.")
+        elif payment_method == "advance" and (not advance or advance.remaining < amount):
+            messages.error(request, "Оберіть аванс із достатнім невикористаним залишком.")
+        elif payment_method == "advance" and (advance.party_type != party_type or (advance.customer_id if party_type == AccountAdvance.CUSTOMER else advance.supplier_id) != party_id):
+            messages.error(request, "Цей аванс належить іншому контрагенту.")
         elif payment_method == "cash" and not (shift := Shift.objects.select_for_update().filter(
             company=request.company, cashier=request.user, closed_at__isnull=True
         ).first()):
@@ -146,8 +171,11 @@ def settlement_payment_new(request, document_type, pk):
                     company=request.company, created_by=request.user, amount=amount,
                     payment_method=payment_method,
                     document_ref=form.cleaned_data["document_ref"].strip(),
-                    note=form.cleaned_data["note"].strip(), **kwargs,
+                    note=form.cleaned_data["note"].strip(), advance=advance if payment_method == "advance" else None, **kwargs,
                 )
+                if payment_method == "advance":
+                    advance.remaining -= amount
+                    advance.save(update_fields=["remaining"])
                 if cash_plan is not None:
                     drawer_after, counts, kind = cash_plan
                     signed_amount = amount if kind == "in" else -amount
@@ -205,6 +233,13 @@ def settlement_payment_void(request, pk):
             payment.reversal_operation = reversal_operation
             shift.drawer = cashlib.store(drawer_after)
             shift.save(update_fields=["drawer"])
+        if payment.advance_id:
+            advance = AccountAdvance.objects.select_for_update().get(pk=payment.advance_id, company=request.company)
+            if advance.is_void:
+                messages.error(request, "Аванс уже скасовано; неможливо відновити його залишок.")
+                return redirect("settlements_home")
+            advance.remaining += payment.amount
+            advance.save(update_fields=["remaining"])
         payment.is_void = True
         payment.voided_at = timezone.now()
         payment.voided_by = request.user
