@@ -77,7 +77,7 @@ const mg=l.cost>0&&l.price>0?`<br><span class="mg ${l.price<l.cost?'bad':''}">з
 const tier=l.si?`<br><select data-i="${i}" data-f="tier"><option value="">${l.manual?'своя ціна':'націнка…'}</option>${init.tiers.map(t=>`<option value="${t.pct}" ${(!l.manual&&Math.abs(t.pct-l.pct)<0.005)?'selected':''}>${esc(t.name)} +${t.pct}%</option>`).join('')}</select>`:'';
 const sup=l.si?`<br><span class="sup">📦 під замовлення · ${esc(l.sup)}${l.avail!=null?' · у пост. '+l.avail:''}</span>`:'';
 return `<tr class="${l.key===lastId?'last':''}"><td>${esc(l.name)}${sup}${sn}${mg}<td class="n">${l.allow?`<input type="number" step="0.01" data-i="${i}" data-f="price" value="${l.price}">`:money(l.price)}${tier}
-<td class="n"><span class="qb"><button data-dec="${i}">−</button><input type="number" step="0.001" min="0" data-i="${i}" data-f="qty" value="${l.qty}" ${l.tm==="serial"?"disabled":""}><button data-inc="${i}">+</button></span>
+<td class="n"><span class="qb"><button data-dec="${i}" ${l.tm==="serial"?"disabled":""}>−</button><input type="number" step="0.001" min="0" data-i="${i}" data-f="qty" value="${l.qty}" ${l.tm==="serial"?"disabled":""}><button data-inc="${i}" ${l.tm==="serial"?"disabled":""}>+</button></span>
 <td class="n">${money(l.qty*l.price)}<td><button class="btn red sm" data-del="${i}">×</button></tr>`}).join('')||'<tr><td colspan="5" style="color:var(--mute);text-align:center;padding:30px">Чек порожній — скануйте товар або натисніть плитку</td></tr>';
 $('total').textContent=money(total());$('cnt').textContent=+n.toFixed(3);$('cust').textContent=customer?customer.name+(customer.pct?' (+'+customer.pct+'%)':''):'Роздрібний покупець';renderCar();
 $('drw').textContent=drawer==null?'—':money(drawer)}
