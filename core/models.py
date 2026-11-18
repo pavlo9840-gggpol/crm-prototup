@@ -409,6 +409,21 @@ class StockSerialUnit(models.Model):
         self.normalized_serial = "".join(ch for ch in self.serial_number if ch.isalnum()).upper()
         if not self.normalized_serial:
             raise ValueError("Серійний номер не може бути порожнім")
+        if len(self.serial_number) > 100 or len(self.normalized_serial) > 100:
+            raise ValueError("Серійний номер має містити не більше 100 символів")
+        if not self.company_id or not self.product_id:
+            raise ValueError("Для серійного номера обов'язково вкажіть магазин і товар")
+        product_company = Product.objects.filter(pk=self.product_id).values_list("company_id", flat=True).first()
+        if product_company != self.company_id:
+            raise ValueError("Серійний номер і товар мають належати одному магазину")
+        if self.purchase_item_id:
+            purchase_item = PurchaseItem.objects.filter(pk=self.purchase_item_id).values("company_id", "product_id").first()
+            if not purchase_item or purchase_item["company_id"] != self.company_id or purchase_item["product_id"] != self.product_id:
+                raise ValueError("Надходження серійного номера не відповідає магазину або товару")
+        if self.sale_item_id:
+            sale_item = SaleItem.objects.filter(pk=self.sale_item_id).values("company_id", "product_id").first()
+            if not sale_item or sale_item["company_id"] != self.company_id or sale_item["product_id"] != self.product_id:
+                raise ValueError("Продаж серійного номера не відповідає магазину або товару")
         super().save(*args, **kwargs)
 
 
