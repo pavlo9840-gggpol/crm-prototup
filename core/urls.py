@@ -98,6 +98,7 @@ urlpatterns = [
     path("inventory/adjust/", v.inventory_adjust, name="inventory_adjust"),
     path("inventory/movements/", v.inventory_movements, name="inventory_movements"),
     path("inventory/batches/", v.stock_batches, name="stock_batches"),
+    path("inventory/serials/", v.stock_serials, name="stock_serials"),
     path("customers/", v.customer_list, name="customer_list"),
     path("customers/new/", v.customer_edit, name="customer_new"),
     path("customers/<int:pk>/", v.customer_detail, name="customer_detail"),
