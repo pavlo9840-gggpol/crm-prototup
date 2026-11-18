@@ -100,6 +100,14 @@ class LocalLicenseEnforcementTests(TestCase):
         self.assertEqual(service_module.status_code, 403)
         self.assertContains(service_module, "Модуль СТО", status_code=403)
 
+    def test_workshop_module_stays_disabled_even_with_signed_addon(self):
+        self.activate("business", max_users=20, max_workstations=10, features=["service_workshop"])
+        client = Client()
+        client.force_login(self.user)
+        response = client.get("/service/")
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(response, "Модуль СТО", status_code=403)
+
     def test_signed_addon_can_enable_one_pro_feature_on_start(self):
         self.activate("start", max_users=2, max_workstations=1, features=["supplier_prices"])
         client = Client()
