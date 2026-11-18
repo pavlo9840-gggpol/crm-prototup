@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
                 ("entry_type", models.CharField(choices=[("income", "Дохід"), ("expense", "Витрата")], db_index=True, max_length=10, verbose_name="Тип операції")),
                 ("category", models.CharField(max_length=80, verbose_name="Категорія")),
                 ("amount", models.DecimalField(decimal_places=2, max_digits=14, verbose_name="Сума")),
-                ("payment_method", models.CharField(choices=[("cash", "Готівка"), ("card", "Картка"), ("bank", "Банківський рахунок")], default="cash", max_length=10)),
+                ("payment_method", models.CharField("Спосіб оплати", choices=[("cash", "Готівка"), ("card", "Картка"), ("bank", "Банківський рахунок")], default="cash", max_length=10)),
                 ("description", models.CharField(blank=True, max_length=250, verbose_name="Опис")),
                 ("document_ref", models.CharField(blank=True, max_length=80, verbose_name="Номер документа")),
                 ("created_at", models.DateTimeField(auto_now_add=True, verbose_name="Дата створення")),
