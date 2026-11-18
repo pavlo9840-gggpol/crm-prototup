@@ -205,8 +205,8 @@ class SettlementLedgerTests(TestCase):
         self.assertEqual(response.context["account_totals"]["checkout_paid"], Decimal("300.00"))
         self.assertEqual(response.context["account_totals"]["later_paid"], Decimal("200.00"))
         self.assertEqual(response.context["account_totals"]["debt"], Decimal("500.00"))
-        self.assertContains(response, "Картка")
-        self.assertContains(response, "Рахунок")
+        self.assertContains(response, "Поточний борг")
+        self.assertContains(response, "Історія додаткових оплат")
 
     def test_supplier_account_shows_purchase_payments_and_outstanding_balance(self):
         self.Payment.objects.create(company=self.company, purchase=self.purchase,
