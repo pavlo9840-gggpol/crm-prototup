@@ -29,9 +29,9 @@ class FinanceLedgerTests(TestCase):
 
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "1500.00")
-        self.assertContains(response, "500.00")
-        self.assertContains(response, "1000.00")
+        self.assertEqual(response.context["income"], Decimal("1500.00"))
+        self.assertEqual(response.context["expense"], Decimal("500.00"))
+        self.assertEqual(response.context["balance"], Decimal("1000.00"))
         self.assertEqual(FinanceEntry.objects.filter(company=self.company).count(), 2)
         self.assertEqual(FinanceEntry.objects.filter(company=self.company, created_by=self.owner).count(), 2)
 
