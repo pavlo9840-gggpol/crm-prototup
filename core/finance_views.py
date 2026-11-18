@@ -67,9 +67,15 @@ def finance_ledger(request):
     amounts = {row["entry_type"]: row["total"] or Decimal("0.00") for row in totals}
     income = amounts.get(FinanceEntry.INCOME, Decimal("0.00"))
     expense = amounts.get(FinanceEntry.EXPENSE, Decimal("0.00"))
+    payment_rows = active_entries.values("payment_method", "entry_type").annotate(total=Sum("amount"))
+    payment_totals = {}
+    for row in payment_rows:
+        payment_totals.setdefault(row["payment_method"], {"income": Decimal("0.00"), "expense": Decimal("0.00")})
+        payment_totals[row["payment_method"]][row["entry_type"]] = row["total"] or Decimal("0.00")
     return render(request, "core/finance_ledger.html", {
         "form": form, "entries": entries, "date_from": date_from, "date_to": date_to,
         "income": income, "expense": expense, "balance": income - expense,
+        "payment_totals": payment_totals,
     })
 
 
