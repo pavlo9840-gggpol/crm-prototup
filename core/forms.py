@@ -9,7 +9,7 @@ class ProductForm(forms.ModelForm):
     additional_barcodes = forms.CharField(label="Додаткові штрих-коди", required=False,
         widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Кожен додатковий штрих-код з нового рядка"}),
         help_text="Для упаковок або варіантів одного товару. Основний штрих-код вказується вище.")
-    field_order = ["name", "sku", "barcode", "brand", "category", "unit", "product_kind", "tracking_mode", "tax_category", "condition", "has_defect", "condition_description", "cost_price", "price", "initial_stock", "min_stock", "weight_kg", "length_cm", "width_cm", "height_cm", "photo", "photo_url", "is_favorite", "allow_price_change", "is_active", "notes"]
+    field_order = ["name", "sku", "barcode", "brand", "category", "unit", "product_kind", "tracking_mode", "tax_category", "condition", "has_defect", "condition_description", "cost_price", "price", "initial_stock", "min_stock", "weight_kg", "length_cm", "width_cm", "height_cm", "additional_barcodes", "photo", "photo_url", "is_favorite", "allow_price_change", "is_active", "notes"]
 
     class Meta:
         model = Product
