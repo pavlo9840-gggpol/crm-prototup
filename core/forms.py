@@ -26,6 +26,19 @@ class ProductForm(forms.ModelForm):
         if company is not None:
             self.fields["category"].queryset = Category.objects.filter(company=company)
         self.fields["brand"].required = False
+        # Нові універсальні поля мають безпечні значення за замовчуванням.
+        # Старі клієнти/API та наявні форми, які ще не надсилають ці поля,
+        # не повинні раптово ставати невалідними.
+        universal_defaults = {
+            "product_kind": "goods",
+            "tracking_mode": "none",
+            "tax_category": "general",
+        }
+        for field_name, default_value in universal_defaults.items():
+            self.fields[field_name].required = False
+            self.fields[field_name].initial = (
+                getattr(self.instance, field_name) if self.instance.pk else default_value
+            )
         if self.instance.pk:
             del self.fields["initial_stock"]
 
@@ -43,6 +56,18 @@ class ProductForm(forms.ModelForm):
 
     def clean(self):
         d = super().clean()
+        universal_defaults = {
+            "product_kind": "goods",
+            "tracking_mode": "none",
+            "tax_category": "general",
+        }
+        for field_name, default_value in universal_defaults.items():
+            if not d.get(field_name):
+                # При редагуванні зберігаємо попереднє значення, якщо старий клієнт
+                # не надіслав нове поле; для нового товару беремо стандартне.
+                d[field_name] = (
+                    getattr(self.instance, field_name) if self.instance.pk else default_value
+                )
         condition, defect, description = d.get("condition"), d.get("has_defect"), (d.get("condition_description") or "").strip()
         if condition == "incomplete" and not description:
             self.add_error("condition_description", "Опишіть, яких деталей не вистачає.")
