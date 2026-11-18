@@ -21,7 +21,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch)
+                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -352,12 +352,13 @@ def purchase_new(request):
         costs = request.POST.getlist("cost")
         batch_numbers = request.POST.getlist("batch_number")
         expiry_dates = request.POST.getlist("expiry_date")
+        serial_values = request.POST.getlist("serial_numbers")
         try:
-            if not (len(product_ids) == len(quantities) == len(costs) == len(batch_numbers) == len(expiry_dates)):
+            if not (len(product_ids) == len(quantities) == len(costs) == len(batch_numbers) == len(expiry_dates) == len(serial_values)):
                 raise StockError("Дані рядків закупівлі неповні. Оновіть сторінку й повторіть.")
-            for index, (pid, raw_q, raw_cost, batch_number, raw_expiry) in enumerate(zip(product_ids, quantities, costs, batch_numbers, expiry_dates), start=1):
+            for index, (pid, raw_q, raw_cost, batch_number, raw_expiry, raw_serials) in enumerate(zip(product_ids, quantities, costs, batch_numbers, expiry_dates, serial_values), start=1):
                 # Empty extra rows are normal in the form; partially filled rows are not.
-                if not any(str(value or "").strip() for value in (pid, raw_q, raw_cost, batch_number, raw_expiry)):
+                if not any(str(value or "").strip() for value in (pid, raw_q, raw_cost, batch_number, raw_expiry, raw_serials)):
                     continue
                 p = company_queryset(Product.objects.all(), request).filter(pk=pid or 0).first()
                 q, cost = dec(raw_q), dec(raw_cost)
@@ -373,7 +374,7 @@ def purchase_new(request):
                         expiry = datetime.strptime(raw_expiry.strip(), "%Y-%m-%d").date()
                     except ValueError:
                         raise StockError(f"Рядок {index}: некоректна дата придатності.")
-                lines.append((p, q, cost, batch_number.strip(), expiry))
+                lines.append((p, q, cost, batch_number.strip(), expiry, raw_serials.splitlines()))
             if not lines:
                 raise StockError("Додайте хоча б один товар")
             if new_name and sid:
@@ -427,7 +428,7 @@ def pos(request):
         return cid
     products = [{"id": p.pk, "n": p.name, "s": p.sku, "b": p.barcode or "", "p": float(p.price), "a": p.allow_price_change,
                  "st": float(p.current_stock), "c": root(p.category_id), "f": p.is_favorite, "u": p.unit,
-                 "k": float(p.cost_price), "br": p.brand}
+                 "k": float(p.cost_price), "br": p.brand, "tm": p.tracking_mode}
                 for p in company_queryset(Product.objects.filter(is_active=True).exclude(from_supplier=True, current_stock__lte=0), request)]
     init["products"] = products
     init["tiers"] = [{"id": t.pk, "name": t.name, "pct": float(t.percent)} for t in company_queryset(MarkupTier.objects.all(), request)]
@@ -530,7 +531,7 @@ def _parse_cart(request):
             price = dec(it.get("price"), p.price)
             if price < 0:
                 price = p.price
-        lines.append((p, q, price, None))
+        lines.append((p, q, price, {"serial_number": str(it.get("serial_number") or "").strip()} if p.tracking_mode == "serial" else None))
     pay = d.get("payment") if d.get("payment") in ("cash", "card", "mixed") else "cash"
     held = None
     if d.get("resume_id"):
