@@ -1354,7 +1354,7 @@ class AccountAdvance(models.Model):
         indexes = [models.Index(fields=["company", "party_type", "created_at"], name="advance_company_type_date_idx")]
 
     def save(self, *args, **kwargs):
-        party = self.customer if self.party_type == self.CUSTOMER else self.supplier
+        party = (self.customer if self.customer_id else None) if self.party_type == self.CUSTOMER else (self.supplier if self.supplier_id else None)
         if (self.party_type == self.CUSTOMER and self.supplier_id) or (self.party_type == self.SUPPLIER and self.customer_id):
             raise ValueError("Аванс має належати одному контрагенту.")
         if party and party.company_id != self.company_id:
