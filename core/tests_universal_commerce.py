@@ -55,6 +55,22 @@ class UniversalStoreProfileTests(TestCase):
         group_titles = [group["title"] for group in nav["nav_groups"]]
         self.assertIn("Каталог автозапчастин", group_titles)
 
+    def test_owner_can_change_store_profile_without_losing_existing_products(self):
+        User = get_user_model()
+        owner = User.objects.create_superuser("profile-owner", "", "secret")
+        store = Company.objects.create(name="Shop", slug="profile-switch-shop", owner=owner)
+        StaffMembership.objects.create(company=store, user=owner, role="owner")
+        product = Product.objects.create(company=store, name="Тестовий товар", sku="KEEP-001", brand="BILSTEIN")
+        self.client.force_login(owner)
+        response = self.client.post("/settings/business-profile/", {"business_type": "electronics"})
+        self.assertEqual(response.status_code, 302)
+        store.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(store.business_type, "electronics")
+        self.assertEqual(product.sku, "KEEP-001")
+        self.assertEqual(product.brand, "BILSTEIN")
+        self.assertEqual(self.client.get("/settings/business-profile/").status_code, 200)
+
     def test_existing_local_store_defaults_to_automotive_without_data_loss(self):
         User = get_user_model()
         owner = User.objects.create_superuser("owner", "", "secret")
