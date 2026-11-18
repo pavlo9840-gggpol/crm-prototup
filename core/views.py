@@ -350,12 +350,14 @@ def purchase_new(request):
         product_ids = request.POST.getlist("product")
         quantities = request.POST.getlist("qty")
         costs = request.POST.getlist("cost")
+        batch_numbers = request.POST.getlist("batch_number")
+        expiry_dates = request.POST.getlist("expiry_date")
         try:
-            if not (len(product_ids) == len(quantities) == len(costs)):
+            if not (len(product_ids) == len(quantities) == len(costs) == len(batch_numbers) == len(expiry_dates)):
                 raise StockError("Дані рядків закупівлі неповні. Оновіть сторінку й повторіть.")
-            for index, (pid, raw_q, raw_cost) in enumerate(zip(product_ids, quantities, costs), start=1):
+            for index, (pid, raw_q, raw_cost, batch_number, raw_expiry) in enumerate(zip(product_ids, quantities, costs, batch_numbers, expiry_dates), start=1):
                 # Empty extra rows are normal in the form; partially filled rows are not.
-                if not any(str(value or "").strip() for value in (pid, raw_q, raw_cost)):
+                if not any(str(value or "").strip() for value in (pid, raw_q, raw_cost, batch_number, raw_expiry)):
                     continue
                 p = company_queryset(Product.objects.all(), request).filter(pk=pid or 0).first()
                 q, cost = dec(raw_q), dec(raw_cost)
@@ -365,7 +367,13 @@ def purchase_new(request):
                     raise StockError(f"Рядок {index}: кількість має бути більшою за нуль.")
                 if cost is None or cost < 0:
                     raise StockError(f"Рядок {index}: закупівельна ціна не може бути від'ємною.")
-                lines.append((p, q, cost))
+                expiry = None
+                if raw_expiry.strip():
+                    try:
+                        expiry = datetime.strptime(raw_expiry.strip(), "%Y-%m-%d").date()
+                    except ValueError:
+                        raise StockError(f"Рядок {index}: некоректна дата придатності.")
+                lines.append((p, q, cost, batch_number.strip(), expiry))
             if not lines:
                 raise StockError("Додайте хоча б один товар")
             if new_name and sid:
