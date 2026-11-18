@@ -13,6 +13,7 @@ class FirstRunSetupTests(TestCase):
         self.assertEqual(self.client.get("/setup/").status_code, 200)
 
         response = self.client.post("/setup/", {
+            "business_type": "auto_parts",
             "shop_name": "АвтоЗапас Тест",
             "username": "first-owner",
             "email": "owner@example.test",
