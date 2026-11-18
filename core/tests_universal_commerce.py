@@ -41,6 +41,8 @@ class UniversalProductFieldsTests(TestCase):
         owner = User.objects.create_superuser("owner", "", "secret")
         self.company = Company.objects.create(name="Універсальний магазин", slug="universal-shop", owner=owner)
         StaffMembership.objects.create(company=self.company, user=owner, role="owner")
+        self.owner = owner
+        self.client.force_login(owner)
 
     def test_product_form_accepts_non_automotive_item_without_brand(self):
         form = ProductForm({
@@ -104,6 +106,33 @@ class UniversalProductFieldsTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 ProductBarcode.objects.create(product=product, company=self.company, barcode="4820000000100")
+
+    def test_product_form_saves_extra_barcodes_and_pos_finds_them_exactly(self):
+        form = ProductForm({
+            "name": "Чай чорний", "sku": "TEA-002", "barcode": "4820000000200",
+            "additional_barcodes": "4820000000201\\n4820000000202",
+            "unit": "шт", "cost_price": "20", "price": "30", "min_stock": "0",
+        }, company=self.company)
+        self.assertTrue(form.is_valid(), form.errors)
+        product = form.save(commit=False)
+        product.company = self.company
+        product.save()
+        form.sync_additional_barcodes(product)
+        self.assertEqual(set(product.extra_barcodes.values_list("barcode", flat=True)),
+                         {"4820000000201", "4820000000202"})
+        response = self.client.get("/pos/search/", {"q": "4820000000202"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["exact"])
+        self.assertEqual(response.json()["results"][0]["id"], product.pk)
+
+    def test_extra_barcode_cannot_duplicate_another_products_primary_or_extra_code(self):
+        Product.objects.create(company=self.company, name="Чай", sku="TEA-003", barcode="4820000000300")
+        form = ProductForm({
+            "name": "Інший чай", "sku": "TEA-004", "additional_barcodes": "4820000000300",
+            "unit": "шт", "cost_price": "20", "price": "30", "min_stock": "0",
+        }, company=self.company)
+        self.assertFalse(form.is_valid())
+        self.assertIn("additional_barcodes", form.errors)
 
     def test_barcode_rejects_product_from_another_store(self):
         User = get_user_model()
