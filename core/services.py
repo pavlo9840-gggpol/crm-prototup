@@ -96,7 +96,10 @@ def merge_lines(lines):
     for ln in lines:
         p, q, pr = ln[:3]
         x = ln[3] if len(ln) > 3 else None
-        key = (p.pk, x["si"].pk if x and x.get("si") else None, (x or {}).get("serial_number", ""))
+        key = (p.pk, x["si"].pk if x and x.get("si") else None,
+               (x or {}).get("serial_number", "") if p.tracking_mode == "serial" else "")
+        if p.tracking_mode == "serial" and not (x or {}).get("serial_number"):
+            key = (*key[:2], f"unassigned-{len(merged)}")
         if key in merged:
             merged[key][1] += q
         else:
