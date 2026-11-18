@@ -16,12 +16,14 @@ details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more
 <form method="post" enctype="multipart/form-data" id="pf" autocomplete="off">{% csrf_token %}
 <div class="grid2"><div>
 <div class="card"><div class="sec"><i>1</i><h3>Що це за деталь</h3></div>
- <div class="frow"><div class="fld"><label for="id_brand">Бренд <span class="req">*</span></label>{{ form.brand }}{{ form.brand.errors }}<span class="helptext">Виробник деталі, напр. BILSTEIN, SACHS</span></div>
- <div class="fld"><label for="id_sku">Артикул <span class="req">*</span></label>{{ form.sku }}{{ form.sku.errors }}<span class="helptext">Можна з пробілами та дефісами</span></div></div>
+ <div class="frow"><div class="fld"><label for="id_brand">Бренд / виробник</label>{{ form.brand }}{{ form.brand.errors }}<span class="helptext">Необов’язково. Виробник товару або торгова марка.</span></div>
+ <div class="fld"><label for="id_sku">Артикул / внутрішній код <span class="req">*</span></label>{{ form.sku }}{{ form.sku.errors }}<span class="helptext">Внутрішній код, артикул виробника або код позиції.</span></div></div>
  <div class="status" id="st"></div>
  <div class="fld"><label for="id_name">Назва <span class="req">*</span></label>{{ form.name }}{{ form.name.errors }}</div>
  <div class="frow"><div class="fld"><label for="id_category">Категорія</label>{{ form.category }}{{ form.category.errors }}<span class="helptext">Система запропонує категорію за назвою, якщо залишити поле порожнім.</span></div><div class="fld"><label for="id_unit">Одиниця виміру</label>{{ form.unit }}{{ form.unit.errors }}</div></div>
- <div class="sec" style="margin-top:14px"><i>!</i><h3>Стан товару</h3></div>
+ <div class="sec" style="margin-top:14px"><i>2</i><h3>Тип та правила обліку</h3></div>
+ <div class="frow"><div class="fld"><label for="id_product_kind">Тип позиції</label>{{ form.product_kind }}{{ form.product_kind.errors }}</div><div class="fld"><label for="id_tracking_mode">Спосіб обліку</label>{{ form.tracking_mode }}{{ form.tracking_mode.errors }}</div><div class="fld"><label for="id_tax_category">Податкова категорія</label>{{ form.tax_category }}{{ form.tax_category.errors }}</div></div>
+<div class="sec" style="margin-top:14px"><i>!</i><h3>Стан товару</h3></div>
  <div class="frow"><div class="fld"><label for="id_condition">Стан товару</label>{{ form.condition }}{{ form.condition.errors }}</div>
  <div class="fld" id="defect-wrap"><label style="display:flex;gap:8px;align-items:center;font-weight:600">{{ form.has_defect }} Є дефект</label>{{ form.has_defect.errors }}</div></div>
  <div class="fld" id="condition-description-wrap"><label for="id_condition_description">Опис стану</label>{{ form.condition_description }}{{ form.condition_description.errors }}<span class="helptext" id="condition-help">Для нового товару поле необов'язкове.</span></div>
@@ -37,7 +39,8 @@ details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more
  <div class="frow">{% if form.initial_stock %}<div class="fld"><label for="id_initial_stock">Початковий залишок</label>{{ form.initial_stock }}{{ form.initial_stock.errors }}</div>{% endif %}
  <div class="fld"><label for="id_min_stock">Мінімальний залишок</label>{{ form.min_stock }}{{ form.min_stock.errors }}<span class="helptext">Нижче цього числа товар вважається «закінчується»</span></div>
  <div class="fld"><label for="id_barcode">Штрих-код</label>{{ form.barcode }}{{ form.barcode.errors }}<span class="helptext">Необов'язково. Можна відсканувати.</span></div></div>
- <div class="fld"><label for="id_photo">Завантажити фото з комп'ютера</label>{{ form.photo }}{{ form.photo.errors }}</div>
+ <div class="frow"><div class="fld"><label for="id_weight_kg">Вага, кг</label>{{ form.weight_kg }}{{ form.weight_kg.errors }}</div><div class="fld"><label for="id_length_cm">Довжина, см</label>{{ form.length_cm }}{{ form.length_cm.errors }}</div><div class="fld"><label for="id_width_cm">Ширина, см</label>{{ form.width_cm }}{{ form.width_cm.errors }}</div><div class="fld"><label for="id_height_cm">Висота, см</label>{{ form.height_cm }}{{ form.height_cm.errors }}</div></div>
+<div class="fld"><label for="id_photo">Завантажити фото з комп'ютера</label>{{ form.photo }}{{ form.photo.errors }}</div>
  <div class="fld"><label for="id_photo_url">Або посилання на фото (HTTPS)</label>{{ form.photo_url }}{{ form.photo_url.errors }}<span class="helptext">Використовуйте пряме посилання на зображення.</span></div>
  <div class="fld"><label>Попередній перегляд</label><div id="photo-preview" style="min-height:90px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);border-radius:8px;padding:8px;color:var(--mute)">Фото не вибрано</div></div>
  <details class="more"{% if form.errors.notes or form.errors.is_active %} open{% endif %}><summary>Додатково</summary><div style="margin-top:10px">
