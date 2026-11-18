@@ -52,6 +52,8 @@ class ProductForm(forms.ModelForm):
         return self.cleaned_data["sku"].strip()
 
     def clean_additional_barcodes(self):
+        if self.instance.pk and self.is_bound and "additional_barcodes" not in self.data:
+            return list(self.instance.extra_barcodes.values_list("barcode", flat=True))
         raw = self.cleaned_data.get("additional_barcodes") or ""
         codes = []
         seen = set()
