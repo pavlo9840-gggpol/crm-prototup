@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from django import forms
 from django.contrib import messages
+from django.db import transaction
 from django.db.models import Sum
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -60,8 +61,9 @@ def finance_ledger(request):
 
     entries = FinanceEntry.objects.filter(
         company=request.company, created_at__date__gte=date_from, created_at__date__lte=date_to
-    ).select_related("created_by")
-    totals = entries.values("entry_type").annotate(total=Sum("amount"))
+    ).select_related("created_by", "voided_by")
+    active_entries = entries.filter(is_void=False)
+    totals = active_entries.values("entry_type").annotate(total=Sum("amount"))
     amounts = {row["entry_type"]: row["total"] or Decimal("0.00") for row in totals}
     income = amounts.get(FinanceEntry.INCOME, Decimal("0.00"))
     expense = amounts.get(FinanceEntry.EXPENSE, Decimal("0.00"))
@@ -69,3 +71,37 @@ def finance_ledger(request):
         "form": form, "entries": entries, "date_from": date_from, "date_to": date_to,
         "income": income, "expense": expense, "balance": income - expense,
     })
+
+
+
+class FinanceVoidForm(forms.Form):
+    reason = forms.CharField(
+        max_length=250,
+        label="Причина скасування",
+        widget=forms.TextInput(attrs={"placeholder": "Наприклад: помилково внесена сума"}),
+    )
+
+
+@tenant_staff_only
+@company_required
+def finance_entry_void(request, pk):
+    if request.method != "POST":
+        return redirect("finance_ledger")
+    form = FinanceVoidForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Вкажіть причину скасування (до 250 символів).")
+        return redirect("finance_ledger")
+    with transaction.atomic():
+        entry = FinanceEntry.objects.select_for_update().filter(
+            pk=pk, company=request.company, is_void=False
+        ).first()
+        if not entry:
+            messages.error(request, "Операцію не знайдено або її вже скасовано.")
+            return redirect("finance_ledger")
+        entry.is_void = True
+        entry.voided_at = timezone.now()
+        entry.voided_by = request.user
+        entry.void_reason = form.cleaned_data["reason"].strip()
+        entry.save(update_fields=["is_void", "voided_at", "voided_by", "void_reason"])
+    messages.success(request, "Операцію скасовано. Запис залишився в журналі для аудиту.")
+    return redirect("finance_ledger")
