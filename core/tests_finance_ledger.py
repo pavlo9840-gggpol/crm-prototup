@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import FinanceEntry
+from core.models import FinanceEntry, Shift
 from core.tests_tenant_helpers import create_test_company
 
 
