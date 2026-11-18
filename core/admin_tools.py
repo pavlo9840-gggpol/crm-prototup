@@ -27,7 +27,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import services
+from . import pricing, services
 from .models import Category, StaffMembership, LicenseWorkstationSession, PriceHistory, Product, norm_sku
 from .tenant_context import company_required
 
@@ -587,13 +587,17 @@ def apply_rows(rows, user, company):
                 setattr(p, f, new)
                 if not is_new and old != new:
                     PriceHistory.objects.create(company=company, product=p, field=f, old_value=old, new_value=new, changed_by=user)
+        # Якщо в CSV є закупівельна ціна, але немає продажної, застосовуємо
+        # ті самі правила націнки, що й у картці товару. Явно задану ціну
+        # продажу ніколи не перезаписуємо.
+        p.save()
+        if "cost_price" in r and "price" not in r and p.cost_price > 0:
+            pricing.reprice_product(p, user)
         if is_new:
-            p.save()
             if Decimal(r.get("current_stock", "0")) > 0:
                 services.add_movement(p, Decimal(r["current_stock"]), "opening", "", user, "Імпорт CSV")
             created += 1
         else:
-            p.save()
             updated += 1
     return created, updated
 
