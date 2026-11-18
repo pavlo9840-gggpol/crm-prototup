@@ -21,7 +21,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan)
+                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -153,10 +153,10 @@ def product_list(request):
         qs = qs.filter(condition=condition)
     if q:
         qn = norm_sku(q)
-        cond = Q(name_lc__contains=q.lower()) | Q(sku__icontains=q) | Q(barcode__icontains=q) | Q(brand__icontains=q)
+        cond = Q(name_lc__contains=q.lower()) | Q(sku__icontains=q) | Q(barcode__icontains=q) | Q(brand__icontains=q) | Q(extra_barcodes__barcode__icontains=q)
         if qn:
             cond |= Q(sku_norm__contains=qn)
-        qs = qs.filter(cond)
+        qs = qs.filter(cond).distinct()
     if cat:
         ids = [int(cat)] if cat.isdigit() else []
         ids += list(company_queryset(Category.objects.filter(parent_id__in=ids), request).values_list("id", flat=True))
@@ -189,8 +189,10 @@ def product_edit(request, pk=None):
     if request.method == "POST" and form.is_valid():
         p = form.save(commit=False)
         p.company = request.company
-        p.save()
-        form.save_m2m()
+        with transaction.atomic():
+            p.save()
+            form.save_m2m()
+            form.sync_additional_barcodes(p)
         if old_prices is not None:
             for field, old_value in old_prices.items():
                 if old_value != getattr(p, field):
@@ -462,10 +464,10 @@ def pos_search(request):
     if not q:
         return JsonResponse({"results": [], "exact": False})
     qs = company_queryset(Product.objects.filter(is_active=True), request)
-    exact = qs.filter(Q(barcode=q) | Q(sku__iexact=q)).first()
+    exact = qs.filter(Q(barcode=q) | Q(sku__iexact=q) | Q(extra_barcodes__barcode=q)).distinct().first()
     if exact:
         return JsonResponse({"results": [product_json(exact)], "exact": True})
-    res = qs.filter(Q(name_lc__contains=q.lower()) | Q(sku__icontains=q) | Q(barcode__icontains=q))[:15]
+    res = qs.filter(Q(name_lc__contains=q.lower()) | Q(sku__icontains=q) | Q(barcode__icontains=q) | Q(extra_barcodes__barcode__icontains=q)).distinct()[:15]
     return JsonResponse({"results": [product_json(p) for p in res], "exact": False})
 
 
