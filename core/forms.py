@@ -17,7 +17,7 @@ class ProductForm(forms.ModelForm):
         labels = {"sku": "Артикул / внутрішній код", "barcode": "Штрих-код (необов'язково)"}
         help_texts = {"brand": "Необов’язково. Для автозапчастин бренд і артикул разом однозначно "
                                "визначають товар: однаковий артикул у різних брендів — це різні товари.",
-                      "barcode": "Для запчастин зазвичай не потрібен: товар шукають за артикулом."}
+                      "barcode": "Основний код для сканера; за потреби додайте коди упаковок нижче."}
         widgets = {"brand": forms.TextInput(attrs={"list": "brand-list", "autocomplete": "off",
                                                     "placeholder": "напр. BILSTEIN"}),
                    "notes": forms.Textarea(attrs={"rows": 2}), "condition_description": forms.Textarea(attrs={"rows": 3}),
