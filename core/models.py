@@ -1315,3 +1315,52 @@ class FinanceEntry(models.Model):
 
     def __str__(self):
         return f"{self.get_entry_type_display()}: {self.amount} ₴ · {self.category}"
+
+
+class SettlementPayment(models.Model):
+    """Auditable payment against a customer sale or supplier purchase document.
+
+    This is a management subledger. It does not issue a fiscal receipt or mutate
+    the cash-shift drawer; those operations remain in the POS/cash workflow.
+    """
+    PAYMENT_METHODS = [
+        ("cash", "Готівка"),
+        ("card", "Картка"),
+        ("bank", "Банківський рахунок"),
+    ]
+
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="settlement_payments")
+    sale = models.ForeignKey("Sale", null=True, blank=True, on_delete=models.PROTECT,
+                             related_name="settlement_payments")
+    purchase = models.ForeignKey("Purchase", null=True, blank=True, on_delete=models.PROTECT,
+                                 related_name="settlement_payments")
+    amount = models.DecimalField("Сума", max_digits=14, decimal_places=2)
+    payment_method = models.CharField("Спосіб оплати", max_length=10, choices=PAYMENT_METHODS, default="cash")
+    document_ref = models.CharField("Номер документа оплати", max_length=80, blank=True)
+    note = models.CharField("Примітка", max_length=250, blank=True)
+    created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="settlement_payments")
+    created_at = models.DateTimeField("Дата оплати", auto_now_add=True)
+    is_void = models.BooleanField("Скасовано", default=False, db_index=True)
+    voided_at = models.DateTimeField("Дата скасування", null=True, blank=True)
+    voided_by = models.ForeignKey(USER, on_delete=models.PROTECT, null=True, blank=True,
+                                  related_name="voided_settlement_payments")
+    void_reason = models.CharField("Причина скасування", max_length=250, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["company", "created_at"], name="settlement_company_date_idx"),
+            models.Index(fields=["company", "is_void"], name="settlement_company_void_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="settlement_payment_amount_positive"),
+            models.CheckConstraint(
+                condition=(Q(sale__isnull=False, purchase__isnull=True) |
+                           Q(sale__isnull=True, purchase__isnull=False)),
+                name="settlement_exactly_one_document",
+            ),
+        ]
+
+    def __str__(self):
+        document = self.sale or self.purchase
+        return f"{self.amount} ₴ · {document or 'документ'}"
