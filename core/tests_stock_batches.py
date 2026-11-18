@@ -53,10 +53,10 @@ class StockBatchFifoTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("tracking_mode", form.errors)
 
-    def test_serial_tracking_is_not_offered_before_serial_workflow_is_ready(self):
+    def test_serial_tracking_is_available_after_serial_workflow_is_implemented(self):
         form = ProductForm(company=self.company)
         values = [value for value, _label in form.fields["tracking_mode"].choices]
-        self.assertNotIn("serial", values)
+        self.assertIn("serial", values)
 
     def test_purchase_creates_expiry_batch_and_tracks_cost(self):
         expiry = timezone.localdate() + timedelta(days=30)
