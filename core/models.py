@@ -380,6 +380,38 @@ class StockBatch(models.Model):
         return f"{self.product} / {self.batch_number or self.pk}"
 
 
+class StockSerialUnit(models.Model):
+    """Окремий фізичний екземпляр товару з унікальним серійним номером / IMEI."""
+    IN_STOCK, SOLD = "in_stock", "sold"
+    STATUS_CHOICES = [(IN_STOCK, "На складі"), (SOLD, "Продано")]
+
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="stock_serial_units")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="serial_units")
+    purchase_item = models.ForeignKey("PurchaseItem", null=True, blank=True, on_delete=models.SET_NULL,
+                                      related_name="serial_units")
+    sale_item = models.ForeignKey("SaleItem", null=True, blank=True, on_delete=models.SET_NULL,
+                                   related_name="serial_units")
+    serial_number = models.CharField("Серійний номер / IMEI", max_length=100)
+    normalized_serial = models.CharField(max_length=100, editable=False)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=IN_STOCK, db_index=True)
+    received_at = models.DateTimeField(auto_now_add=True)
+    sold_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["product__name", "serial_number"]
+        constraints = [
+            models.UniqueConstraint(fields=["company", "normalized_serial"], name="uniq_company_serial_number"),
+        ]
+        indexes = [models.Index(fields=["company", "product", "status"], name="serial_stock_status_idx")]
+
+    def save(self, *args, **kwargs):
+        self.serial_number = (self.serial_number or "").strip()
+        self.normalized_serial = "".join(ch for ch in self.serial_number if ch.isalnum()).upper()
+        if not self.normalized_serial:
+            raise ValueError("Серійний номер не може бути порожнім")
+        super().save(*args, **kwargs)
+
+
 class BatchAllocation(models.Model):
     """Фіксує, з яких партій списано позицію продажу; повернення відновлює саме їх."""
     company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="batch_allocations")
