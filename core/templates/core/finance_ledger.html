@@ -26,7 +26,7 @@
 
 <h3>Історія операцій</h3>
 <table>
-  <thead><tr><th>Дата</th><th>Тип</th><th>Категорія</th><th>Опис</th><th>Оплата</th><th>Документ</th><th class="n">Сума</th><th>Автор</th></tr></thead>
+  <thead><tr><th>Дата</th><th>Тип</th><th>Категорія</th><th>Опис</th><th>Оплата</th><th>Документ</th><th class="n">Сума</th><th>Автор</th><th>Статус / дія</th></tr></thead>
   <tbody>
   {% for entry in entries %}
     <tr>
@@ -36,11 +36,22 @@
       <td>{{ entry.description|default:"—" }}</td>
       <td>{{ entry.get_payment_method_display }}</td>
       <td>{{ entry.document_ref|default:"—" }}</td>
-      <td class="n">{{ entry.amount|floatformat:2 }} ₴</td>
+      <td class="n">{% if entry.is_void %}<s>{% endif %}{{ entry.amount|floatformat:2 }} ₴{% if entry.is_void %}</s>{% endif %}</td>
       <td>{{ entry.created_by.get_username }}</td>
+      <td>
+        {% if entry.is_void %}
+          <strong>Скасовано</strong><br><small>{{ entry.void_reason }} · {{ entry.voided_by.get_username }} · {{ entry.voided_at|date:"d.m.Y H:i" }}</small>
+        {% else %}
+          <form method="post" action="{% url 'finance_entry_void' entry.pk %}">
+            {% csrf_token %}
+            <input type="text" name="reason" maxlength="250" placeholder="Причина скасування" required>
+            <button class="btn" type="submit" onclick="return confirm('Скасувати операцію? Запис залишиться в історії.')">Скасувати</button>
+          </form>
+        {% endif %}
+      </td>
     </tr>
   {% empty %}
-    <tr><td colspan="8">За вибраний період операцій немає.</td></tr>
+    <tr><td colspan="9">За вибраний період операцій немає.</td></tr>
   {% endfor %}
   </tbody>
 </table>
