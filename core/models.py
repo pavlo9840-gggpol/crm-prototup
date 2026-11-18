@@ -1383,3 +1383,45 @@ class SettlementPayment(models.Model):
     def __str__(self):
         document = self.sale or self.purchase
         return f"{self.amount} ₴ · {document or 'документ'}"
+
+
+
+class BankTransaction(models.Model):
+    """Manual bank statement register; not an API connection to a bank."""
+    INCOME, EXPENSE = "income", "expense"
+    DIRECTIONS = [(INCOME, "Надходження"), (EXPENSE, "Списання")]
+
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="bank_transactions")
+    account = models.ForeignKey(BankAccount, on_delete=models.PROTECT, related_name="transactions")
+    transaction_date = models.DateField("Дата операції", db_index=True)
+    direction = models.CharField("Напрямок", max_length=10, choices=DIRECTIONS, db_index=True)
+    category = models.CharField("Категорія", max_length=80)
+    amount = models.DecimalField("Сума", max_digits=14, decimal_places=2)
+    counterparty = models.CharField("Контрагент", max_length=150, blank=True)
+    document_ref = models.CharField("Документ / призначення", max_length=120, blank=True)
+    note = models.CharField("Примітка", max_length=250, blank=True)
+    created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="bank_transactions")
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_void = models.BooleanField("Скасовано", default=False, db_index=True)
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(USER, null=True, blank=True, on_delete=models.PROTECT,
+                                  related_name="voided_bank_transactions")
+    void_reason = models.CharField(max_length=250, blank=True)
+
+    class Meta:
+        ordering = ["-transaction_date", "-id"]
+        indexes = [
+            models.Index(fields=["company", "account", "transaction_date"], name="bank_tx_account_date_idx"),
+            models.Index(fields=["company", "direction", "transaction_date"], name="bank_tx_direction_date_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="bank_transaction_amount_positive"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.account_id and self.company_id != self.account.company_id:
+            raise ValueError("Банківський рахунок належить іншому магазину.")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.get_direction_display()}: {self.amount} ₴ · {self.account.iban}"
