@@ -275,6 +275,7 @@ class SupplierPurchaseOrderTests(TestCase):
         self.assertEqual(supplier_row["fill_rate"], Decimal("100.0"))
         self.assertEqual(supplier_row["avg_actual_cost"], Decimal("9.00"))
         self.assertEqual(supplier_row["price_delta"], Decimal("2.50"))
+        self.assertEqual(supplier_row["on_time_rate"], Decimal("100.0"))
         comparison = next(row for row in response.context["comparisons"] if row["product"].pk == self.product.pk)
         self.assertEqual([offer.cost for offer in comparison["offers"]], [Decimal("8.50"), Decimal("9.00")])
 
