@@ -655,6 +655,39 @@ def supplier_analytics(request):
             offer.delta_to_min = offer.cost - minimum
             offer.is_cheapest = offer.cost == minimum
     comparisons.sort(key=lambda x: x["product"].name.lower())
+    if request.GET.get("export") == "csv":
+        response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
+        response["Content-Disposition"] = f'attachment; filename="supplier-analytics-{date_from}-{date_to}.csv"'
+        writer = csv.writer(response, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+
+        def safe_cell(value):
+            value = "" if value is None else str(value)
+            return "'" + value if value.startswith(("=", "+", "-", "@", "\\t", "\\r")) else value
+
+        writer.writerow(["Звіт постачальників", f"{date_from} — {date_to}"])
+        writer.writerow(["Постачальник", "Замовлень", "Повністю отримано", "Отримано, од.", "Замовлено, од.",
+                         "Повнота, %", "Вчасно, %", "Рейтинг, бал", "Оцінка", "План отриманого, грн",
+                         "Фактично, грн", "Відхилення, грн", "Сер. фактична ціна, грн"])
+        for row in performance:
+            writer.writerow([
+                safe_cell(row["supplier"].name), row["orders"], row["completed"], str(row["received_qty"]),
+                str(row["ordered_qty"]), str(row["fill_rate"]),
+                str(row["on_time_rate"]) if row["on_time_rate"] is not None else "",
+                str(row["rating_score"]) if row["rating_score"] is not None else "", row["rating_label"],
+                str(row["planned_received_value"]), str(row["actual_value"]), str(row["price_delta"]),
+                str(row["avg_actual_cost"]) if row["avg_actual_cost"] is not None else "",
+            ])
+        writer.writerow([])
+        writer.writerow(["Порівняння пропозицій"])
+        writer.writerow(["Товар", "Артикул", "Постачальник", "Ціна, грн", "Наявність", "Різниця до мінімуму, грн"])
+        for group in comparisons:
+            for offer in group["offers"]:
+                writer.writerow([
+                    safe_cell(group["product"].name), safe_cell(group["product"].sku),
+                    safe_cell(offer.supplier.name), str(offer.cost),
+                    "" if offer.qty_avail is None else str(offer.qty_avail), str(offer.delta_to_min),
+                ])
+        return response
     return render(request, "core/supplier_analytics.html", {
         "performance": performance, "comparisons": comparisons[:200],
         "suppliers": company_queryset(Supplier.objects.filter(is_active=True).order_by("name"), request),
