@@ -46,6 +46,10 @@ class SupplierCompensationForm(forms.Form):
     bank_account = forms.ModelChoiceField(queryset=BankAccount.objects.none(), required=False, label="Банківський рахунок")
     note = forms.CharField(max_length=250, required=False, label="Примітка")
 
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["bank_account"].queryset = BankAccount.objects.filter(company=company)
+
 
 class SettlementVoidForm(forms.Form):
     reason = forms.CharField(max_length=250, label="Причина скасування")
