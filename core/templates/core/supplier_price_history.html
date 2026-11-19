@@ -1,0 +1,40 @@
+{% extends "core/base.html" %}
+{% block title %}Історія закупівельних цін{% endblock %}
+{% block content %}
+<h2>Історія зміни закупівельних цін</h2>
+<p>Журнал показує зміни цін, зафіксовані під час оновлення прайсів та API-каталогів. Нові позиції без попередньої ціни не створюють запису зміни.</p>
+<div class="kpi">
+  <div class="card"><span>Змін у вибірці</span><b>{{ total_changes }}</b></div>
+  <div class="card"><span>Сумарна зміна ціни за одиницю</span><b>{{ total_delta|floatformat:2 }} ₴</b></div>
+</div>
+<form method="get" class="filter" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:14px 0">
+  <label>Постачальник<br>
+    <select name="supplier"><option value="">Усі постачальники</option>{% for s in suppliers %}<option value="{{ s.pk }}"{% if selected_supplier == s.pk|stringformat:"s" %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select>
+  </label>
+  <label>Пошук товару / артикула<br><input type="search" name="q" value="{{ query }}" placeholder="Назва, бренд або артикул"></label>
+  <label>З дати<br><input type="date" name="from" value="{{ date_from }}"></label>
+  <label>До дати<br><input type="date" name="to" value="{{ date_to }}"></label>
+  <button class="btn">Фільтрувати</button>
+  <a class="btn" href="{% url 'supplier_price_history' %}">Скинути</a>
+</form>
+<div style="overflow-x:auto">
+<table>
+  <tr><th>Дата</th><th>Постачальник</th><th>Товар</th><th>Бренд / артикул</th><th class="n">Було</th><th class="n">Стало</th><th class="n">Зміна</th><th class="n">Зміна, %</th></tr>
+  {% for row in changes %}
+  <tr>
+    <td>{{ row.at|date:"d.m.Y H:i" }}</td>
+    <td>{{ row.item.supplier.name }}</td>
+    <td>{% if row.item.product %}{{ row.item.product.name }}{% else %}{{ row.item.name|default:"—" }}{% endif %}</td>
+    <td>{{ row.item.brand }} / {{ row.item.sku }}</td>
+    <td class="n">{{ row.old_cost|floatformat:2 }} ₴</td>
+    <td class="n"><b>{{ row.new_cost|floatformat:2 }} ₴</b></td>
+    <td class="n">{% if row.delta > 0 %}<span style="color:#b42318">+{{ row.delta|floatformat:2 }} ₴</span>{% else %}<span style="color:#067647">{{ row.delta|floatformat:2 }} ₴</span>{% endif %}</td>
+    <td class="n">{% if row.delta_pct is not None %}{{ row.delta_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+  </tr>
+  {% empty %}
+  <tr><td colspan="8">За вибраними умовами змін закупівельної ціни немає.</td></tr>
+  {% endfor %}
+</table>
+</div>
+<p><a class="btn" href="{% url 'supplier_prices' %}">Повернутися до прайсів постачальників</a></p>
+{% endblock %}
