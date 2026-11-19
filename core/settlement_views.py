@@ -119,7 +119,9 @@ def _reverse_settlement_cash(payment, shift):
 @tenant_staff_only
 @company_required
 def settlements_home(request):
-    purchase_docs = Purchase.objects.filter(company=request.company).select_related("supplier").prefetch_related("settlement_payments")
+    purchase_docs = Purchase.objects.filter(company=request.company).select_related("supplier").prefetch_related(
+        "settlement_payments", "supplier_compensations"
+    )
     sale_docs = Sale.objects.filter(company=request.company, status=Sale.DONE, customer__isnull=False).select_related("customer").prefetch_related("settlement_payments", "returns")
     supplier_rows, customer_rows = [], []
     supplier_total = customer_total = D0
