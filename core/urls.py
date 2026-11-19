@@ -63,6 +63,7 @@ urlpatterns = [
     path("purchase-orders/<int:pk>/update/", v.purchase_order_update, name="purchase_order_update"),
     path("purchase-orders/<int:pk>/<str:action>/", v.purchase_order_status, name="purchase_order_status"),
     path("purchase-orders/<int:pk>/items/<int:item_pk>/receive/", v.purchase_order_receive, name="purchase_order_receive"),
+    path("purchases/<int:pk>/items/<int:item_pk>/supplier-return/", v.supplier_return_create, name="supplier_return_create"),
     path("purchases/<int:pk>/", v.purchase_detail, name="purchase_detail"),
     path("pos/", v.pos, name="pos"),
     path("pos/search/", v.pos_search, name="pos_search"),
