@@ -156,3 +156,30 @@ class InventoryCountWorkflowTests(TestCase):
         self.assertEqual(list(response.context["items"].values_list("product_id", flat=True)), [second.pk])
         response = self.client.get(f"/inventory/counts/{count.pk}/?status=difference")
         self.assertEqual(response.context["items"].count(), 2)
+
+    def test_writeoff_requires_reason_and_explanation(self):
+        self.client.force_login(self.admin)
+        base = {"product": self.product.pk, "kind": "writeoff", "quantity": "1.000", "reason": "", "note": ""}
+        response = self.client.post("/inventory/adjust/", base)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Для списання обов'язково вкажіть причину")
+        self.assertContains(response, "Для списання обов'язково додайте пояснення")
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, D("10.000"))
+        self.assertEqual(StockAdjustment.objects.count(), 0)
+
+    def test_writeoff_records_reason_and_note_in_stock_movement_audit(self):
+        self.client.force_login(self.admin)
+        response = self.client.post("/inventory/adjust/", {
+            "product": self.product.pk, "kind": "writeoff", "quantity": "2.000",
+            "reason": "damaged", "note": "Пошкоджена упаковка при прийманні",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, D("8.000"))
+        adjustment = StockAdjustment.objects.get()
+        movement = StockMovement.objects.get(doc_ref=f"ADJ-{adjustment.pk:06d}")
+        self.assertEqual(adjustment.reason, "damaged")
+        self.assertEqual(movement.quantity_change, D("-2.000"))
+        self.assertIn("Пошкодження", movement.note)
+        self.assertIn("Пошкоджена упаковка при прийманні", movement.note)
