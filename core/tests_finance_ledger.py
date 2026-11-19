@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import BankAccount, BankTransaction, BankReconciliation, FinanceEntry, SettlementPayment, Shift, Sale, Customer
+from core.models import BankAccount, BankTransaction, BankReconciliation, CashOperation, FinanceEntry, SettlementPayment, Shift, Sale, Customer
 from core.tests_tenant_helpers import create_test_company
 
 
@@ -567,6 +567,28 @@ class BankImportTests(TestCase):
         self.assertContains(response, "Рядок 2")
         self.assertContains(response, "Рядок 3")
         self.assertEqual(BankTransaction.objects.filter(company=self.company).count(), 0)
+
+    def test_cashflow_report_sums_bank_transactions_and_cash_operations_by_period(self):
+        shift = Shift.objects.create(company=self.company, cashier=self.owner, opening_cash=Decimal("100.00"))
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.owner, kind="in", amount=Decimal("50.00"), note="Внесення")
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.owner, kind="out", amount=Decimal("20.00"), note="Інкасація")
+        BankTransaction.objects.create(company=self.company, account=self.account, transaction_date="2026-11-18",
+            direction="income", category="Оплата", amount=Decimal("300.00"), created_by=self.owner)
+        BankTransaction.objects.create(company=self.company, account=self.account, transaction_date="2026-11-18",
+            direction="expense", category="Оренда", amount=Decimal("80.00"), created_by=self.owner)
+        BankTransaction.objects.create(company=self.company, account=self.account, transaction_date="2026-11-18",
+            direction="income", category="Canceled", amount=Decimal("999.00"), created_by=self.owner, is_void=True)
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("cashflow_report"), {"from": "2026-11-18", "to": "2026-11-18"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["cash_in"], Decimal("50.00"))
+        self.assertEqual(response.context["cash_out"], Decimal("20.00"))
+        self.assertEqual(response.context["bank_in"], Decimal("300.00"))
+        self.assertEqual(response.context["bank_out"], Decimal("80.00"))
+        self.assertEqual(response.context["total_net"], Decimal("250.00"))
+        self.assertEqual(len(response.context["daily_rows"]), 1)
+        self.assertContains(response, "Внесення")
+        self.assertNotContains(response, "999.00")
 
     def test_cashier_cannot_import_statement(self):
         cashier = get_user_model().objects.create_user(username="bank-import-cashier", password="secret")
