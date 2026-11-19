@@ -492,7 +492,17 @@ def purchase_order_detail(request, pk):
     order = get_object_or_404(
         company_queryset(PurchaseOrder.objects.select_related("supplier", "user"), request), pk=pk
     )
-    items = order.items.select_related("product", "supplier_item").all()
+    items = list(order.items.select_related("product", "supplier_item").all())
+    for item in items:
+        item.receipt_price_rows = [
+            {
+                "date": receipt.purchase.created_at,
+                "quantity": receipt.quantity,
+                "actual_cost": receipt.cost_price,
+                "delta": receipt.cost_price - item.cost_price,
+            }
+            for receipt in item.receipt_items.select_related("purchase").all()
+        ]
     return render(request, "core/purchase_order_detail.html", {"order": order, "items": items})
 
 
@@ -566,6 +576,9 @@ def purchase_order_receive(request, pk, item_pk):
             qty = dec(request.POST.get("quantity"))
             if qty is None or qty <= 0 or qty > item.outstanding_quantity:
                 raise StockError(f"Вкажіть кількість від 0.001 до {item.outstanding_quantity}.")
+            actual_cost = dec(request.POST.get("actual_cost"), item.cost_price)
+            if actual_cost is None or actual_cost < 0:
+                raise StockError("Фактична закупівельна ціна має бути невід'ємним числом.")
             raw_expiry = request.POST.get("expiry_date", "").strip()
             expiry = datetime.strptime(raw_expiry, "%Y-%m-%d").date() if raw_expiry else None
             batch_number = request.POST.get("batch_number", "").strip()
@@ -581,7 +594,7 @@ def purchase_order_receive(request, pk, item_pk):
                 raise StockError("Цей товар не використовує серійний облік.")
             receipt = services.create_purchase(
                 request.user, order.supplier,
-                [(product, qty, item.cost_price, batch_number, expiry, serials)],
+                [(product, qty, actual_cost, batch_number, expiry, serials)],
                 update_cost=False, company=request.company,
             )
             receipt_item = receipt.items.get(product=product)
@@ -595,7 +608,7 @@ def purchase_order_receive(request, pk, item_pk):
             else:
                 order.status, order.closed_at = PurchaseOrder.RECEIVED, timezone.now()
             order.save(update_fields=["status", "closed_at", "updated_at"])
-        messages.success(request, f"Створено накладну надходження {receipt.number}; отримано {qty}.")
+        messages.success(request, f"Створено накладну надходження {receipt.number}; отримано {qty} за фактичною ціною {actual_cost}.")
     except (StockError, ValueError) as exc:
         messages.error(request, str(exc) or "Перевірте дату придатності.")
     return redirect("purchase_order_detail", pk=pk)
