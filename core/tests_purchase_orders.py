@@ -306,6 +306,12 @@ class SupplierPurchaseOrderTests(TestCase):
         self.assertEqual(response.context["performance"], [])
         self.assertEqual(response.context["comparisons"], [])
 
+    def test_supplier_claim_creation_requires_post(self):
+        order, item = self.create_order(quantity="5", status=PurchaseOrder.CONFIRMED)
+        response = self.client.get(reverse("supplier_claim_create", args=[order.pk, item.pk]))
+        self.assertEqual(response.status_code, 405)
+        self.assertFalse(SupplierClaim.objects.filter(order=order).exists())
+
     def test_supplier_claim_lifecycle_is_audited(self):
         order, item = self.create_order(quantity="5", status=PurchaseOrder.CONFIRMED)
         response = self.client.post(
