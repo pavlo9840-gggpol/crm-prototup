@@ -118,6 +118,37 @@ class SupplierCompensationTests(TestCase):
         self.assertFalse(SupplierCompensation.objects.exists())
         self.assertFalse(CashOperation.objects.exists())
 
+    def test_foreign_company_supplier_return_cannot_be_compensated(self):
+        other_owner = get_user_model().objects.create_superuser(
+            username="supplier-comp-foreign-owner", email="", password="secret"
+        )
+        other_company = create_test_company(other_owner, "Foreign return company", [])
+        other_supplier = Supplier.objects.create(company=other_company, name="Foreign supplier")
+        other_product = Product.objects.create(
+            company=other_company, name="Foreign part", sku="FOREIGN-01",
+            current_stock=Decimal("0"), cost_price=Decimal("10.00"),
+        )
+        other_purchase = Purchase.objects.create(
+            company=other_company, supplier=other_supplier, user=other_owner,
+            total=Decimal("10.00"),
+        )
+        other_item = PurchaseItem.objects.create(
+            company=other_company, purchase=other_purchase, product=other_product,
+            quantity=Decimal("1.000"), cost_price=Decimal("10.00"),
+        )
+        foreign_return = SupplierReturn.objects.create(
+            company=other_company, purchase_item=other_item, supplier=other_supplier,
+            quantity=Decimal("1.000"), unit_cost=Decimal("10.00"),
+            compensation_type="credit", reason="Foreign claim",
+            completed_at=timezone.now(), created_by=other_owner,
+        )
+        response = self.client.post(
+            reverse("supplier_return_compensate", args=[foreign_return.pk]),
+            {"kind": "credit", "amount": "10.00"},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(SupplierCompensation.objects.filter(supplier_return=foreign_return).exists())
+
     def test_supplier_account_shows_credit_after_compensation_exceeds_remaining_debt(self):
         # An earlier payment means a full supplier refund can create a credit balance.
         from core.models import SettlementPayment
