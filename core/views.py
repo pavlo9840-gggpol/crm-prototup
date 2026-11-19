@@ -1333,6 +1333,7 @@ def report_stock(request):
         row["daily_qty"] = (row["qty"] or D0) / Decimal(days)
         product = products.filter(pk=row["product_id"]).first()
         row["stock"] = product.current_stock if product else D0
+        row["min_stock"] = product.min_stock if product else D0
         row["stock_value"] = (product.current_stock * product.cost_price) if product else D0
         row["coverage_days"] = (product.current_stock / row["daily_qty"]) if product and row["daily_qty"] > 0 else None
         row["replenishment"] = bool(product and product.current_stock <= product.min_stock)
@@ -1345,7 +1346,8 @@ def report_stock(request):
             "product__category__name": product.category.name if product.category else "",
             "qty": D0, "revenue": D0, "margin": D0, "share": D0,
             "cumulative_share": D0, "abc": "—", "daily_qty": D0,
-            "stock": product.current_stock, "stock_value": product.current_stock * product.cost_price,
+            "stock": product.current_stock, "min_stock": product.min_stock,
+            "stock_value": product.current_stock * product.cost_price,
             "coverage_days": None, "replenishment": product.current_stock <= product.min_stock,
         })
 
