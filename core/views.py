@@ -393,7 +393,7 @@ def purchase_recommendations(request):
         if recommended <= 0 or (daily_qty <= 0 and (product.min_stock or D0) <= (product.current_stock or D0)):
             continue
         recommended = recommended.quantize(Decimal("0.001"), rounding=ROUND_UP)
-        offers = company_queryset(SupplierItem.objects.filter(available=True, cost__gt=0).select_related("supplier"), request).filter(
+        offers = company_queryset(SupplierItem.objects.filter(available=True, cost__gt=0).filter(Q(qty_avail__isnull=True) | Q(qty_avail__gt=0)).select_related("supplier"), request).filter(
             Q(product=product) | Q(sku_norm=product.sku_norm, brand__iexact=product.brand)
         ).order_by("cost", "-updated_at")
         offer = offers.first()
