@@ -52,6 +52,7 @@ urlpatterns = [
     path("purchases/recommendations/", v.purchase_recommendations, name="purchase_recommendations"),
     path("purchase-orders/", v.purchase_order_list, name="purchase_order_list"),
     path("purchase-orders/control/", v.purchase_order_control, name="purchase_order_control"),
+    path("suppliers/analytics/", v.supplier_analytics, name="supplier_analytics"),
     path("purchase-orders/create/", v.purchase_order_create, name="purchase_order_create"),
     path("purchase-orders/<int:pk>/print/", v.purchase_order_print, name="purchase_order_print"),
     path("purchase-orders/<int:pk>/export.csv", v.purchase_order_export_csv, name="purchase_order_export_csv"),
