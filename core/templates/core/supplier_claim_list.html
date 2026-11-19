@@ -21,7 +21,7 @@
 {% if claim.supplier_response %}<p><b>Відповідь постачальника:</b> {{ claim.supplier_response }}</p>{% endif %}
 {% if claim.resolution_note %}<p><b>Рішення:</b> {{ claim.resolution_note }}</p>{% endif %}
 {% if claim.status == "open" %}
-<form method="post" action="{% url 'supplier_claim_update' claim.pk %}" style="display:flex;gap:8px">{% csrf_token %}<button class="btn">Позначити відправленою</button><button class="btn red" name="action" value="cancel">Скасувати</button><input type="hidden" name="action" value="send"></form>
+<form method="post" action="{% url 'supplier_claim_update' claim.pk %}" style="display:flex;gap:8px">{% csrf_token %}<button class="btn" name="action" value="send">Позначити відправленою</button><button class="btn red" name="action" value="cancel">Скасувати</button></form>
 {% elif claim.status == "sent" %}
 <form method="post" action="{% url 'supplier_claim_update' claim.pk %}" style="display:grid;gap:8px">{% csrf_token %}
 <label>Відповідь постачальника<textarea name="supplier_response" rows="2" maxlength="5000"></textarea></label>
