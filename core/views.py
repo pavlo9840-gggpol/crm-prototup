@@ -619,8 +619,6 @@ def supplier_analytics(request):
     offers = company_queryset(SupplierItem.objects.select_related("supplier", "product"), request).filter(
         available=True, cost__gt=0, product__isnull=False, supplier__is_active=True
     )
-    if supplier_id.isdigit():
-        offers = offers.filter(supplier_id=int(supplier_id))
     if query:
         offers = offers.filter(
             Q(product__name__icontains=query) | Q(product__sku__icontains=query)
@@ -631,6 +629,11 @@ def supplier_analytics(request):
         group = grouped.setdefault(offer.product_id, {"product": offer.product, "offers": []})
         group["offers"].append(offer)
     comparisons = [group for group in grouped.values() if len(group["offers"]) >= 2]
+    for group in comparisons:
+        minimum = min(offer.cost for offer in group["offers"])
+        for offer in group["offers"]:
+            offer.delta_to_min = offer.cost - minimum
+            offer.is_cheapest = offer.cost == minimum
     comparisons.sort(key=lambda x: x["product"].name.lower())
     return render(request, "core/supplier_analytics.html", {
         "performance": performance, "comparisons": comparisons[:200],
