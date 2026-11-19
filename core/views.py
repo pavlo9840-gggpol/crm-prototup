@@ -22,7 +22,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment, SupplierClaim)
+                     Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment, SupplierClaim, SupplierReturn)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -1061,6 +1061,88 @@ def purchase_new(request):
 @login_required
 @company_required
 @tenant_staff_only
+@require_POST
+def supplier_return_create(request, pk, item_pk):
+    try:
+        with transaction.atomic():
+            purchase = get_object_or_404(
+                company_queryset(Purchase.objects.select_for_update().select_related("supplier"), request), pk=pk
+            )
+            item = get_object_or_404(
+                PurchaseItem.objects.select_for_update().select_related("product", "purchase"),
+                pk=item_pk, purchase=purchase, company=request.company,
+            )
+            qty = dec(request.POST.get("quantity"))
+            reason = request.POST.get("reason", "").strip()
+            compensation_type = request.POST.get("compensation_type", "credit").strip()
+            if qty is None or qty <= 0:
+                raise StockError("Кількість повернення має бути більшою за нуль.")
+            if not reason or len(reason) > 5000:
+                raise StockError("Вкажіть причину повернення (до 5 000 символів).")
+            if compensation_type not in {choice[0] for choice in SupplierReturn.COMPENSATION_CHOICES}:
+                raise StockError("Оберіть коректний спосіб очікуваної компенсації.")
+
+            already_returned = item.supplier_returns.filter(company=request.company).aggregate(
+                total=Sum("quantity")
+            )["total"] or D0
+            returnable = max(D0, item.quantity - already_returned)
+            if qty > returnable:
+                raise StockError(f"Можна повернути не більше {returnable.normalize():f} за цим надходженням.")
+
+            product = Product.objects.select_for_update().get(pk=item.product_id, company=request.company)
+            if product.tracking_mode == "serial":
+                raise StockError("Повернення серійного товару поки заблоковано: спочатку потрібен вибір конкретних серійних номерів.")
+            if product.current_stock < qty:
+                raise StockError(
+                    f"На складі лише {product.current_stock.normalize():f}; повернути {qty.normalize():f} неможливо."
+                )
+
+            batches_to_update = []
+            if product.tracking_mode in {"batch", "expiry"}:
+                batches = list(StockBatch.objects.select_for_update().filter(
+                    company=request.company, product=product, purchase_item=item, remaining_quantity__gt=0
+                ).order_by("expiry_date", "received_at", "pk"))
+                batch_available = sum((batch.remaining_quantity for batch in batches), D0)
+                if batch_available < qty:
+                    raise StockError(
+                        f"У партіях саме цього надходження доступно {batch_available.normalize():f}; "
+                        "частину товару вже продано або вона відсутня."
+                    )
+                remaining = qty
+                for batch in batches:
+                    take = min(batch.remaining_quantity, remaining)
+                    if take > 0:
+                        batches_to_update.append((batch, batch.remaining_quantity - take))
+                        remaining -= take
+                    if remaining <= 0:
+                        break
+
+            returned = SupplierReturn.objects.create(
+                company=request.company, purchase_item=item, supplier=purchase.supplier,
+                quantity=qty, unit_cost=item.cost_price, compensation_type=compensation_type,
+                reason=reason, note=request.POST.get("note", "").strip()[:5000],
+                completed_at=timezone.now(), created_by=request.user,
+            )
+            for batch, new_remaining in batches_to_update:
+                batch.remaining_quantity = new_remaining
+                batch.save(update_fields=["remaining_quantity"])
+            services.add_movement(
+                product, -qty, "supplier_return", returned.number, request.user,
+                note=f"{purchase.number}: {reason}"[:200],
+            )
+        messages.success(
+            request,
+            f"Повернення {returned.number} проведено: {qty.normalize():f} од. на {returned.total:.2f} ₴. "
+            "Очікувану компенсацію зафіксовано окремо; гроші та борг автоматично не змінювалися.",
+        )
+    except (StockError, ValueError) as exc:
+        messages.error(request, str(exc) or "Не вдалося провести повернення.")
+    return redirect("purchase_detail", pk=pk)
+
+
+@login_required
+@company_required
+@tenant_staff_only
 def purchase_detail(request, pk):
     purchase = get_object_or_404(company_queryset(Purchase.objects.select_related("supplier"), request), pk=pk)
     payments = purchase.settlement_payments.filter(company=request.company, is_void=False)
@@ -1070,8 +1152,13 @@ def purchase_detail(request, pk):
         company=request.company, party_type=AccountAdvance.SUPPLIER, supplier_id=purchase.supplier_id,
         is_void=False, remaining__gt=0,
     )
+    purchase_items = list(purchase.items.select_related("product").prefetch_related("supplier_returns"))
+    for item in purchase_items:
+        item.returned_quantity = sum((row.quantity for row in item.supplier_returns.all()), D0)
+        item.returnable_quantity = max(D0, item.quantity - item.returned_quantity)
     return render(request, "core/purchase_detail.html", {
-        "p": purchase, "settlement_payments": purchase.settlement_payments.select_related("created_by", "voided_by", "advance"),
+        "p": purchase, "purchase_items": purchase_items,
+        "settlement_payments": purchase.settlement_payments.select_related("created_by", "voided_by", "advance"),
         "settlement_paid": paid, "settlement_balance": max(D0, purchase.total - paid),
         "available_advances": available_advances,
     })
