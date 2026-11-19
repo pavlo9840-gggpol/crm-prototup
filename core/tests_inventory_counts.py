@@ -191,7 +191,7 @@ class InventoryCountWorkflowTests(TestCase):
         response = self.client.get("/inventory/movements/?type=purchase&export=csv")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/csv", response["Content-Type"])
-        self.assertTrue(response.content.startswith(b"\\xef\\xbb\\xbf"))
+        self.assertTrue(response.content.startswith(b"\xef\xbb\xbf"))
         content = response.content.decode("utf-8-sig")
         self.assertIn("PUR-CSV", content)
         self.assertNotIn("SALE-CSV", content)
