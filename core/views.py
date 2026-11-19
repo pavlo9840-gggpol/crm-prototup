@@ -1293,6 +1293,10 @@ def report_profit(request):
 @tenant_staff_only
 def report_stock(request):
     today = timezone.localdate()
+    d1, d2 = get_date(request, "from", today - timedelta(days=89)), get_date(request, "to", today)
+    if d1 > d2:
+        d1, d2 = d2, d1
+    days = max((d2 - d1).days + 1, 1)
     products = company_queryset(Product.objects.filter(is_active=True), request).select_related("category")
     stock = products.aggregate(
         value=Sum(ExpressionWrapper(F("current_stock") * F("cost_price"), output_field=DEC)),
@@ -1305,37 +1309,81 @@ def report_stock(request):
     for r in summary:
         r["label"] = names.get(r["movement_type"], r["movement_type"])
 
+    # Sales velocity and ABC are calculated from completed sales in the selected period.
+    # Supplier-order items are excluded from stock demand; returns reduce net sold quantity.
+    sales_rows = list(_items(d1, d2, request.company).filter(
+        source=SaleItem.STOCK
+    ).values("product_id", "product__name", "product__sku", "product__category__name").annotate(
+        qty=Sum(NET),
+        revenue=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
+        margin=Sum(ExpressionWrapper(NET * (F("price") - F("cost_price")), output_field=DEC)),
+    ).order_by("-revenue"))
+    total_revenue = sum((r["revenue"] or D0 for r in sales_rows), D0)
+    cumulative = D0
+    abc_rows = []
+    sales_by_product = {}
+    for row in sales_rows:
+        revenue = row["revenue"] or D0
+        cumulative += revenue
+        share = (revenue / total_revenue * 100) if total_revenue > 0 else D0
+        cumulative_share = (cumulative / total_revenue * 100) if total_revenue > 0 else D0
+        row["share"] = share
+        row["cumulative_share"] = cumulative_share
+        row["abc"] = "A" if cumulative_share <= 80 or (cumulative_share - share) < 80 else ("B" if cumulative_share <= 95 or (cumulative_share - share) < 95 else "C")
+        row["daily_qty"] = (row["qty"] or D0) / Decimal(days)
+        product = products.filter(pk=row["product_id"]).first()
+        row["stock"] = product.current_stock if product else D0
+        row["stock_value"] = (product.current_stock * product.cost_price) if product else D0
+        row["coverage_days"] = (product.current_stock / row["daily_qty"]) if product and row["daily_qty"] > 0 else None
+        row["replenishment"] = bool(product and product.current_stock <= product.min_stock)
+        sales_by_product[row["product_id"]] = row
+        abc_rows.append(row)
+
+    for product in products.filter(current_stock__gt=0).exclude(pk__in=sales_by_product.keys()).order_by("name"):
+        abc_rows.append({
+            "product_id": product.pk, "product__name": product.name, "product__sku": product.sku,
+            "product__category__name": product.category.name if product.category else "",
+            "qty": D0, "revenue": D0, "margin": D0, "share": D0,
+            "cumulative_share": D0, "abc": "—", "daily_qty": D0,
+            "stock": product.current_stock, "stock_value": product.current_stock * product.cost_price,
+            "coverage_days": None, "replenishment": product.current_stock <= product.min_stock,
+        })
+
+    abc_summary = {}
+    for code in ("A", "B", "C", "—"):
+        rows = [r for r in abc_rows if r["abc"] == code]
+        abc_summary[code] = {
+            "count": len(rows),
+            "revenue": sum((r["revenue"] or D0 for r in rows), D0),
+            "stock_value": sum((r["stock_value"] or D0 for r in rows), D0),
+        }
+    stagnant = []
     sold = SaleItem.objects.filter(
         company=request.company, sale__company=request.company, sale__status=Sale.DONE,
         source=SaleItem.STOCK,
-    ).values("product_id").annotate(
-        last_sold=Max("sale__created_at"),
-        sold_qty=Sum(NET),
-    )
-    sold_by_product = {row["product_id"]: row for row in sold}
-    stagnant = []
+    ).values("product_id").annotate(last_sold=Max("sale__created_at"))
+    sold_by_product = {row["product_id"]: row["last_sold"] for row in sold}
     for product in products.filter(current_stock__gt=0).order_by("-current_stock"):
-        row = sold_by_product.get(product.pk)
-        last_sold = row["last_sold"] if row else None
-        days = (today - timezone.localtime(last_sold).date()).days if last_sold else None
-        stock_value = product.current_stock * product.cost_price
-        if days is None or days >= 30:
+        last_sold = sold_by_product.get(product.pk)
+        age = (today - timezone.localtime(last_sold).date()).days if last_sold else None
+        if age is None or age >= 30:
             stagnant.append({
-                "product": product, "last_sold": last_sold, "days": days,
-                "stock_value": stock_value,
-                "status": "never" if days is None else ("90+" if days >= 90 else ("60+" if days >= 60 else "30+")),
+                "product": product, "last_sold": last_sold, "days": age,
+                "stock_value": product.current_stock * product.cost_price,
+                "status": "never" if age is None else ("90+" if age >= 90 else ("60+" if age >= 60 else "30+")),
             })
     stagnant.sort(key=lambda row: (row["days"] is not None, -(row["days"] or 999999), -row["stock_value"]))
-    stagnant_value = sum((row["stock_value"] for row in stagnant), D0)
-    stagnant_qty = sum((row["product"].current_stock for row in stagnant), D0)
     low = products.filter(current_stock__lte=F("min_stock")).order_by("current_stock", "name")
     return render(request, "core/report_stock.html", {
         "value": value, "quantity": stock["quantity"] or D0, "product_count": stock["product_count"] or 0,
         "summary": summary, "low": low, "stagnant": stagnant[:300],
-        "stagnant_value": stagnant_value, "stagnant_qty": stagnant_qty,
+        "stagnant_value": sum((r["stock_value"] for r in stagnant), D0),
+        "stagnant_qty": sum((r["product"].current_stock for r in stagnant), D0),
         "stagnant_count": len(stagnant), "today": today,
+        "d1": d1, "d2": d2, "days": days, "abc_rows": abc_rows[:500],
+        "abc_summary": abc_summary, "total_revenue": total_revenue,
+        "replenishment_rows": [r for r in abc_rows if r["replenishment"]][:100],
     })
-
 
 # ---------- Shifts ----------
 def shift_summary(shift):
