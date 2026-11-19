@@ -132,3 +132,27 @@ class InventoryCountWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         item.refresh_from_db()
         self.assertEqual(item.counted_quantity, D("10"))
+
+    def test_detail_reports_surplus_shortage_and_filters_variances(self):
+        second = Product.objects.create(
+            company=self.company, name="Чай", sku="TEA-1", current_stock=D("5"),
+        )
+        count = self.create_count()
+        first_item = count.items.get(product=self.product)
+        second_item = count.items.get(product=second)
+        first_item.counted_quantity = D("8")
+        second_item.counted_quantity = D("7")
+        InventoryCountItem.objects.bulk_update([first_item, second_item], ["counted_quantity"])
+
+        response = self.client.get(f"/inventory/counts/{count.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["summary"]["shortage"], D("2"))
+        self.assertEqual(response.context["summary"]["surplus"], D("2"))
+        self.assertEqual(response.context["summary"]["net_difference"], D("0"))
+
+        response = self.client.get(f"/inventory/counts/{count.pk}/?status=shortage")
+        self.assertEqual(list(response.context["items"].values_list("product_id", flat=True)), [self.product.pk])
+        response = self.client.get(f"/inventory/counts/{count.pk}/?status=surplus")
+        self.assertEqual(list(response.context["items"].values_list("product_id", flat=True)), [second.pk])
+        response = self.client.get(f"/inventory/counts/{count.pk}/?status=difference")
+        self.assertEqual(response.context["items"].count(), 2)
