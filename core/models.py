@@ -1485,3 +1485,39 @@ class BankTransaction(models.Model):
 
     def __str__(self):
         return f"{self.get_direction_display()}: {self.amount} ₴ · {self.account.iban}"
+
+class BankReconciliation(models.Model):
+    """Auditable match between a bank statement transaction and a recorded settlement payment."""
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="bank_reconciliations")
+    bank_transaction = models.ForeignKey(BankTransaction, on_delete=models.PROTECT, related_name="reconciliations")
+    settlement_payment = models.ForeignKey("SettlementPayment", on_delete=models.PROTECT, related_name="bank_reconciliations")
+    matched_at = models.DateTimeField(auto_now_add=True)
+    matched_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="bank_reconciliations_created")
+    is_void = models.BooleanField(default=False, db_index=True)
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(USER, null=True, blank=True, on_delete=models.PROTECT, related_name="bank_reconciliations_voided")
+    void_reason = models.CharField(max_length=250, blank=True)
+
+    class Meta:
+        ordering = ["-matched_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["bank_transaction"], condition=Q(is_void=False), name="uniq_active_bank_reconciliation"),
+            models.UniqueConstraint(fields=["settlement_payment"], condition=Q(is_void=False), name="uniq_active_payment_reconciliation"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.bank_transaction.company_id != self.company_id:
+            raise ValueError("Банківська операція належить іншому магазину.")
+        if self.settlement_payment.company_id != self.company_id:
+            raise ValueError("Платіж належить іншому магазину.")
+        if self.bank_transaction.is_void or self.settlement_payment.is_void:
+            raise ValueError("Скасовані операції не можна звіряти.")
+        if self.bank_transaction.amount != self.settlement_payment.amount:
+            raise ValueError("Суми банківської операції та платежу мають збігатися.")
+        expected_direction = "income" if self.settlement_payment.sale_id else "expense"
+        if self.bank_transaction.direction != expected_direction:
+            raise ValueError("Напрямок банківської операції не відповідає документу.")
+        if self.settlement_payment.payment_method != "bank":
+            raise ValueError("Звіряти можна лише платежі способом «Банк».")
+        super().save(*args, **kwargs)
+
