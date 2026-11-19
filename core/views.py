@@ -1,4 +1,5 @@
 import json
+import csv
 import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -12,7 +13,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import (Count, DecimalField, ExpressionWrapper, F, Max, Prefetch, Q, Sum)
 from django.db.models.functions import TruncDate
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -1108,11 +1109,31 @@ def inventory_movements(request):
     if d1 and d2 and d1 > d2:
         qs = qs.none()
     count = qs.count()
+    if request.GET.get("export") == "csv":
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="stock-movements.csv"'
+        response.write("\\ufeff")
+        writer = csv.writer(response, delimiter=";")
+        writer.writerow(["Дата", "Товар", "Артикул", "Тип", "Зміна", "Залишок", "Документ", "Оператор", "Примітка"])
+        for move in qs.iterator():
+            writer.writerow([
+                timezone.localtime(move.created_at).strftime("%d.%m.%Y %H:%M"),
+                move.product.name, move.product.sku, move.get_movement_type_display(),
+                move.quantity_change, move.balance_after, move.doc_ref,
+                move.user.username if move.user_id else "", move.note,
+            ])
+        return response
+    totals = qs.aggregate(
+        incoming=Sum("quantity_change", filter=Q(quantity_change__gt=0)),
+        outgoing=Sum("quantity_change", filter=Q(quantity_change__lt=0)),
+    )
     return render(request, "core/movements.html", {
         "moves": qs[:300], "movement_count": count, "products": company_queryset(Product.objects.all(), request),
         "types": StockMovement.TYPES, "q": q, "selected_product": product_id,
         "selected_type": movement_type, "date_from": request.GET.get("from", ""),
         "date_to": request.GET.get("to", ""),
+        "incoming_total": totals["incoming"] or D0, "outgoing_total": totals["outgoing"] or D0,
+        "net_total": (totals["incoming"] or D0) + (totals["outgoing"] or D0),
     })
 
 
