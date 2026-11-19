@@ -1,4 +1,4 @@
-{% extends "core/base.html" %}{% block content %}{% include "core/report_nav.html" %}<h2>Звіт про запаси та оборотність</h2>
+{% extends "core/base.html" %}{% block content %}{% include "core/report_nav.html" %}<h2>Звіт про запаси та оборотність</h2><p><a class="btn" href="{% url 'purchase_recommendations' %}">Розрахувати закупівлю</a></p>
 <form method="get" class="filters"><label>Період з <input type="date" name="from" value="{{ d1|date:'Y-m-d' }}"></label><label>по <input type="date" name="to" value="{{ d2|date:'Y-m-d' }}"></label><button type="submit">Показати</button></form>
 <div class="grid">
 <div class="card">Вартість запасів за закупівельною ціною: <b>{{ value|floatformat:2 }} ₴</b></div>
