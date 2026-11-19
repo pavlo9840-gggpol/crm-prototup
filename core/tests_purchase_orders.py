@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from core.models import Product, Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Supplier, SupplierClaim, SupplierItem, SupplierPriceChange
+from core.models import Product, Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Supplier, SupplierClaim, SupplierItem, SupplierPriceChange, SupplierReturn, StockMovement, StockBatch
 from core.tests_tenant_helpers import create_test_company
 
 
@@ -398,6 +398,91 @@ class SupplierPurchaseOrderTests(TestCase):
         self.assertNotContains(response, foreign_claim.claim_number)
         response = self.client.post(reverse("supplier_claim_update", args=[foreign_claim.pk]), {"action": "send"})
         self.assertEqual(response.status_code, 404)
+
+    def _make_purchase_item_for_return(self, quantity="5", stock="5", tracking_mode="none"):
+        self.product.tracking_mode = tracking_mode
+        self.product.current_stock = Decimal(stock)
+        self.product.save(update_fields=["tracking_mode", "current_stock"])
+        purchase = Purchase.objects.create(
+            company=self.company, supplier=self.supplier, user=self.owner,
+            total=Decimal(quantity) * Decimal("10"),
+        )
+        item = PurchaseItem.objects.create(
+            company=self.company, purchase=purchase, product=self.product,
+            quantity=Decimal(quantity), cost_price=Decimal("10"),
+        )
+        return purchase, item
+
+    def test_supplier_return_reduces_stock_and_writes_audited_movement(self):
+        purchase, item = self._make_purchase_item_for_return()
+        response = self.client.post(
+            reverse("supplier_return_create", args=[purchase.pk, item.pk]),
+            {"quantity": "2", "reason": "Пошкоджено під час доставки", "compensation_type": "credit"},
+        )
+        self.assertRedirects(response, reverse("purchase_detail", args=[purchase.pk]))
+        returned = SupplierReturn.objects.get(purchase_item=item)
+        self.assertEqual(returned.number, f"SR-{returned.pk:06d}")
+        self.assertEqual(returned.total, Decimal("20"))
+        self.assertEqual(returned.compensation_type, "credit")
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("3"))
+        movement = StockMovement.objects.get(doc_ref=returned.number)
+        self.assertEqual(movement.movement_type, "supplier_return")
+        self.assertEqual(movement.quantity_change, Decimal("-2"))
+        self.assertEqual(movement.balance_after, Decimal("3"))
+
+    def test_supplier_return_cannot_exceed_received_quantity_or_repeat_return(self):
+        purchase, item = self._make_purchase_item_for_return()
+        self.client.post(
+            reverse("supplier_return_create", args=[purchase.pk, item.pk]),
+            {"quantity": "5", "reason": "Повернення всієї партії"},
+        )
+        self.assertEqual(SupplierReturn.objects.filter(purchase_item=item).count(), 1)
+        self.client.post(
+            reverse("supplier_return_create", args=[purchase.pk, item.pk]),
+            {"quantity": "0.001", "reason": "Повторна спроба"},
+        )
+        self.assertEqual(SupplierReturn.objects.filter(purchase_item=item).count(), 1)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("0"))
+
+    def test_supplier_return_requires_available_stock(self):
+        purchase, item = self._make_purchase_item_for_return(stock="1")
+        self.client.post(
+            reverse("supplier_return_create", args=[purchase.pk, item.pk]),
+            {"quantity": "2", "reason": "Немає достатнього залишку"},
+        )
+        self.assertFalse(SupplierReturn.objects.filter(purchase_item=item).exists())
+        self.assertFalse(StockMovement.objects.filter(movement_type="supplier_return").exists())
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("1"))
+
+    def test_supplier_return_consumes_only_the_original_purchase_batch(self):
+        purchase, item = self._make_purchase_item_for_return(tracking_mode="batch")
+        batch = StockBatch.objects.create(
+            company=self.company, product=self.product, purchase_item=item,
+            received_quantity=Decimal("5"), remaining_quantity=Decimal("5"),
+            cost_price=Decimal("10"), batch_number="LOT-1",
+        )
+        response = self.client.post(
+            reverse("supplier_return_create", args=[purchase.pk, item.pk]),
+            {"quantity": "2", "reason": "Повернення з партії"},
+        )
+        self.assertEqual(response.status_code, 302)
+        batch.refresh_from_db()
+        self.assertEqual(batch.remaining_quantity, Decimal("3"))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("3"))
+
+    def test_supplier_return_blocks_serial_tracked_goods_until_serial_selection_exists(self):
+        purchase, item = self._make_purchase_item_for_return(tracking_mode="serial")
+        self.client.post(
+            reverse("supplier_return_create", args=[purchase.pk, item.pk]),
+            {"quantity": "1", "reason": "Повернення серійного товару"},
+        )
+        self.assertFalse(SupplierReturn.objects.filter(purchase_item=item).exists())
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("5"))
 
     def test_foreign_company_order_is_not_visible(self):
         other_owner = get_user_model().objects.create_superuser(
