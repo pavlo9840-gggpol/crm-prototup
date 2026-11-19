@@ -62,7 +62,7 @@
         {% if entry.is_void %}
           <strong>Скасовано</strong><br><small>{{ entry.void_reason }} · {{ entry.voided_by.get_username }} · {{ entry.voided_at|date:"d.m.Y H:i" }}</small>
         {% else %}
-          {% with reconciliation=reconciliation_by_transaction|get_item:entry.pk %}
+          {% with reconciliation=entry.active_reconciliation %}
           {% if reconciliation %}
             <strong>Звірено</strong><br>
             {% if reconciliation.settlement_payment.sale %}Продаж №{{ reconciliation.settlement_payment.sale.number|default:reconciliation.settlement_payment.sale.pk }}{% else %}Закупівля №{{ reconciliation.settlement_payment.purchase.number|default:reconciliation.settlement_payment.purchase.pk }}{% endif %}
@@ -73,7 +73,7 @@
               <button class="btn" type="submit" onclick="return confirm('Скасувати звірку?')">Скасувати звірку</button>
             </form>
           {% else %}
-            {% with candidates=candidates_by_transaction|get_item:entry.pk %}
+            {% with candidates=entry.reconciliation_candidates %}
             {% if candidates %}
               <form method="post" action="{% url 'bank_reconcile' entry.pk %}">{% csrf_token %}
                 <select name="payment_id" required>
