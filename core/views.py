@@ -1319,6 +1319,7 @@ def report_stock(request):
         margin=Sum(ExpressionWrapper(NET * (F("price") - F("cost_price")), output_field=DEC)),
     ).order_by("-revenue"))
     total_revenue = sum((r["revenue"] or D0 for r in sales_rows), D0)
+    product_map = {p.pk: p for p in products}
     cumulative = D0
     abc_rows = []
     sales_by_product = {}
@@ -1331,7 +1332,7 @@ def report_stock(request):
         row["cumulative_share"] = cumulative_share
         row["abc"] = "A" if cumulative_share <= 80 or (cumulative_share - share) < 80 else ("B" if cumulative_share <= 95 or (cumulative_share - share) < 95 else "C")
         row["daily_qty"] = (row["qty"] or D0) / Decimal(days)
-        product = products.filter(pk=row["product_id"]).first()
+        product = product_map.get(row["product_id"])
         row["stock"] = product.current_stock if product else D0
         row["min_stock"] = product.min_stock if product else D0
         row["stock_value"] = (product.current_stock * product.cost_price) if product else D0
@@ -1383,7 +1384,7 @@ def report_stock(request):
         "stagnant_qty": sum((r["product"].current_stock for r in stagnant), D0),
         "stagnant_count": len(stagnant), "today": today,
         "d1": d1, "d2": d2, "days": days, "abc_rows": abc_rows[:500],
-        "abc_summary": abc_summary, "total_revenue": total_revenue,
+        "abc_summary": abc_summary, "no_sales_summary": abc_summary["—"], "total_revenue": total_revenue,
         "replenishment_rows": [r for r in abc_rows if r["replenishment"]][:100],
     })
 
