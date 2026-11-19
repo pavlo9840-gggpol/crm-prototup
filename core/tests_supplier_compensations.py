@@ -174,6 +174,30 @@ class SupplierCompensationTests(TestCase):
         self.assertEqual(entry.reversal_bank_transaction.amount, Decimal("80.00"))
         self.assertEqual(BankTransaction.objects.filter(company=self.company).count(), 2)
 
+    def test_voided_compensation_releases_return_limit_for_a_new_confirmed_entry(self):
+        self.post_compensation({"kind": "credit", "amount": "100.00"})
+        entry = SupplierCompensation.objects.get(supplier_return=self.returned)
+        self.client.post(
+            reverse("supplier_compensation_void", args=[entry.pk]),
+            {"reason": "Скасовано за погодженням"},
+        )
+        self.post_compensation({"kind": "credit", "amount": "200.00"})
+        self.assertEqual(
+            sum(
+                SupplierCompensation.objects.filter(
+                    supplier_return=self.returned, is_void=False
+                ).values_list("amount", flat=True),
+                Decimal("0.00"),
+            ),
+            Decimal("200.00"),
+        )
+
+    def test_cash_compensation_rejects_amounts_not_supported_by_cash_denominations(self):
+        Shift.objects.create(company=self.company, cashier=self.owner, drawer={})
+        self.post_compensation({"kind": "cash", "amount": "10.05"})
+        self.assertFalse(SupplierCompensation.objects.exists())
+        self.assertFalse(CashOperation.objects.exists())
+
     def test_foreign_company_supplier_return_cannot_be_compensated(self):
         other_owner = get_user_model().objects.create_superuser(
             username="supplier-comp-foreign-owner", email="", password="secret"
