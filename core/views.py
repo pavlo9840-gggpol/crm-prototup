@@ -612,6 +612,26 @@ def supplier_analytics(request):
         row["avg_actual_cost"] = (
             (row["actual_value"] / row["price_qty"]).quantize(Decimal("0.01")) if row["price_qty"] else None
         )
+        score_parts = []
+        if row["on_time_rate"] is not None:
+            score_parts.append((row["on_time_rate"], Decimal("50")))
+        if row["ordered_qty"] > 0:
+            score_parts.append((min(Decimal("100"), row["fill_rate"]), Decimal("30")))
+        if row["planned_received_value"] > 0:
+            overrun_pct = max(D0, row["price_delta"] / row["planned_received_value"] * Decimal("100"))
+            price_score = max(D0, Decimal("100") - overrun_pct * Decimal("5"))
+            score_parts.append((price_score, Decimal("20")))
+        row["rating_score"] = (
+            (sum((value * weight for value, weight in score_parts), D0)
+             / sum((weight for _, weight in score_parts), D0)).quantize(Decimal("0.1"))
+            if score_parts else None
+        )
+        row["rating_label"] = (
+            "Відмінно" if row["rating_score"] is not None and row["rating_score"] >= 90
+            else "Добре" if row["rating_score"] is not None and row["rating_score"] >= 75
+            else "Потребує уваги" if row["rating_score"] is not None
+            else "Недостатньо даних"
+        )
         performance.append(row)
     performance.sort(key=lambda x: (
         x["on_time_rate"] is None, -(x["on_time_rate"] or D0), -x["fill_rate"], x["supplier"].name
