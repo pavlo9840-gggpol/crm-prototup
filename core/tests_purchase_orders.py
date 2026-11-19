@@ -1,4 +1,7 @@
 from decimal import Decimal
+from datetime import timedelta
+
+from django.utils import timezone
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -149,6 +152,54 @@ class SupplierPurchaseOrderTests(TestCase):
         content = response.content.decode("utf-8-sig")
         self.assertIn(self.product.sku, content)
         self.assertIn("25.50", content)
+
+    def test_delivery_control_shows_overdue_and_remaining_quantities(self):
+        overdue, overdue_item = self.create_order(quantity="5", status=PurchaseOrder.PARTIAL)
+        overdue_item.received_quantity = Decimal("2")
+        overdue_item.save(update_fields=["received_quantity"])
+        overdue.expected_date = timezone.localdate() - timedelta(days=3)
+        overdue.save(update_fields=["expected_date"])
+        upcoming, _upcoming_item = self.create_order(quantity="4", status=PurchaseOrder.CONFIRMED)
+        upcoming.expected_date = timezone.localdate() + timedelta(days=2)
+        upcoming.save(update_fields=["expected_date"])
+
+        response = self.client.get(reverse("purchase_order_control"))
+        self.assertEqual(response.status_code, 200)
+        rows = {row.pk: row for row in response.context["orders"]}
+        self.assertIn(overdue.pk, rows)
+        self.assertIn(upcoming.pk, rows)
+        self.assertTrue(rows[overdue.pk].is_overdue)
+        self.assertEqual(rows[overdue.pk].outstanding_quantity, Decimal("3"))
+        self.assertFalse(rows[upcoming.pk].is_overdue)
+        self.assertEqual(response.context["overdue_count"], 1)
+        self.assertEqual(response.context["incomplete_count"], 2)
+
+    def test_delivery_control_overdue_filter_and_tenant_isolation(self):
+        overdue, _item = self.create_order(quantity="2", status=PurchaseOrder.SENT)
+        overdue.expected_date = timezone.localdate() - timedelta(days=1)
+        overdue.save(update_fields=["expected_date"])
+        other_owner = get_user_model().objects.create_superuser(
+            username="supplier-control-other", email="", password="secret"
+        )
+        other_company = create_test_company(other_owner, "Other control company", [])
+        other_supplier = Supplier.objects.create(company=other_company, name="Other supplier")
+        other_order = PurchaseOrder.objects.create(
+            company=other_company, supplier=other_supplier, user=other_owner,
+            status=PurchaseOrder.SENT, expected_date=timezone.localdate() - timedelta(days=2),
+        )
+        other_product = Product.objects.create(
+            company=other_company, name="Other product", sku="OTHER-1",
+            current_stock=Decimal("0"), cost_price=Decimal("1"),
+        )
+        PurchaseOrderItem.objects.create(
+            company=other_company, order=other_order, product=other_product,
+            quantity=Decimal("1"), cost_price=Decimal("1"),
+        )
+        response = self.client.get(reverse("purchase_order_control"), {"delivery": "overdue"})
+        self.assertEqual(response.status_code, 200)
+        ids = {row.pk for row in response.context["orders"]}
+        self.assertEqual(ids, {overdue.pk})
+        self.assertNotIn(other_order.pk, ids)
 
     def test_foreign_company_order_is_not_visible(self):
         other_owner = get_user_model().objects.create_superuser(
