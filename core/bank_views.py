@@ -1,6 +1,6 @@
 """Manual bank statement register with audit-safe cancellation."""
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django import forms
 from django.contrib import messages
@@ -143,3 +143,122 @@ def bank_transaction_void(request, pk):
         entry.save(update_fields=["is_void", "voided_at", "voided_by", "void_reason"])
     messages.success(request, "Операцію скасовано; запис збережено для аудиту.")
     return redirect("bank_ledger")
+
+import csv
+import hashlib
+import io
+from datetime import datetime
+
+
+class BankImportForm(forms.Form):
+    account = forms.ModelChoiceField(queryset=BankAccount.objects.none(), label="Рахунок")
+    file = forms.FileField(label="CSV-файл виписки")
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["account"].queryset = BankAccount.objects.filter(company=company)
+
+    def clean_file(self):
+        upload = self.cleaned_data["file"]
+        if upload.size > 5 * 1024 * 1024:
+            raise forms.ValidationError("Файл має бути не більше 5 МБ.")
+        if not upload.name.lower().endswith(".csv"):
+            raise forms.ValidationError("Поки підтримується лише CSV.")
+        return upload
+
+
+def _normalize_header(value):
+    return "".join(ch for ch in (value or "").strip().lower() if ch.isalnum())
+
+
+def _pick(row, *aliases):
+    normalized = {_normalize_header(k): (v or "").strip() for k, v in row.items()}
+    for alias in aliases:
+        if _normalize_header(alias) in normalized:
+            return normalized[_normalize_header(alias)]
+    return ""
+
+
+def _parse_import_date(value):
+    value = (value or "").strip()
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%d.%m.%y", "%d/%m/%y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            pass
+    raise ValueError("Невідомий формат дати")
+
+
+def _parse_import_amount(value):
+    raw = (value or "").strip().replace(" ", "").replace("\u00a0", "").replace(",", ".")
+    raw = raw.replace("₴", "").replace("UAH", "").replace("uah", "")
+    amount = Decimal(raw)
+    if amount <= 0:
+        raise ValueError("Сума має бути більшою за нуль")
+    return amount.quantize(Decimal("0.01"))
+
+
+def _import_fingerprint(account_id, transaction_date, direction, amount, counterparty, document_ref):
+    raw = "|".join([
+        str(account_id), transaction_date.isoformat(), direction, format(amount, ".2f"),
+        (counterparty or "").strip().casefold(), (document_ref or "").strip().casefold(),
+    ])
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+@tenant_staff_only
+@company_required
+def bank_import(request):
+    form = BankImportForm(request.POST or None, request.FILES or None, company=request.company)
+    imported = duplicate_count = error_count = 0
+    errors = []
+    if request.method == "POST" and form.is_valid():
+        account = form.cleaned_data["account"]
+        try:
+            content = form.cleaned_data["file"].read().decode("utf-8-sig")
+            reader = csv.DictReader(io.StringIO(content))
+            if not reader.fieldnames:
+                raise ValueError("CSV не містить заголовків.")
+            with transaction.atomic():
+                for row_no, row in enumerate(reader, start=2):
+                    try:
+                        date_value = _pick(row, "date", "transaction_date", "Дата", "Дата операції")
+                        direction_value = _pick(row, "direction", "type", "Напрямок", "Тип")
+                        amount_value = _pick(row, "amount", "sum", "Сума", "Сума операції")
+                        iban_value = _pick(row, "iban", "account", "Рахунок", "IBAN")
+                        if iban_value and iban_value.replace(" ", "").upper() != account.iban.replace(" ", "").upper():
+                            raise ValueError("IBAN рядка не відповідає вибраному рахунку")
+                        transaction_date = _parse_import_date(date_value)
+                        direction_text = direction_value.strip().lower()
+                        if direction_text in ("income", "in", "credit", "надходження", "зарахування", "дохід"):
+                            direction = BankTransaction.INCOME
+                        elif direction_text in ("expense", "out", "debit", "списання", "витрата", "видаток"):
+                            direction = BankTransaction.EXPENSE
+                        else:
+                            raise ValueError("Невідомий напрямок; використовуйте income або expense")
+                        amount = _parse_import_amount(amount_value)
+                        counterparty = _pick(row, "counterparty", "payee", "payer", "Контрагент", "Платник", "Отримувач")
+                        document_ref = _pick(row, "document_ref", "purpose", "description", "Призначення", "Призначення платежу")
+                        category = _pick(row, "category", "Категорія") or "Імпорт виписки"
+                        note = _pick(row, "note", "Примітка")
+                        fingerprint = _import_fingerprint(account.pk, transaction_date, direction, amount, counterparty, document_ref)
+                        if BankTransaction.objects.filter(company=request.company, import_fingerprint=fingerprint).exists():
+                            duplicate_count += 1
+                            continue
+                        BankTransaction.objects.create(
+                            company=request.company, account=account, transaction_date=transaction_date,
+                            direction=direction, category=category[:80], amount=amount,
+                            counterparty=counterparty[:150], document_ref=document_ref[:120], note=note[:250],
+                            created_by=request.user, import_fingerprint=fingerprint,
+                        )
+                        imported += 1
+                    except (ValueError, InvalidOperation) as exc:
+                        error_count += 1
+                        errors.append(f"Рядок {row_no}: {exc}")
+            messages.success(request, f"Імпорт завершено: додано {imported}, дублікати {duplicate_count}, помилки {error_count}.")
+        except (UnicodeDecodeError, csv.Error, ValueError) as exc:
+            messages.error(request, f"Не вдалося прочитати CSV: {exc}")
+    return render(request, "core/bank_import.html", {
+        "form": form, "imported": imported, "duplicate_count": duplicate_count,
+        "error_count": error_count, "errors": errors,
+    })
