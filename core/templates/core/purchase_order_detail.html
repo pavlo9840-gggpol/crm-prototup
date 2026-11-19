@@ -1,5 +1,6 @@
 {% extends "core/base.html" %}{% block content %}
 <h2>Замовлення {{ order.number }}</h2>
+<p><a class="btn" href="{% url 'purchase_order_control' %}">Контроль доставок</a></p>
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px">
 <a class="btn" href="{% url 'purchase_order_print' order.pk %}" target="_blank" rel="noopener">Друк замовлення</a>
 <a class="btn" href="{% url 'purchase_order_export_csv' order.pk %}">Експорт CSV для Excel</a>
