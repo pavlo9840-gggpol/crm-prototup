@@ -266,3 +266,25 @@ def bank_import(request):
         "form": form, "imported": imported, "duplicate_count": duplicate_count,
         "error_count": error_count, "errors": errors,
     })
+
+
+@tenant_staff_only
+@company_required
+def bank_export_csv(request):
+    """Export company-scoped bank journal for the selected period."""
+    today = timezone.localdate()
+    start = today.replace(day=1)
+    date_from = _date(request.GET.get("from"), start)
+    date_to = _date(request.GET.get("to"), today)
+    if date_to < date_from:
+        date_from, date_to = start, today
+    entries = BankTransaction.objects.filter(company=request.company, transaction_date__gte=date_from, transaction_date__lte=date_to).select_related("account").order_by("transaction_date", "id")
+    from django.http import HttpResponse
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="bank-journal-%s-%s.csv"' % (date_from.isoformat(), date_to.isoformat())
+    response.write("\ufeff")
+    writer = csv.writer(response, delimiter=";")
+    writer.writerow(["Дата", "Банк", "IBAN", "Валюта", "Напрямок", "Категорія", "Сума", "Контрагент", "Документ/призначення", "Примітка", "Статус", "Причина скасування"])
+    for entry in entries:
+        writer.writerow([entry.transaction_date.isoformat(), entry.account.bank_name, entry.account.iban, entry.account.currency, entry.get_direction_display(), entry.category, str(entry.amount), entry.counterparty, entry.document_ref, entry.note, "Скасовано" if entry.is_void else "Активна", entry.void_reason])
+    return response
