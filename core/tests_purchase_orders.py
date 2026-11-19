@@ -132,6 +132,24 @@ class SupplierPurchaseOrderTests(TestCase):
         self.assertIsNone(order.expected_date)
         self.assertEqual(order.note, "")
 
+    def test_order_print_is_available_and_contains_order_lines(self):
+        order, item = self.create_order(quantity="3")
+        response = self.client.get(reverse("purchase_order_print", args=[order.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, order.number)
+        self.assertContains(response, self.product.sku)
+        self.assertContains(response, "Друк")
+
+    def test_order_csv_export_contains_all_order_lines_and_totals(self):
+        order, item = self.create_order(quantity="3")
+        response = self.client.get(reverse("purchase_order_export_csv", args=[order.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn("utf-8-sig", response["Content-Type"])
+        content = response.content.decode("utf-8-sig")
+        self.assertIn(self.product.sku, content)
+        self.assertIn("25.50", content)
+
     def test_foreign_company_order_is_not_visible(self):
         other_owner = get_user_model().objects.create_superuser(
             username="supplier-order-other", email="", password="secret"
