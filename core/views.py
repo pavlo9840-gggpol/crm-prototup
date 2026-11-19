@@ -384,12 +384,19 @@ def purchase_recommendations(request):
     products = company_queryset(Product.objects.filter(is_active=True, product_kind="goods").select_related("category"), request).order_by("name")
     sold = _items(d1, d2, request.company).filter(source=SaleItem.STOCK).values("product_id").annotate(qty=Sum(NET))
     sold_by_product = {row["product_id"]: max(D0, row["qty"] or D0) for row in sold}
+    pending = PurchaseOrderItem.objects.filter(
+        company=request.company, order__status__in=(PurchaseOrder.SENT, PurchaseOrder.CONFIRMED, PurchaseOrder.PARTIAL)
+    ).values("product_id").annotate(
+        qty=Sum(ExpressionWrapper(F("quantity") - F("received_quantity"),
+            output_field=DecimalField(max_digits=14, decimal_places=3)))
+    )
+    pending_by_product = {row["product_id"]: max(D0, row["qty"] or D0) for row in pending}
     rows, total_units, total_cost = [], D0, D0
     for product in products:
         sold_qty = sold_by_product.get(product.pk, D0)
         daily_qty = sold_qty / Decimal(period_days)
         target_stock = daily_qty * Decimal(target_days) + (product.min_stock or D0)
-        recommended = max(D0, target_stock - (product.current_stock or D0))
+        ordered_qty = pending_by_product.get(product.pk, D0)\n        recommended = max(D0, target_stock - (product.current_stock or D0) - ordered_qty)
         if recommended <= 0 or (daily_qty <= 0 and (product.min_stock or D0) <= (product.current_stock or D0)):
             continue
         recommended = recommended.quantize(Decimal("0.001"), rounding=ROUND_UP)
@@ -402,7 +409,7 @@ def purchase_recommendations(request):
             supplier_qty = min(recommended, max(D0, offer.qty_avail))
         unit_cost = offer.cost if offer else product.cost_price
         rows.append({"product": product, "sold_qty": sold_qty, "daily_qty": daily_qty,
-            "target_stock": target_stock, "recommended": recommended, "supplier": offer.supplier if offer else None,
+            "target_stock": target_stock, "recommended": recommended, "ordered_qty": ordered_qty, "supplier": offer.supplier if offer else None,
             "supplier_item": offer, "supplier_qty": supplier_qty, "unit_cost": unit_cost,
             "estimated_total": supplier_qty * unit_cost})
         total_units += supplier_qty
