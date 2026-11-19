@@ -146,6 +146,51 @@ def supplier_prices(request):
 
 @tenant_staff_only
 @company_required
+def supplier_price_history(request):
+    changes = company_queryset(
+        SupplierPriceChange.objects.select_related("item__supplier", "item__product"),
+        request,
+    )
+    supplier_id = request.GET.get("supplier", "").strip()
+    query = request.GET.get("q", "").strip()
+    date_from = request.GET.get("from", "").strip()
+    date_to = request.GET.get("to", "").strip()
+    if supplier_id.isdigit():
+        changes = changes.filter(item__supplier_id=int(supplier_id))
+    if query:
+        changes = changes.filter(
+            Q(item__sku__icontains=query) | Q(item__brand__icontains=query)
+            | Q(item__name__icontains=query) | Q(item__supplier__name__icontains=query)
+            | Q(item__product__name__icontains=query) | Q(item__product__sku__icontains=query)
+        )
+    try:
+        if date_from:
+            changes = changes.filter(at__date__gte=date.fromisoformat(date_from))
+        if date_to:
+            changes = changes.filter(at__date__lte=date.fromisoformat(date_to))
+    except ValueError:
+        messages.error(request, "Перевірте формат дат у фільтрі.")
+        date_from = date_to = ""
+
+    rows = list(changes.order_by("-at", "-pk")[:500])
+    for row in rows:
+        row.delta = row.new_cost - row.old_cost
+        row.delta_pct = (
+            (row.delta / row.old_cost * Decimal("100")).quantize(Decimal("0.01"))
+            if row.old_cost else None
+        )
+    return render(request, "core/supplier_price_history.html", {
+        "changes": rows,
+        "suppliers": company_queryset(Supplier.objects.filter(items__changes__isnull=False).distinct().order_by("name"), request),
+        "selected_supplier": supplier_id, "query": query,
+        "date_from": date_from, "date_to": date_to,
+        "total_changes": len(rows),
+        "total_delta": sum((row.delta for row in rows), D0),
+    })
+
+
+@tenant_staff_only
+@company_required
 @require_POST
 def price_map(request):
     """Крок 2: вибір колонок і попередній перегляд."""
