@@ -105,6 +105,7 @@ urlpatterns = [
     path("settlements/advance/new/<str:party_type>/<int:pk>/", sv.advance_new, name="advance_new"),
     path("settlements/advance/<int:pk>/void/", sv.advance_void, name="advance_void"),
     path("supplier-returns/<int:pk>/compensate/", sv.supplier_return_compensate, name="supplier_return_compensate"),
+    path("supplier-compensations/<int:pk>/void/", sv.supplier_compensation_void, name="supplier_compensation_void"),
     path("settlements/<str:document_type>/<int:pk>/payment/", sv.settlement_payment_new, name="settlement_payment_new"),
     path("settlements/payments/<int:pk>/void/", sv.settlement_payment_void, name="settlement_payment_void"),
     path("payroll/", pr.payroll_view, name="payroll"),
