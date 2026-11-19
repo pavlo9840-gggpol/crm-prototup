@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from core.models import Product, Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Supplier, SupplierItem
+from core.models import Product, Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Supplier, SupplierItem, SupplierPriceChange
 from core.tests_tenant_helpers import create_test_company
 
 
@@ -200,6 +200,38 @@ class SupplierPurchaseOrderTests(TestCase):
         ids = {row.pk for row in response.context["orders"]}
         self.assertEqual(ids, {overdue.pk})
         self.assertNotIn(other_order.pk, ids)
+
+    def test_supplier_price_history_lists_only_current_company_changes(self):
+        offer = SupplierItem.objects.create(
+            company=self.company, supplier=self.supplier, product=self.product,
+            brand="ACME", sku="OF-001", sku_norm=self.product.sku_norm,
+            cost=Decimal("12.00"), available=True,
+        )
+        change = SupplierPriceChange.objects.create(
+            company=self.company, item=offer,
+            old_cost=Decimal("10.00"), new_cost=Decimal("12.00"),
+        )
+        response = self.client.get(reverse("supplier_price_history"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_changes"], 1)
+        self.assertEqual(response.context["changes"][0].pk, change.pk)
+        self.assertEqual(response.context["changes"][0].delta, Decimal("2.00"))
+
+    def test_supplier_price_history_filters_by_supplier_and_sku(self):
+        offer = SupplierItem.objects.create(
+            company=self.company, supplier=self.supplier, product=self.product,
+            brand="ACME", sku="OF-001", sku_norm=self.product.sku_norm,
+            cost=Decimal("12.00"), available=True,
+        )
+        SupplierPriceChange.objects.create(
+            company=self.company, item=offer,
+            old_cost=Decimal("10.00"), new_cost=Decimal("12.00"),
+        )
+        response = self.client.get(reverse("supplier_price_history"), {
+            "supplier": str(self.supplier.pk), "q": "OF-001",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_changes"], 1)
 
     def test_foreign_company_order_is_not_visible(self):
         other_owner = get_user_model().objects.create_superuser(
