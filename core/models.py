@@ -517,8 +517,11 @@ class SupplierReturn(models.Model):
         return self.quantity * self.unit_cost
 
     def save(self, *args, **kwargs):
+        purchase = self.purchase_item.purchase
         if (self.purchase_item.company_id != self.company_id
-                or self.purchase_item.purchase.supplier_id != self.supplier_id
+                or purchase.company_id != self.company_id
+                or purchase.supplier_id != self.supplier_id
+                or self.supplier.company_id != self.company_id
                 or self.purchase_item.product.company_id != self.company_id):
             raise ValueError("Повернення має посилатися на закупівлю, товар і постачальника одного магазину.")
         super().save(*args, **kwargs)
