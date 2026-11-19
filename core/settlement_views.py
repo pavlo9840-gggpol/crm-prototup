@@ -51,6 +51,10 @@ class SupplierCompensationForm(forms.Form):
         self.fields["bank_account"].queryset = BankAccount.objects.filter(company=company)
 
 
+class SupplierCompensationVoidForm(forms.Form):
+    reason = forms.CharField(max_length=250, label="Причина скасування")
+
+
 class SettlementVoidForm(forms.Form):
     reason = forms.CharField(max_length=250, label="Причина скасування")
 
@@ -65,8 +69,8 @@ def _paid_for(document):
 def _supplier_compensated_for(document):
     cached = getattr(document, "_prefetched_objects_cache", {}).get("supplier_compensations")
     if cached is not None:
-        return sum((entry.amount for entry in cached), D0)
-    return document.supplier_compensations.filter(company=document.company).aggregate(
+        return sum((entry.amount for entry in cached if not entry.is_void), D0)
+    return document.supplier_compensations.filter(company=document.company, is_void=False).aggregate(
         total=Sum("amount")
     )["total"] or D0
 
@@ -386,6 +390,9 @@ def supplier_return_compensate(request, pk):
         bank_transaction = None
         bank_account = None
         if kind == SupplierCompensation.CASH:
+            if cashlib.to_kop(amount) % 10:
+                messages.error(request, "Готівкове повернення має бути кратним 0,10 ₴ через доступні номінали каси.")
+                return redirect("purchase_detail", pk=purchase.pk)
             shift = Shift.objects.select_for_update().filter(
                 company=request.company, cashier=request.user, closed_at__isnull=True
             ).first()
@@ -428,6 +435,74 @@ def supplier_return_compensate(request, pk):
         "Вона врахована у взаєморозрахунках із постачальником.",
     )
     return redirect("purchase_detail", pk=purchase.pk)
+
+
+@tenant_staff_only
+@company_required
+def supplier_compensation_void(request, pk):
+    if request.method != "POST":
+        return redirect("settlements_home")
+    form = SupplierCompensationVoidForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Вкажіть причину скасування компенсації.")
+        return redirect("settlements_home")
+
+    with transaction.atomic():
+        compensation = get_object_or_404(
+            SupplierCompensation.objects.select_for_update().select_related(
+                "purchase", "supplier", "cash_operation__shift", "bank_account", "bank_transaction"
+            ).filter(company=request.company, is_void=False),
+            pk=pk,
+        )
+        reversal_cash = None
+        reversal_bank = None
+        if compensation.kind == SupplierCompensation.CASH:
+            original_shift_id = compensation.cash_operation.shift_id
+            shift = Shift.objects.select_for_update().filter(
+                pk=original_shift_id, company=request.company, closed_at__isnull=True
+            ).first()
+            if not shift:
+                messages.error(request, "Готівкову компенсацію можна скасувати лише у відкритій касовій зміні, де її провели.")
+                return redirect("purchase_detail", pk=compensation.purchase_id)
+            counts = cashlib.make_change(cashlib.to_kop(compensation.amount), cashlib.clean(shift.drawer))
+            if counts is None:
+                messages.error(request, "У касі недостатньо готівки для сторнування компенсації.")
+                return redirect("purchase_detail", pk=compensation.purchase_id)
+            drawer_after = cashlib.add(cashlib.clean(shift.drawer), counts, -1)
+            reversal_cash = CashOperation.objects.create(
+                company=request.company, shift=shift, user=request.user, kind="out",
+                amount=-compensation.amount,
+                detail={"source": "supplier_compensation_reversal", "supplier_compensation_id": compensation.pk,
+                        "counts": cashlib.store(counts)},
+                note=f"Сторнування компенсації {compensation.number}"[:200],
+            )
+            shift.drawer = cashlib.store(drawer_after)
+            shift.save(update_fields=["drawer"])
+        elif compensation.kind == SupplierCompensation.BANK:
+            if not compensation.bank_transaction_id or compensation.bank_transaction.is_void:
+                messages.error(request, "Початкову банківську операцію вже скасовано або не знайдено.")
+                return redirect("purchase_detail", pk=compensation.purchase_id)
+            reversal_bank = BankTransaction.objects.create(
+                company=request.company, account=compensation.bank_account,
+                transaction_date=timezone.localdate(), direction=BankTransaction.EXPENSE,
+                category="Сторнування компенсації постачальника",
+                amount=compensation.amount, counterparty=compensation.supplier.name,
+                document_ref=compensation.number,
+                note=form.cleaned_data["reason"].strip()[:250], created_by=request.user,
+            )
+
+        compensation.is_void = True
+        compensation.voided_at = timezone.now()
+        compensation.voided_by = request.user
+        compensation.void_reason = form.cleaned_data["reason"].strip()
+        compensation.reversal_cash_operation = reversal_cash
+        compensation.reversal_bank_transaction = reversal_bank
+        compensation.save(update_fields=[
+            "is_void", "voided_at", "voided_by", "void_reason",
+            "reversal_cash_operation", "reversal_bank_transaction",
+        ])
+    messages.success(request, f"Компенсацію {compensation.number} скасовано окремою сторнувальною операцією.")
+    return redirect("purchase_detail", pk=compensation.purchase_id)
 
 
 @tenant_staff_only
