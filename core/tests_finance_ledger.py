@@ -390,6 +390,9 @@ class BankLedgerTests(TestCase):
         self.client.post(reverse("bank_reconcile", args=[entry.pk]), {"payment_id": payment.pk})
         reconciliation = BankReconciliation.objects.get(bank_transaction=entry, is_void=False)
         self.assertEqual(reconciliation.settlement_payment_id, payment.pk)
+        self.client.post(reverse("settlement_payment_void", args=[payment.pk]), {"reason": "Try void while reconciled"})
+        payment.refresh_from_db()
+        self.assertFalse(payment.is_void)
         self.client.post(reverse("bank_reconciliation_void", args=[reconciliation.pk]), {
             "reason": "Виправлення",
         })
