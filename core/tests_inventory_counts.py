@@ -5,7 +5,7 @@ from django.test import TestCase
 
 from core import services
 from core.models import (
-    InventoryCount, InventoryCountItem, Product, ProductBarcode, StockMovement,
+    InventoryCount, InventoryCountItem, Product, ProductBarcode, StockAdjustment, StockMovement,
 )
 from core.services import StockError
 from core.tests_tenant_helpers import create_test_company
@@ -158,7 +158,7 @@ class InventoryCountWorkflowTests(TestCase):
         self.assertEqual(response.context["items"].count(), 2)
 
     def test_writeoff_requires_reason_and_explanation(self):
-        self.client.force_login(self.admin)
+        self.client.force_login(self.user)
         base = {"product": self.product.pk, "kind": "writeoff", "quantity": "1.000", "reason": "", "note": ""}
         response = self.client.post("/inventory/adjust/", base)
         self.assertEqual(response.status_code, 200)
