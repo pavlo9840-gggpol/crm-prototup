@@ -1,0 +1,38 @@
+{% extends "core/base.html" %}{% block content %}
+<h2>Рекомендації закупівлі</h2>
+<p>Розрахунок за завершеними продажами зі складу та мінімальним залишком. Рекомендована кількість = середньоденний продаж × горизонт планування + мінімальний запас − поточний залишок.</p>
+<form method="get" class="filters">
+<label>Продажі з <input type="date" name="from" value="{{ d1|date:'Y-m-d' }}"></label>
+<label>по <input type="date" name="to" value="{{ d2|date:'Y-m-d' }}"></label>
+<label>Горизонт <select name="target_days">{% for n in "14,30,45,60"|cut:" "|slice:":0" %}{% endfor %}
+<option value="14"{% if target_days == 14 %} selected{% endif %}>14 днів</option>
+<option value="30"{% if target_days == 30 %} selected{% endif %}>30 днів</option>
+<option value="45"{% if target_days == 45 %} selected{% endif %}>45 днів</option>
+<option value="60"{% if target_days == 60 %} selected{% endif %}>60 днів</option></select></label>
+<button type="submit">Перерахувати</button>
+</form>
+<div class="grid">
+<div class="card">Позицій до перевірки: <b>{{ recommendation_count }}</b></div>
+<div class="card">Рекомендована кількість з урахуванням доступності: <b>{{ total_units|floatformat:"-3" }}</b></div>
+<div class="card">Орієнтовна сума: <b>{{ total_cost|floatformat:2 }} ₴</b></div>
+</div>
+<p><small>Прайс постачальника — найнижча актуальна доступна ціна серед прив'язаних або точно зіставлених за брендом та артикулом позицій. Якщо відома наявність постачальника, у швидке додавання передається не більше цієї кількості. Перевірте ціну й залишок перед проведенням накладної. Система поки не враховує відкриті замовлення постачальникам: окремого документа замовлення закупівлі ще немає.</small></p>
+<table>
+<tr><th>Товар</th><th>Артикул</th><th class="n">Залишок</th><th class="n">Мінімум</th><th class="n">Продано</th><th class="n">Продаж/день</th><th class="n">Потрібно</th><th>Постачальник</th><th class="n">Ціна</th><th class="n">Доступно</th><th></th></tr>
+{% for r in rows %}
+<tr>
+<td>{{ r.product.name }}</td><td>{{ r.product.sku }}</td>
+<td class="n">{{ r.product.current_stock|floatformat:"-3" }}</td>
+<td class="n">{{ r.product.min_stock|floatformat:"-3" }}</td>
+<td class="n">{{ r.sold_qty|floatformat:"-3" }}</td>
+<td class="n">{{ r.daily_qty|floatformat:"-3" }}</td>
+<td class="n"><b>{{ r.recommended|floatformat:"-3" }}</b></td>
+<td>{% if r.supplier %}{{ r.supplier.name }}{% else %}<span>Не знайдено у прайсах</span>{% endif %}</td>
+<td class="n">{{ r.unit_cost|floatformat:2 }} ₴</td>
+<td class="n">{% if r.supplier_item.qty_avail != None %}{{ r.supplier_item.qty_avail|floatformat:"-3" }}{% else %}—{% endif %}</td>
+<td><a class="btn green" href="{% url 'purchase_new' %}?product={{ r.product.pk }}&amp;qty={{ r.supplier_qty }}&amp;cost={{ r.unit_cost }}">У накладну</a></td>
+</tr>
+{% empty %}<tr><td colspan="11">За вибраними умовами закупівля не рекомендується.</td></tr>{% endfor %}
+</table>
+<p><a class="btn" href="{% url 'purchase_list' %}">До накладних надходження</a></p>
+{% endblock %}
