@@ -8,11 +8,13 @@
 <div class="grid3" style="margin-bottom:14px">
   <div class="card"><small>Позицій у документі</small><h2>{{ summary.total }}</h2></div>
   <div class="card"><small>Пораховано</small><h2>{{ summary.counted }}</h2></div>
-  <div class="card"><small>Різниця за внесеними рядками</small><h2>{{ summary.difference|default:"0" }}</h2></div>
+  <div class="card"><small>Надлишок</small><h2 style="color:var(--success,#16803c)">{{ summary.surplus|floatformat:"-3" }}</h2></div>
+  <div class="card"><small>Нестача</small><h2 style="color:var(--danger,#b42318)">{{ summary.shortage|floatformat:"-3" }}</h2></div>
+  <div class="card"><small>Чиста різниця</small><h2>{{ summary.net_difference|floatformat:"-3" }}</h2></div>
 </div>
 <form method="get" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
 <label>Пошук товару / штрихкоду<br><input name="q" value="{{ q }}" placeholder="Назва, артикул, штрих-код"></label>
-<label>Стан підрахунку<br><select name="status"><option value="all" {% if status == "all" %}selected{% endif %}>Усі</option><option value="counted" {% if status == "counted" %}selected{% endif %}>Пораховані</option><option value="pending" {% if status == "pending" %}selected{% endif %}>Не пораховані</option></select></label>
+<label>Стан підрахунку<br><select name="status"><option value="all" {% if status == "all" %}selected{% endif %}>Усі</option><option value="counted" {% if status == "counted" %}selected{% endif %}>Пораховані</option><option value="pending" {% if status == "pending" %}selected{% endif %}>Не пораховані</option><option value="difference" {% if status == "difference" %}selected{% endif %}>Лише розбіжності</option><option value="surplus" {% if status == "surplus" %}selected{% endif %}>Надлишки</option><option value="shortage" {% if status == "shortage" %}selected{% endif %}>Нестачі</option></select></label>
 <button class="btn">Фільтрувати</button>
 </form>
 {% if count.status == "draft" %}
