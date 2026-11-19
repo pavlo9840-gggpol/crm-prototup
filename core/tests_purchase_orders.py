@@ -276,8 +276,19 @@ class SupplierPurchaseOrderTests(TestCase):
         self.assertEqual(supplier_row["avg_actual_cost"], Decimal("9.00"))
         self.assertEqual(supplier_row["price_delta"], Decimal("2.50"))
         self.assertEqual(supplier_row["on_time_rate"], Decimal("100.0"))
+        self.assertIsNotNone(supplier_row["rating_score"])
+        self.assertGreaterEqual(supplier_row["rating_score"], Decimal("0"))
+        self.assertLessEqual(supplier_row["rating_score"], Decimal("100"))
         comparison = next(row for row in response.context["comparisons"] if row["product"].pk == self.product.pk)
         self.assertEqual([offer.cost for offer in comparison["offers"]], [Decimal("8.50"), Decimal("9.00")])
+
+    def test_supplier_analytics_exports_filtered_csv(self):
+        response = self.client.get(reverse("supplier_analytics"), {"export": "csv"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn("supplier-analytics-", response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(bytes((239, 187, 191))) )
+        self.assertIn("Порівняння пропозицій".encode("utf-8"), response.content)
 
     def test_supplier_analytics_is_tenant_scoped(self):
         other_owner = get_user_model().objects.create_superuser(
