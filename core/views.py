@@ -1112,7 +1112,7 @@ def inventory_movements(request):
     if request.GET.get("export") == "csv":
         response = HttpResponse(content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = 'attachment; filename="stock-movements.csv"'
-        response.write("\\ufeff")
+        response.write("\ufeff")
         writer = csv.writer(response, delimiter=";")
         writer.writerow(["Дата", "Товар", "Артикул", "Тип", "Зміна", "Залишок", "Документ", "Оператор", "Примітка"])
         for move in qs.iterator():
