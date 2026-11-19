@@ -166,3 +166,20 @@ class SupplierReturnAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(m.SupplierCompensation)
+class SupplierCompensationAdmin(admin.ModelAdmin):
+    list_display = ("number", "supplier", "supplier_return", "kind", "amount", "created_at", "created_by")
+    list_filter = ("kind", "created_at")
+    search_fields = ("number", "supplier__name", "supplier_return__number", "purchase__number")
+    readonly_fields = tuple(field.name for field in m.SupplierCompensation._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
