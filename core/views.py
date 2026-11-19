@@ -22,7 +22,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment)
+                     Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment, SupplierClaim)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -714,6 +714,115 @@ def purchase_order_detail(request, pk):
             for receipt in item.receipt_items.select_related("purchase").all()
         ]
     return render(request, "core/purchase_order_detail.html", {"order": order, "items": items})
+
+
+@login_required
+@company_required
+@tenant_staff_only
+def supplier_claim_list(request):
+    claims = company_queryset(
+        SupplierClaim.objects.select_related("supplier", "order", "order_item__product", "created_by"),
+        request,
+    )
+    status = request.GET.get("status", "").strip()
+    supplier_id = request.GET.get("supplier", "").strip()
+    query = request.GET.get("q", "").strip()
+    if status in dict(SupplierClaim.STATUS_CHOICES):
+        claims = claims.filter(status=status)
+    if supplier_id.isdigit():
+        claims = claims.filter(supplier_id=int(supplier_id))
+    if query:
+        claims = claims.filter(
+            Q(claim_number__icontains=query) | Q(description__icontains=query)
+            | Q(order__number__icontains=query) | Q(order_item__product__name__icontains=query)
+            | Q(supplier__name__icontains=query)
+        )
+    return render(request, "core/supplier_claim_list.html", {
+        "claims": claims[:500], "statuses": SupplierClaim.STATUS_CHOICES,
+        "suppliers": company_queryset(Supplier.objects.order_by("name"), request),
+        "selected_status": status, "selected_supplier": supplier_id, "query": query,
+    })
+
+
+@login_required
+@company_required
+@tenant_staff_only
+@require_POST
+def supplier_claim_create(request, pk, item_pk):
+    order = get_object_or_404(company_queryset(PurchaseOrder.objects.select_related("supplier"), request), pk=pk)
+    item = get_object_or_404(PurchaseOrderItem.objects.select_related("product"), pk=item_pk, order=order, company=request.company)
+    try:
+        if order.status in (PurchaseOrder.DRAFT, PurchaseOrder.CANCELLED):
+            raise StockError("Претензію можна створити лише для відправленого або підтвердженого замовлення.")
+        kind = request.POST.get("kind", "").strip()
+        if kind not in dict(SupplierClaim.KIND_CHOICES):
+            raise StockError("Оберіть коректну причину претензії.")
+        description = request.POST.get("description", "").strip()
+        if not description:
+            raise StockError("Опишіть проблему, щоб зберегти претензію.")
+        raw_qty = request.POST.get("quantity", "").strip()
+        quantity = dec(raw_qty) if raw_qty else None
+        if raw_qty and (quantity is None or quantity <= 0 or quantity > item.quantity):
+            raise StockError(f"Кількість у претензії має бути більшою за нуль і не перевищувати {item.quantity}.")
+        if kind in ("shortage", "damaged", "wrong_item") and quantity is None:
+            raise StockError("Для цієї причини потрібно вказати кількість.")
+        amount = dec(request.POST.get("requested_amount", "0"), D0)
+        if amount is None or amount < 0:
+            raise StockError("Сума вимоги має бути невід'ємною.")
+        claim = SupplierClaim.objects.create(
+            company=request.company, order=order, order_item=item, supplier=order.supplier,
+            kind=kind, quantity=quantity, requested_amount=amount,
+            description=description, created_by=request.user,
+        )
+        messages.success(request, f"Створено претензію {claim.claim_number}.")
+    except (StockError, ValueError) as exc:
+        messages.error(request, str(exc))
+    return redirect("purchase_order_detail", pk=pk)
+
+
+@login_required
+@company_required
+@tenant_staff_only
+@require_POST
+def supplier_claim_update(request, pk):
+    try:
+        with transaction.atomic():
+            claim = get_object_or_404(
+                company_queryset(SupplierClaim.objects.select_for_update(), request), pk=pk
+            )
+            action = request.POST.get("action", "").strip()
+            response_text = request.POST.get("supplier_response", "").strip()
+            resolution_note = request.POST.get("resolution_note", "").strip()
+            now = timezone.now()
+            if action == "send" and claim.status == SupplierClaim.OPEN:
+                claim.status, claim.sent_at = SupplierClaim.SENT, now
+            elif action == "accept" and claim.status == SupplierClaim.SENT:
+                claim.status = SupplierClaim.ACCEPTED
+                if response_text:
+                    claim.supplier_response = response_text
+            elif action == "reject" and claim.status == SupplierClaim.SENT:
+                if not response_text:
+                    raise StockError("Запишіть відповідь постачальника перед відхиленням претензії.")
+                claim.status, claim.supplier_response = SupplierClaim.REJECTED, response_text
+                claim.closed_at = now
+            elif action == "resolve" and claim.status == SupplierClaim.ACCEPTED:
+                if not resolution_note:
+                    raise StockError("Вкажіть, як саме вирішено претензію.")
+                claim.status, claim.resolution_note = SupplierClaim.RESOLVED, resolution_note
+                claim.closed_at, claim.resolved_by = now, request.user
+            elif action == "cancel" and claim.status in (SupplierClaim.OPEN, SupplierClaim.SENT):
+                claim.status, claim.closed_at = SupplierClaim.CANCELLED, now
+            else:
+                raise StockError("Ця дія недоступна для поточного статусу претензії.")
+            claim.updated_at = now
+            claim.save(update_fields=[
+                "status", "sent_at", "supplier_response", "resolution_note",
+                "closed_at", "resolved_by", "updated_at",
+            ])
+        messages.success(request, f"Статус претензії {claim.claim_number}: {claim.get_status_display()}.")
+    except StockError as exc:
+        messages.error(request, str(exc))
+    return redirect(request.POST.get("next") or "supplier_claim_list")
 
 
 @login_required
