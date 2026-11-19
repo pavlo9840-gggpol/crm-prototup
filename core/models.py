@@ -530,6 +530,62 @@ class SupplierReturn(models.Model):
             super().save(update_fields=["number"])
 
 
+class SupplierCompensation(models.Model):
+    """Confirmed supplier compensation: credit note, cash refund or bank refund."""
+    CREDIT, CASH, BANK = "credit", "cash", "bank"
+    KINDS = [
+        (CREDIT, "Кредит-нота / залік боргу"),
+        (CASH, "Повернення готівкою"),
+        (BANK, "Повернення на банківський рахунок"),
+    ]
+
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="supplier_compensations")
+    supplier_return = models.ForeignKey(SupplierReturn, on_delete=models.PROTECT, related_name="compensations")
+    purchase = models.ForeignKey(Purchase, on_delete=models.PROTECT, related_name="supplier_compensations")
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="compensations")
+    number = models.CharField("Номер компенсації", max_length=24, blank=True, db_index=True)
+    kind = models.CharField("Тип компенсації", max_length=10, choices=KINDS)
+    amount = models.DecimalField("Сума", max_digits=14, decimal_places=2)
+    bank_account = models.ForeignKey("BankAccount", null=True, blank=True, on_delete=models.PROTECT,
+                                     related_name="supplier_compensations")
+    cash_operation = models.OneToOneField("CashOperation", null=True, blank=True, on_delete=models.PROTECT,
+                                          related_name="supplier_compensation")
+    bank_transaction = models.OneToOneField("BankTransaction", null=True, blank=True, on_delete=models.PROTECT,
+                                            related_name="supplier_compensation")
+    note = models.CharField("Примітка", max_length=250, blank=True)
+    created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="supplier_compensations_created")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [
+            models.Index(fields=["company", "created_at"], name="sup_comp_company_date_idx"),
+            models.Index(fields=["company", "supplier"], name="sup_comp_company_sup_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="supplier_comp_amount_positive"),
+        ]
+
+    def save(self, *args, **kwargs):
+        returned = self.supplier_return
+        if (returned.company_id != self.company_id
+                or returned.supplier_id != self.supplier_id
+                or returned.purchase_item.purchase_id != self.purchase_id
+                or self.purchase.company_id != self.company_id
+                or self.supplier.company_id != self.company_id):
+            raise ValueError("Компенсація має бути прив'язана до повернення, закупівлі й постачальника одного магазину.")
+        if self.kind == self.CASH and (not self.cash_operation_id or self.bank_transaction_id or self.bank_account_id):
+            raise ValueError("Готівкова компенсація повинна мати лише касову операцію.")
+        if self.kind == self.BANK and (not self.bank_transaction_id or not self.bank_account_id or self.cash_operation_id):
+            raise ValueError("Банківська компенсація повинна мати банківську операцію та рахунок.")
+        if self.kind == self.CREDIT and (self.cash_operation_id or self.bank_transaction_id or self.bank_account_id):
+            raise ValueError("Кредит-нота не повинна створювати рух грошей.")
+        super().save(*args, **kwargs)
+        if not self.number:
+            self.number = f"SC-{self.pk:06d}"
+            super().save(update_fields=["number"])
+
+
 class StockBatch(models.Model):
     """Окрема партія надходження з власною собівартістю та залишком."""
     company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="stock_batches")
