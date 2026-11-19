@@ -26,9 +26,10 @@ class StockAnalyticsReportTests(TestCase):
     def _sale_item(self, product, days_ago):
         sold_at = timezone.now() - timedelta(days=days_ago)
         sale = Sale.objects.create(company=self.company, cashier=self.owner, status=Sale.DONE,
-            total=Decimal("10"), created_at=sold_at)
+            total=Decimal("10"))
+        Sale.objects.filter(pk=sale.pk).update(created_at=sold_at)
         SaleItem.objects.create(company=self.company, sale=sale, product=product, quantity=1,
-            original_price=10, price=10, cost_price=product.cost_price, earned_at=sold_at)
+            original_price=10, price=10, cost_price=product.cost_price)
 
     def test_report_lists_never_sold_and_30_day_stagnant_stock_and_values(self):
         self._sale_item(self.stale, 45)
