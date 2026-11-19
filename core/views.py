@@ -1292,14 +1292,49 @@ def report_profit(request):
 @company_required
 @tenant_staff_only
 def report_stock(request):
-    value = company_queryset(Product.objects.all(), request).aggregate(v=Sum(ExpressionWrapper(F("current_stock") * F("cost_price"), output_field=DEC)))["v"] or D0
+    today = timezone.localdate()
+    products = company_queryset(Product.objects.filter(is_active=True), request).select_related("category")
+    stock = products.aggregate(
+        value=Sum(ExpressionWrapper(F("current_stock") * F("cost_price"), output_field=DEC)),
+        quantity=Sum("current_stock"),
+        product_count=Count("pk", filter=Q(current_stock__gt=0)),
+    )
+    value = stock["value"] or D0
     summary = company_queryset(StockMovement.objects.all(), request).values("movement_type").annotate(s=Sum("quantity_change"), n=Count("id"))
     names = dict(StockMovement.TYPES)
     for r in summary:
         r["label"] = names.get(r["movement_type"], r["movement_type"])
+
+    sold = SaleItem.objects.filter(
+        company=request.company, sale__company=request.company, sale__status=Sale.DONE,
+        source=SaleItem.STOCK,
+    ).values("product_id").annotate(
+        last_sold=Max("sale__created_at"),
+        sold_qty=Sum(NET),
+    )
+    sold_by_product = {row["product_id"]: row for row in sold}
+    stagnant = []
+    for product in products.filter(current_stock__gt=0).order_by("-current_stock"):
+        row = sold_by_product.get(product.pk)
+        last_sold = row["last_sold"] if row else None
+        days = (today - timezone.localtime(last_sold).date()).days if last_sold else None
+        stock_value = product.current_stock * product.cost_price
+        if days is None or days >= 30:
+            stagnant.append({
+                "product": product, "last_sold": last_sold, "days": days,
+                "stock_value": stock_value,
+                "status": "never" if days is None else ("90+" if days >= 90 else ("60+" if days >= 60 else "30+")),
+            })
+    stagnant.sort(key=lambda row: (row["days"] is not None, -(row["days"] or 999999), -row["stock_value"]))
+    stagnant_value = sum((row["stock_value"] for row in stagnant), D0)
+    stagnant_qty = sum((row["product"].current_stock for row in stagnant), D0)
+    low = products.filter(current_stock__lte=F("min_stock")).order_by("current_stock", "name")
     return render(request, "core/report_stock.html", {
-        "value": value, "summary": summary,
-        "low": company_queryset(Product.objects.filter(is_active=True, current_stock__lte=F("min_stock")), request)})
+        "value": value, "quantity": stock["quantity"] or D0, "product_count": stock["product_count"] or 0,
+        "summary": summary, "low": low, "stagnant": stagnant[:300],
+        "stagnant_value": stagnant_value, "stagnant_qty": stagnant_qty,
+        "stagnant_count": len(stagnant), "today": today,
+    })
 
 
 # ---------- Shifts ----------
