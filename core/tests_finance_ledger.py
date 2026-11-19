@@ -505,3 +505,47 @@ class AdvanceLedgerTests(TestCase):
         advance.refresh_from_db()
         self.assertFalse(advance.is_void)
         self.assertEqual(advance.remaining, Decimal("200.00"))
+
+
+class BankImportTests(TestCase):
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        User = get_user_model()
+        self.owner = User.objects.create_superuser(username="bank-import-owner", email="", password="secret")
+        self.company = create_test_company(self.owner, "Bank import shop", [])
+        self.account = BankAccount.objects.create(
+            company=self.company, bank_name="Імпорт банк", iban="UA123456789012345678901234567", currency="UAH",
+        )
+        self.client.force_login(self.owner)
+        self.SimpleUploadedFile = SimpleUploadedFile
+
+    def upload(self, content):
+        return self.client.post(reverse("bank_import"), {
+            "account": self.account.pk,
+            "file": self.SimpleUploadedFile("statement.csv", content.encode("utf-8"), content_type="text/csv"),
+        })
+
+    def test_imports_csv_rows_and_skips_duplicates_on_repeat_import(self):
+        csv_text = "date,direction,amount,counterparty,purpose,category,iban\n2026-11-18,income,1200.50,Клієнт,Оплата №1,Оплата,UA123456789012345678901234567\n18.11.2026,expense,300,Оренда,Оренда,Оренда,UA123456789012345678901234567\n"
+        response = self.upload(csv_text)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "додано 2")
+        self.assertEqual(BankTransaction.objects.filter(company=self.company).count(), 2)
+        response = self.upload(csv_text)
+        self.assertContains(response, "додано 0")
+        self.assertContains(response, "дублікати 2")
+        self.assertEqual(BankTransaction.objects.filter(company=self.company).count(), 2)
+
+    def test_import_reports_invalid_rows_and_rejects_wrong_account_iban(self):
+        csv_text = "Дата,Напрямок,Сума,Контрагент,Призначення,IBAN\n2026-11-18,надходження,500,Клієнт,Платіж,UA999999999999999999999999999\nnot-a-date,expense,10,Test,Test,\n"
+        response = self.upload(csv_text)
+        self.assertContains(response, "Рядок 2")
+        self.assertContains(response, "Рядок 3")
+        self.assertEqual(BankTransaction.objects.filter(company=self.company).count(), 0)
+
+    def test_cashier_cannot_import_statement(self):
+        cashier = get_user_model().objects.create_user(username="bank-import-cashier", password="secret")
+        create_test_company(self.owner, "Other bank import", [(cashier, "cashier")])
+        self.client.force_login(cashier)
+        response = self.client.get(reverse("bank_import"))
+        self.assertEqual(response.status_code, 403)
