@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from core.models import (
     BankAccount, BankTransaction, CashOperation, Product, Purchase, PurchaseItem,
@@ -34,7 +35,7 @@ class SupplierCompensationTests(TestCase):
             company=self.company, purchase_item=self.item, supplier=self.supplier,
             quantity=Decimal("2.000"), unit_cost=Decimal("100.00"),
             compensation_type="credit", reason="Повернення браку",
-            completed_at=__import__("django").utils.timezone.now(), created_by=self.owner,
+            completed_at=timezone.now(), created_by=self.owner,
         )
 
     def post_compensation(self, payload):
@@ -59,12 +60,11 @@ class SupplierCompensationTests(TestCase):
     def test_partial_compensation_cannot_exceed_return_total(self):
         self.post_compensation({"kind": "credit", "amount": "125.00"})
         self.post_compensation({"kind": "credit", "amount": "75.01"})
-        self.assertEqual(
-            SupplierCompensation.objects.filter(supplier_return=self.returned).aggregate_total
-            if hasattr(SupplierCompensation.objects.filter(supplier_return=self.returned), "aggregate_total")
-            else sum(SupplierCompensation.objects.filter(supplier_return=self.returned).values_list("amount", flat=True)),
-            Decimal("125.00"),
+        total = sum(
+            SupplierCompensation.objects.filter(supplier_return=self.returned).values_list("amount", flat=True),
+            Decimal("0.00"),
         )
+        self.assertEqual(total, Decimal("125.00"))
 
     def test_cash_refund_increases_open_cash_drawer_and_records_operation(self):
         shift = Shift.objects.create(
