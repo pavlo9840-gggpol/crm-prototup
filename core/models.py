@@ -443,7 +443,7 @@ class BatchAllocation(models.Model):
 class StockAdjustment(models.Model):
     company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)
     KINDS = [("writeoff", "Списання"), ("surplus", "Надлишок"), ("shortage", "Нестача")]
-    REASONS = [("damaged", "Пошкодження"), ("expired", "Прострочення"), ("other", "Інше")]
+    REASONS = [("damaged", "Пошкодження"), ("expired", "Прострочення"), ("theft", "Крадіжка"), ("lost", "Втрата"), ("internal", "Внутрішнє використання"), ("other", "Інше")]
     product = models.ForeignKey(Product, on_delete=models.PROTECT, verbose_name="Товар")
     kind = models.CharField("Тип", max_length=10, choices=KINDS)
     quantity = models.DecimalField("Кількість", max_digits=10, decimal_places=3)
