@@ -246,6 +246,54 @@ class SupplierPurchaseOrderTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["total_changes"], 1)
 
+
+    def test_supplier_analytics_compares_prices_and_delivery_performance(self):
+        order, item = self.create_order(quantity="5", status=PurchaseOrder.CONFIRMED)
+        order.expected_date = timezone.localdate() + timedelta(days=2)
+        order.save(update_fields=["expected_date"])
+        item.received_quantity = Decimal("5")
+        item.save(update_fields=["received_quantity"])
+        order.status = PurchaseOrder.RECEIVED
+        order.save(update_fields=["status"])
+        receipt = Purchase.objects.create(company=self.company, supplier=self.supplier, user=self.owner)
+        PurchaseItem.objects.create(
+            company=self.company, purchase=receipt, product=self.product,
+            quantity=Decimal("5"), cost_price=Decimal("9.00"), order_item=item,
+        )
+        other_supplier = Supplier.objects.create(company=self.company, name="Supplier B")
+        SupplierItem.objects.create(
+            company=self.company, supplier=self.supplier, product=self.product,
+            brand="ACME", sku="OF-001", sku_norm="OF001", cost=Decimal("8.50"), available=True,
+        )
+        SupplierItem.objects.create(
+            company=self.company, supplier=other_supplier, product=self.product,
+            brand="ACME", sku="OF-001", sku_norm="OF001", cost=Decimal("9.00"), available=True,
+        )
+        response = self.client.get(reverse("supplier_analytics"))
+        self.assertEqual(response.status_code, 200)
+        supplier_row = next(row for row in response.context["performance"] if row["supplier"].pk == self.supplier.pk)
+        self.assertEqual(supplier_row["fill_rate"], Decimal("100.0"))
+        self.assertEqual(supplier_row["avg_actual_cost"], Decimal("9.00"))
+        self.assertEqual(supplier_row["price_delta"], Decimal("2.50"))
+        comparison = next(row for row in response.context["comparisons"] if row["product"].pk == self.product.pk)
+        self.assertEqual([offer.cost for offer in comparison["offers"]], [Decimal("8.50"), Decimal("9.00")])
+
+    def test_supplier_analytics_is_tenant_scoped(self):
+        other_owner = get_user_model().objects.create_superuser(
+            username="supplier-analytics-other", email="", password="secret"
+        )
+        other_company = create_test_company(other_owner, "Other analytics company", [])
+        other_supplier = Supplier.objects.create(company=other_company, name="Secret supplier")
+        other_product = Product.objects.create(company=other_company, name="Secret item", sku="SECRET-1")
+        SupplierItem.objects.create(
+            company=other_company, supplier=other_supplier, product=other_product,
+            brand="SECRET", sku="SECRET-1", sku_norm="SECRET1", cost=Decimal("1.00"),
+        )
+        response = self.client.get(reverse("supplier_analytics"), {"q": "Secret"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["performance"], [])
+        self.assertEqual(response.context["comparisons"], [])
+
     def test_foreign_company_order_is_not_visible(self):
         other_owner = get_user_model().objects.create_superuser(
             username="supplier-order-other", email="", password="secret"
