@@ -66,7 +66,14 @@
       </form>
       {% endif %}
       {% for comp in ret.compensations.all %}
-      <small>Компенсація {{ comp.number }} · {{ comp.get_kind_display }} · {{ comp.amount|floatformat:2 }} ₴ · {{ comp.created_at|date:"d.m.Y H:i" }}{% if comp.bank_account %} · {{ comp.bank_account.iban }}{% endif %}</small><br>
+      <small>Компенсація {{ comp.number }} · {{ comp.get_kind_display }} · {{ comp.amount|floatformat:2 }} ₴ · {{ comp.created_at|date:"d.m.Y H:i" }}{% if comp.bank_account %} · {{ comp.bank_account.iban }}{% endif %}{% if comp.is_void %} · Скасовано: {{ comp.void_reason }}{% endif %}</small>
+      {% if not comp.is_void %}
+      <form method="post" action="{% url 'supplier_compensation_void' comp.pk %}" style="display:flex;gap:8px;align-items:center;margin:4px 0">
+        {% csrf_token %}
+        <input name="reason" maxlength="250" required placeholder="Причина скасування компенсації">
+        <button class="btn red sm" type="submit">Скасувати</button>
+      </form>
+      {% endif %}
       {% endfor %}
     </td></tr>
     {% endfor %}
