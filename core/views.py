@@ -767,6 +767,10 @@ def supplier_claim_create(request, pk, item_pk):
             raise StockError(f"Кількість у претензії має бути більшою за нуль і не перевищувати {item.quantity}.")
         if kind in ("shortage", "damaged", "wrong_item") and quantity is None:
             raise StockError("Для цієї причини потрібно вказати кількість.")
+        if kind == "shortage" and quantity is not None and quantity > item.outstanding_quantity:
+            raise StockError(f"Недопоставка не може перевищувати непоставлений залишок {item.outstanding_quantity}.")
+        if kind in ("damaged", "wrong_item") and quantity is not None and quantity > item.received_quantity:
+            raise StockError("Кількість пошкодженого або помилково поставленого товару не може перевищувати отриману.")
         amount = dec(request.POST.get("requested_amount", "0"), D0)
         if amount is None or amount < 0:
             raise StockError("Сума вимоги має бути невід'ємною.")
