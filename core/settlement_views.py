@@ -320,24 +320,33 @@ def supplier_account(request, pk):
     supplier = get_object_or_404(Supplier.objects.filter(company=request.company), pk=pk)
     purchases = supplier.purchase_set.filter(company=request.company).select_related(
         "user"
-    ).prefetch_related("items__product", "settlement_payments")
+    ).prefetch_related("items__product", "settlement_payments", "supplier_compensations")
     rows = []
-    totals = {"purchases": D0, "paid": D0, "debt": D0}
+    totals = {"purchases": D0, "paid": D0, "compensated": D0, "debt": D0, "supplier_credit": D0}
     for purchase in purchases:
         paid = _paid_for(purchase)
-        balance = _balance_for(purchase)
+        compensated = _supplier_compensated_for(purchase)
+        net_balance = purchase.total - paid - compensated
+        balance = max(D0, net_balance)
+        supplier_credit = max(D0, -net_balance)
         totals["purchases"] += purchase.total
         totals["paid"] += paid
+        totals["compensated"] += compensated
         totals["debt"] += balance
-        rows.append({"document": purchase, "paid": paid, "balance": balance})
+        totals["supplier_credit"] += supplier_credit
+        rows.append({"document": purchase, "paid": paid, "compensated": compensated,
+                     "balance": balance, "supplier_credit": supplier_credit})
     payments = SettlementPayment.objects.filter(company=request.company, purchase__supplier=supplier).select_related(
         "purchase", "created_by", "voided_by", "advance"
     )[:200]
+    compensations = SupplierCompensation.objects.filter(
+        company=request.company, supplier=supplier
+    ).select_related("purchase", "supplier_return", "created_by", "bank_account")[:200]
     advances = AccountAdvance.objects.filter(company=request.company, supplier=supplier).order_by("-created_at")
     totals["advance_balance"] = advances.filter(is_void=False).aggregate(total=Sum("remaining"))["total"] or D0
     return render(request, "core/supplier_detail.html", {
         "supplier": supplier, "purchase_rows": rows, "account_totals": totals,
-        "account_payments": payments, "account_advances": advances,
+        "account_payments": payments, "account_advances": advances, "account_compensations": compensations,
     })
 
 
