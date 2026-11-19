@@ -1,0 +1,37 @@
+{% extends "core/base.html" %}
+{% block title %}Претензії постачальникам{% endblock %}
+{% block content %}
+<h2>Претензії постачальникам</h2>
+<p>Фіксуйте недопоставки, пошкодження, неправильний товар, якість, цінові розбіжності та результат розгляду постачальником.</p>
+<form method="get" class="filter" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:14px 0">
+<label>Статус<select name="status"><option value="">Усі статуси</option>{% for value,label in statuses %}<option value="{{ value }}"{% if selected_status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+<label>Постачальник<select name="supplier"><option value="">Усі</option>{% for s in suppliers %}<option value="{{ s.pk }}"{% if selected_supplier == s.pk|stringformat:"s" %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>
+<label>Пошук<input name="q" value="{{ query }}" placeholder="Номер, товар, опис"></label>
+<button class="btn">Фільтрувати</button><a class="btn" href="{% url 'supplier_claim_list' %}">Скинути</a>
+</form>
+{% for claim in claims %}
+<section style="border:1px solid var(--border,#ddd);border-radius:10px;padding:14px;margin:12px 0">
+<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+<div><b>{{ claim.claim_number }}</b> · {{ claim.get_kind_display }} · <b>{{ claim.get_status_display }}</b>
+<div>{{ claim.supplier.name }} · <a href="{% url 'purchase_order_detail' claim.order.pk %}">{{ claim.order.number|default:claim.order.pk }}</a> · {{ claim.order_item.product.name }}</div>
+<div class="muted">{{ claim.created_at|date:"d.m.Y H:i" }} · {{ claim.created_by }}</div></div>
+<div style="text-align:right">{% if claim.quantity %}Кількість: {{ claim.quantity|floatformat:"-3" }}{% endif %}{% if claim.requested_amount %}<div>Вимога: {{ claim.requested_amount|floatformat:2 }} ₴</div>{% endif %}</div>
+</div>
+<p>{{ claim.description }}</p>
+{% if claim.supplier_response %}<p><b>Відповідь постачальника:</b> {{ claim.supplier_response }}</p>{% endif %}
+{% if claim.resolution_note %}<p><b>Рішення:</b> {{ claim.resolution_note }}</p>{% endif %}
+{% if claim.status == "open" %}
+<form method="post" action="{% url 'supplier_claim_update' claim.pk %}" style="display:flex;gap:8px">{% csrf_token %}<button class="btn">Позначити відправленою</button><button class="btn red" name="action" value="cancel">Скасувати</button><input type="hidden" name="action" value="send"></form>
+{% elif claim.status == "sent" %}
+<form method="post" action="{% url 'supplier_claim_update' claim.pk %}" style="display:grid;gap:8px">{% csrf_token %}
+<label>Відповідь постачальника<textarea name="supplier_response" rows="2" maxlength="5000"></textarea></label>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn green" name="action" value="accept">Прийняти відповідь</button><button class="btn red" name="action" value="reject">Відхилити претензію</button><button class="btn" name="action" value="cancel">Скасувати</button></div></form>
+{% elif claim.status == "accepted" %}
+<form method="post" action="{% url 'supplier_claim_update' claim.pk %}" style="display:grid;gap:8px">{% csrf_token %}
+<label>Як вирішено претензію?<textarea name="resolution_note" rows="2" maxlength="5000" required></textarea></label>
+<button class="btn green" name="action" value="resolve">Позначити вирішеною</button></form>
+{% endif %}
+</section>
+{% empty %}<p>Претензій за цими фільтрами немає.</p>{% endfor %}
+<p><a class="btn" href="{% url 'purchase_order_list' %}">До замовлень постачальникам</a></p>
+{% endblock %}
