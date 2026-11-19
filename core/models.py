@@ -419,6 +419,67 @@ class PurchaseOrderItem(models.Model):
         return self.quantity * self.cost_price
 
 
+class SupplierClaim(models.Model):
+    """Претензія до постачальника, пов'язана з конкретним рядком замовлення."""
+    OPEN, SENT, ACCEPTED, REJECTED, RESOLVED, CANCELLED = (
+        "open", "sent", "accepted", "rejected", "resolved", "cancelled"
+    )
+    STATUS_CHOICES = [
+        (OPEN, "Чернетка"), (SENT, "Відправлено"), (ACCEPTED, "Прийнято постачальником"),
+        (REJECTED, "Відхилено постачальником"), (RESOLVED, "Вирішено"),
+        (CANCELLED, "Скасовано"),
+    ]
+    KIND_CHOICES = [
+        ("shortage", "Недопоставка"), ("damaged", "Пошкодження"),
+        ("wrong_item", "Не той товар"), ("quality", "Якість товару"),
+        ("price", "Невідповідність ціни"), ("late", "Запізнення доставки"),
+        ("other", "Інше"),
+    ]
+
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="supplier_claims")
+    order = models.ForeignKey(PurchaseOrder, on_delete=models.PROTECT, related_name="claims")
+    order_item = models.ForeignKey(PurchaseOrderItem, on_delete=models.PROTECT, related_name="claims")
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="claims")
+    claim_number = models.CharField(max_length=24, blank=True, db_index=True)
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=OPEN, db_index=True)
+    quantity = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
+    requested_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    description = models.TextField()
+    supplier_response = models.TextField(blank=True)
+    resolution_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="supplier_claims_created")
+    resolved_by = models.ForeignKey(USER, null=True, blank=True, on_delete=models.PROTECT,
+                                    related_name="supplier_claims_resolved")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [
+            models.Index(fields=["company", "status", "created_at"], name="claim_company_status_idx"),
+            models.Index(fields=["company", "supplier", "created_at"], name="claim_company_supplier_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(quantity__isnull=True) | Q(quantity__gt=0), name="supplier_claim_qty_positive"),
+            models.CheckConstraint(condition=Q(requested_amount__gte=0), name="supplier_claim_amount_nonnegative"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if (self.order.company_id != self.company_id or self.order_item.company_id != self.company_id
+                or self.order_item.order_id != self.order_id or self.supplier_id != self.order.supplier_id):
+            raise ValueError("Претензія має посилатися на замовлення, рядок і постачальника однієї компанії.")
+        super().save(*args, **kwargs)
+        if not self.claim_number:
+            self.claim_number = f"CLM-{self.pk:06d}"
+            super().save(update_fields=["claim_number", "updated_at"])
+
+    def __str__(self):
+        return self.claim_number or f"Претензія #{self.pk}"
+
+
 class StockBatch(models.Model):
     """Окрема партія надходження з власною собівартістю та залишком."""
     company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="stock_batches")
