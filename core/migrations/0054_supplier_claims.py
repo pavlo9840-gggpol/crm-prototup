@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from django.conf import settings
 from django.db import migrations, models
 from django.db.models import Q
@@ -21,7 +19,7 @@ class Migration(migrations.Migration):
                 ("kind", models.CharField(choices=[("shortage", "Недопоставка"), ("damaged", "Пошкодження"), ("wrong_item", "Не той товар"), ("quality", "Якість товару"), ("price", "Невідповідність ціни"), ("late", "Запізнення доставки"), ("other", "Інше")], max_length=16)),
                 ("status", models.CharField(choices=[("open", "Чернетка"), ("sent", "Відправлено"), ("accepted", "Прийнято постачальником"), ("rejected", "Відхилено постачальником"), ("resolved", "Вирішено"), ("cancelled", "Скасовано")], db_index=True, default="open", max_length=12)),
                 ("quantity", models.DecimalField(blank=True, decimal_places=3, max_digits=12, null=True)),
-                ("requested_amount", models.DecimalField(decimal_places=2, default=Decimal("0"), max_digits=12)),
+                ("requested_amount", models.DecimalField(decimal_places=2, default=0, max_digits=12)),
                 ("description", models.TextField()),
                 ("supplier_response", models.TextField(blank=True)),
                 ("resolution_note", models.TextField(blank=True)),
