@@ -1148,7 +1148,7 @@ def purchase_detail(request, pk):
     payments = purchase.settlement_payments.filter(company=request.company, is_void=False)
     paid = payments.aggregate(total=Sum("amount"))["total"] or D0
     compensated = SupplierCompensation.objects.filter(
-        company=request.company, purchase=purchase
+        company=request.company, purchase=purchase, is_void=False
     ).aggregate(total=Sum("amount"))["total"] or D0
     from .models import AccountAdvance
     available_advances = AccountAdvance.objects.filter(
