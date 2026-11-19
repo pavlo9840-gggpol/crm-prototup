@@ -1,6 +1,6 @@
 {% extends "core/base.html" %}{% block content %}
 <h2>Замовлення постачальникам</h2>
-<p><a class="btn" href="{% url 'purchase_order_control' %}">Контроль доставок і недопоставок</a> <a class="btn" href="{% url 'supplier_analytics' %}">Аналітика постачальників</a></p>
+<p><a class="btn" href="{% url 'supplier_claim_list' %}">Претензії постачальникам</a> <a class="btn" href="{% url 'purchase_order_control' %}">Контроль доставок і недопоставок</a> <a class="btn" href="{% url 'supplier_analytics' %}">Аналітика постачальників</a></p>
 <form method="get" class="filter"><select name="status"><option value="">Усі статуси</option>{% for key,label in statuses %}<option value="{{ key }}"{% if selected_status == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select><button class="btn">Фільтр</button> <a class="btn" href="{% url 'purchase_recommendations' %}">Рекомендації закупівлі</a> <a class="btn" href="{% url 'purchase_list' %}">Накладні надходження</a></form>
 <table><tr><th>№</th><th>Дата</th><th>Постачальник</th><th>Статус</th><th>Очікується</th><th>Позицій</th></tr>
 {% for order in orders %}<tr><td><a href="{% url 'purchase_order_detail' order.pk %}">{{ order.number }}</a></td><td>{{ order.created_at|date:"d.m.Y H:i" }}</td><td>{{ order.supplier.name }}</td><td>{{ order.get_status_display }}</td><td>{{ order.expected_date|date:"d.m.Y"|default:"—" }}</td><td>{{ order.items.count }}</td></tr>{% empty %}<tr><td colspan="6">Замовлень постачальникам ще немає.</td></tr>{% endfor %}</table>
