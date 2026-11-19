@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from . import cash as cashlib
-from .models import AccountAdvance, CashOperation, Customer, Purchase, Sale, SettlementPayment, Shift, Supplier
+from .models import AccountAdvance, BankReconciliation, CashOperation, Customer, Purchase, Sale, SettlementPayment, Shift, Supplier
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -214,6 +214,9 @@ def settlement_payment_void(request, pk):
         ).select_related("sale", "purchase", "cash_operation").first()
         if not payment:
             messages.error(request, "Оплату не знайдено або її вже скасовано.")
+            return redirect("settlements_home")
+        if BankReconciliation.objects.filter(settlement_payment=payment, is_void=False).exists():
+            messages.error(request, "Спочатку скасуйте банківську звірку цієї оплати.")
             return redirect("settlements_home")
         if payment.cash_operation_id:
             shift = Shift.objects.select_for_update().filter(
