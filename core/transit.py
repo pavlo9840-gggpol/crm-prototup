@@ -5,7 +5,7 @@ import io
 import json
 import re
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
