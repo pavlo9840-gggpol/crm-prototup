@@ -1199,20 +1199,31 @@ def report_profit(request):
     # Margin is realized only after the item is handed over to the customer.
     # Supplier-order sales remain in revenue reports, but are not counted as earned
     # profit until fulfilment sets earned_at; returns reduce both net revenue and cost.
-    # Profit belongs to the period when the item was handed to the customer,
-    # not the earlier date when the sale/order was first created.
-    rows = list(SaleItem.objects.filter(
-        company=request.company, sale__company=request.company, sale__status=Sale.DONE, earned_at__date__range=(d1, d2)
-    ).values("product__name", "product__sku").annotate(
-            q=Sum(NET), rev=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
-            cost=Sum(ExpressionWrapper(NET * F("cost_price"), output_field=DEC))).order_by("-rev"))
+    base = SaleItem.objects.filter(
+        company=request.company, sale__company=request.company, sale__status=Sale.DONE,
+        earned_at__date__range=(d1, d2),
+    )
+    rows = list(base.values("product__name", "product__sku", "product__category__name").annotate(
+        q=Sum(NET), rev=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
+        cost=Sum(ExpressionWrapper(NET * F("cost_price"), output_field=DEC)),
+    ).order_by("-rev"))
     for r in rows:
         r["margin"] = (r["rev"] or D0) - (r["cost"] or D0)
         r["pct"] = r["margin"] / r["rev"] * 100 if r["rev"] else D0
-    rev, cost = sum((r["rev"] or D0 for r in rows), D0), sum((r["cost"] or D0 for r in rows), D0)
-    return render(request, "core/report_profit.html", {"d1": d1, "d2": d2, "rows": rows, "rev": rev,
-                                                       "cost": cost, "margin": rev - cost})
-
+    category_rows = list(base.values("product__category__name").annotate(
+        q=Sum(NET), rev=Sum(ExpressionWrapper(NET * F("price"), output_field=DEC)),
+        cost=Sum(ExpressionWrapper(NET * F("cost_price"), output_field=DEC)),
+    ).order_by("-rev"))
+    for r in category_rows:
+        r["margin"] = (r["rev"] or D0) - (r["cost"] or D0)
+        r["pct"] = r["margin"] / r["rev"] * 100 if r["rev"] else D0
+    rev = sum((r["rev"] or D0 for r in rows), D0)
+    cost = sum((r["cost"] or D0 for r in rows), D0)
+    low_margin_rows = sorted(rows, key=lambda r: (r["pct"], r["margin"]))[:10]
+    return render(request, "core/report_profit.html", {
+        "d1": d1, "d2": d2, "rows": rows, "category_rows": category_rows,
+        "low_margin_rows": low_margin_rows, "rev": rev, "cost": cost, "margin": rev - cost,
+    })
 
 @login_required
 @company_required
