@@ -9,7 +9,7 @@ from django.db.models import Sum
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from .models import BankAccount, BankTransaction, BankReconciliation, SettlementPayment
+from .models import BankAccount, BankTransaction, BankReconciliation, SettlementPayment, SupplierCompensation
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -161,6 +161,10 @@ def bank_transaction_void(request, pk):
             return redirect("bank_ledger")
         if BankReconciliation.objects.filter(bank_transaction=entry, is_void=False).exists():
             messages.error(request, "Спочатку скасуйте звірку, потім можна скасувати банківський запис.")
+            return redirect("bank_ledger")
+        if (SupplierCompensation.objects.filter(bank_transaction=entry).exists()
+                or SupplierCompensation.objects.filter(reversal_bank_transaction=entry).exists()):
+            messages.error(request, "Ця банківська операція належить компенсації постачальника. Скасуйте всю компенсацію через документ повернення.")
             return redirect("bank_ledger")
         entry.is_void = True
         entry.voided_at = timezone.now()
