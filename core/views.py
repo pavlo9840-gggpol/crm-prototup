@@ -488,6 +488,61 @@ def purchase_order_list(request):
 @login_required
 @company_required
 @tenant_staff_only
+def purchase_order_control(request):
+    today = timezone.localdate()
+    active_statuses = (PurchaseOrder.SENT, PurchaseOrder.CONFIRMED, PurchaseOrder.PARTIAL)
+    orders = company_queryset(
+        PurchaseOrder.objects.select_related("supplier", "user").prefetch_related("items__product"),
+        request,
+    ).filter(status__in=active_statuses)
+    filter_mode = request.GET.get("delivery", "all").strip()
+    if filter_mode == "overdue":
+        orders = orders.filter(expected_date__lt=today)
+    elif filter_mode == "incomplete":
+        orders = orders.filter(items__received_quantity__lt=F("items__quantity")).distinct()
+
+    rows = []
+    overdue_count = 0
+    incomplete_count = 0
+    outstanding_units = D0
+    outstanding_value = D0
+    for order in orders.order_by("expected_date", "created_at")[:500]:
+        lines = []
+        order_qty = D0
+        order_value = D0
+        for item in order.items.all():
+            remaining = item.outstanding_quantity
+            if remaining <= 0:
+                continue
+            order_qty += remaining
+            order_value += remaining * item.cost_price
+            lines.append({
+                "item": item, "remaining": remaining,
+                "remaining_value": remaining * item.cost_price,
+            })
+        if not lines:
+            continue
+        order.is_overdue = bool(order.expected_date and order.expected_date < today)
+        order.outstanding_lines = lines
+        order.outstanding_quantity = order_qty
+        order.outstanding_value = order_value
+        order.days_overdue = (today - order.expected_date).days if order.is_overdue else 0
+        overdue_count += int(order.is_overdue)
+        incomplete_count += 1
+        outstanding_units += order_qty
+        outstanding_value += order_value
+        rows.append(order)
+
+    return render(request, "core/purchase_order_control.html", {
+        "orders": rows, "today": today, "selected_delivery": filter_mode,
+        "overdue_count": overdue_count, "incomplete_count": incomplete_count,
+        "outstanding_units": outstanding_units, "outstanding_value": outstanding_value,
+    })
+
+
+@login_required
+@company_required
+@tenant_staff_only
 def purchase_order_detail(request, pk):
     order = get_object_or_404(
         company_queryset(PurchaseOrder.objects.select_related("supplier", "user"), request), pk=pk
