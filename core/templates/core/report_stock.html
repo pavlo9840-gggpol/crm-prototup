@@ -11,7 +11,7 @@
 <div class="card">A — ключові позиції: <b>{{ abc_summary.A.count }}</b><br>Виручка: {{ abc_summary.A.revenue|floatformat:2 }} ₴<br>Запаси: {{ abc_summary.A.stock_value|floatformat:2 }} ₴</div>
 <div class="card">B — середній внесок: <b>{{ abc_summary.B.count }}</b><br>Виручка: {{ abc_summary.B.revenue|floatformat:2 }} ₴<br>Запаси: {{ abc_summary.B.stock_value|floatformat:2 }} ₴</div>
 <div class="card">C — низький внесок: <b>{{ abc_summary.C.count }}</b><br>Виручка: {{ abc_summary.C.revenue|floatformat:2 }} ₴<br>Запаси: {{ abc_summary.C.stock_value|floatformat:2 }} ₴</div>
-<div class="card">Без продажів у періоді: <b>{{ abc_summary.0.count }}</b><br>Закупівельна вартість запасів: {{ abc_summary.0.stock_value|floatformat:2 }} ₴</div>
+<div class="card">Без продажів у періоді: <b>{{ no_sales_summary.count }}</b><br>Закупівельна вартість запасів: {{ no_sales_summary.stock_value|floatformat:2 }} ₴</div>
 </div>
 <table><tr><th>Клас</th><th>Товар</th><th>Артикул</th><th class="n">Продано</th><th class="n">Виручка</th><th class="n">Частка</th><th class="n">Залишок</th><th class="n">Днів запасу*</th><th>Поповнення</th></tr>
 {% for r in abc_rows %}<tr><td>{{ r.abc }}</td><td>{{ r.product__name }}</td><td>{{ r.product__sku }}</td><td class="n">{{ r.qty|floatformat:"-3" }}</td><td class="n">{{ r.revenue|floatformat:2 }} ₴</td><td class="n">{{ r.share|floatformat:1 }}%</td><td class="n">{{ r.stock|floatformat:"-3" }}</td><td class="n">{% if r.coverage_days != None %}{{ r.coverage_days|floatformat:1 }}{% else %}—{% endif %}</td><td>{% if r.replenishment %}Перевірити закупівлю{% else %}—{% endif %}</td></tr>{% empty %}<tr><td colspan="9">Немає продажів і залишків за вибраними умовами</td></tr>{% endfor %}</table>
