@@ -77,6 +77,7 @@ urlpatterns = [
     path("finance/", fv.finance_ledger, name="finance_ledger"),
     path("bank/", bv.bank_ledger, name="bank_ledger"),
     path("bank/import/", bv.bank_import, name="bank_import"),
+    path("bank/export.csv", bv.bank_export_csv, name="bank_export_csv"),
     path("bank/<int:pk>/void/", bv.bank_transaction_void, name="bank_transaction_void"),
     path("finance/<int:pk>/void/", fv.finance_entry_void, name="finance_entry_void"),
     path("customers/<int:pk>/account/", sv.customer_account, name="customer_account"),
