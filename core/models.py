@@ -552,9 +552,18 @@ class SupplierCompensation(models.Model):
                                           related_name="supplier_compensation")
     bank_transaction = models.OneToOneField("BankTransaction", null=True, blank=True, on_delete=models.PROTECT,
                                             related_name="supplier_compensation")
+    reversal_cash_operation = models.OneToOneField("CashOperation", null=True, blank=True, on_delete=models.PROTECT,
+                                                   related_name="supplier_compensation_reversal")
+    reversal_bank_transaction = models.OneToOneField("BankTransaction", null=True, blank=True, on_delete=models.PROTECT,
+                                                     related_name="supplier_compensation_reversal")
     note = models.CharField("Примітка", max_length=250, blank=True)
     created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="supplier_compensations_created")
     created_at = models.DateTimeField(auto_now_add=True)
+    is_void = models.BooleanField("Скасовано", default=False, db_index=True)
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(USER, null=True, blank=True, on_delete=models.PROTECT,
+                                  related_name="supplier_compensations_voided")
+    void_reason = models.CharField(max_length=250, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-pk"]
