@@ -127,3 +127,17 @@ class StaffMembershipAdmin(admin.ModelAdmin):
     search_fields = ("company__name", "user__username", "user__email")
     list_filter = ("role", "is_active")
     readonly_fields = ("created_at",)
+
+
+@admin.register(m.PurchaseOrder)
+class PurchaseOrderAdmin(admin.ModelAdmin):
+    list_display = ("number", "supplier", "status", "created_at", "expected_date", "user")
+    list_filter = ("status", "supplier")
+    search_fields = ("number", "supplier__name")
+    readonly_fields = ("number", "created_at", "updated_at", "sent_at", "confirmed_at", "closed_at")
+
+
+@admin.register(m.PurchaseOrderItem)
+class PurchaseOrderItemAdmin(admin.ModelAdmin):
+    list_display = ("order", "product", "quantity", "received_quantity", "cost_price")
+    search_fields = ("order__number", "product__name", "product__sku")
