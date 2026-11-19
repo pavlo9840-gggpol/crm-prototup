@@ -310,9 +310,22 @@ def bank_export_csv(request):
     response["Content-Disposition"] = 'attachment; filename="bank-journal-%s-%s.csv"' % (date_from.isoformat(), date_to.isoformat())
     response.write("\ufeff")
     writer = csv.writer(response, delimiter=";")
-    writer.writerow(["Дата", "Банк", "IBAN", "Валюта", "Напрямок", "Категорія", "Сума", "Контрагент", "Документ/призначення", "Примітка", "Статус", "Причина скасування"])
+    writer.writerow(["Дата", "Банк", "IBAN", "Валюта", "Напрямок", "Категорія", "Сума", "Контрагент", "Документ/призначення", "Примітка", "Статус", "Причина скасування", "Звірка", "Документ звірки", "Звірено користувачем", "Дата звірки", "Причина скасування звірки"])
     for entry in entries:
-        writer.writerow([entry.transaction_date.isoformat(), entry.account.bank_name, entry.account.iban, entry.account.currency, entry.get_direction_display(), entry.category, str(entry.amount), entry.counterparty, entry.document_ref, entry.note, "Скасовано" if entry.is_void else "Активна", entry.void_reason])
+        reconciliation = BankReconciliation.objects.filter(company=request.company, bank_transaction=entry, is_void=False).select_related(
+            "settlement_payment", "settlement_payment__sale", "settlement_payment__purchase", "matched_by"
+        ).first()
+        if reconciliation:
+            payment = reconciliation.settlement_payment
+            document = payment.sale or payment.purchase
+            match_status = "Звірено"
+            match_document = f"{'Продаж' if payment.sale_id else 'Закупівля'} №{document.number or document.pk}"
+            match_user = reconciliation.matched_by.get_username()
+            match_date = reconciliation.matched_at.isoformat()
+            match_void_reason = ""
+        else:
+            match_status, match_document, match_user, match_date, match_void_reason = "Не звірено", "", "", "", ""
+        writer.writerow([entry.transaction_date.isoformat(), entry.account.bank_name, entry.account.iban, entry.account.currency, entry.get_direction_display(), entry.category, str(entry.amount), entry.counterparty, entry.document_ref, entry.note, "Скасовано" if entry.is_void else "Активна", entry.void_reason, match_status, match_document, match_user, match_date, match_void_reason])
     return response
 
 @tenant_staff_only
