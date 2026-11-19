@@ -480,6 +480,53 @@ class SupplierClaim(models.Model):
         return self.claim_number or f"Претензія #{self.pk}"
 
 
+class SupplierReturn(models.Model):
+    """Фактичне повернення отриманого товару постачальнику; створюється лише разом зі списанням зі складу."""
+    COMPENSATION_CHOICES = [
+        ("credit", "Зарахувати в рахунок боргу"),
+        ("refund", "Повернення коштів"),
+        ("replacement", "Заміна товару"),
+    ]
+
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="supplier_returns")
+    purchase_item = models.ForeignKey(PurchaseItem, on_delete=models.PROTECT, related_name="supplier_returns")
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="returns")
+    number = models.CharField("Номер повернення", max_length=24, blank=True, db_index=True)
+    quantity = models.DecimalField("Кількість", max_digits=12, decimal_places=3)
+    unit_cost = models.DecimalField("Собівартість одиниці", max_digits=12, decimal_places=2)
+    compensation_type = models.CharField("Очікувана компенсація", max_length=12, choices=COMPENSATION_CHOICES, default="credit")
+    reason = models.TextField("Причина повернення")
+    note = models.TextField("Примітка", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField()
+    created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="supplier_returns_created")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [
+            models.Index(fields=["company", "created_at"], name="sup_return_company_date_idx"),
+            models.Index(fields=["company", "supplier"], name="sup_return_company_sup_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="supplier_return_qty_positive"),
+            models.CheckConstraint(condition=Q(unit_cost__gte=0), name="supplier_return_cost_nonnegative"),
+        ]
+
+    @property
+    def total(self):
+        return self.quantity * self.unit_cost
+
+    def save(self, *args, **kwargs):
+        if (self.purchase_item.company_id != self.company_id
+                or self.purchase_item.purchase.supplier_id != self.supplier_id
+                or self.purchase_item.product.company_id != self.company_id):
+            raise ValueError("Повернення має посилатися на закупівлю, товар і постачальника одного магазину.")
+        super().save(*args, **kwargs)
+        if not self.number:
+            self.number = f"SR-{self.pk:06d}"
+            super().save(update_fields=["number"])
+
+
 class StockBatch(models.Model):
     """Окрема партія надходження з власною собівартістю та залишком."""
     company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="stock_batches")
