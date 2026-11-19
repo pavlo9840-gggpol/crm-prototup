@@ -156,4 +156,13 @@ class SupplierReturnAdmin(admin.ModelAdmin):
     list_display = ("number", "supplier", "purchase_item", "quantity", "unit_cost", "compensation_type", "completed_at")
     list_filter = ("compensation_type", "supplier")
     search_fields = ("number", "supplier__name", "purchase_item__purchase__number", "reason")
-    readonly_fields = ("number", "created_at", "completed_at")
+    readonly_fields = tuple(field.name for field in m.SupplierReturn._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
