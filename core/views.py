@@ -702,8 +702,9 @@ def purchase_order_detail(request, pk):
     order = get_object_or_404(
         company_queryset(PurchaseOrder.objects.select_related("supplier", "user"), request), pk=pk
     )
-    items = list(order.items.select_related("product", "supplier_item").all())
+    items = list(order.items.select_related("product", "supplier_item").prefetch_related("claims__created_by").all())
     for item in items:
+        item.supplier_claims = list(item.claims.all())
         item.receipt_price_rows = [
             {
                 "date": receipt.purchase.created_at,
@@ -822,7 +823,7 @@ def supplier_claim_update(request, pk):
         messages.success(request, f"Статус претензії {claim.claim_number}: {claim.get_status_display()}.")
     except StockError as exc:
         messages.error(request, str(exc))
-    return redirect(request.POST.get("next") or "supplier_claim_list")
+    return redirect("supplier_claim_list")
 
 
 @login_required
