@@ -49,6 +49,7 @@ urlpatterns = [
     path("suppliers/<int:pk>/edit/", v.supplier_edit, name="supplier_edit"),
     path("purchases/", v.purchase_list, name="purchase_list"),
     path("purchases/new/", v.purchase_new, name="purchase_new"),
+    path("purchases/recommendations/", v.purchase_recommendations, name="purchase_recommendations"),
     path("purchases/<int:pk>/", v.purchase_detail, name="purchase_detail"),
     path("pos/", v.pos, name="pos"),
     path("pos/search/", v.pos_search, name="pos_search"),
