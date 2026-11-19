@@ -1377,6 +1377,14 @@ def report_stock(request):
             })
     stagnant.sort(key=lambda row: (row["days"] is not None, -(row["days"] or 999999), -row["stock_value"]))
     low = products.filter(current_stock__lte=F("min_stock")).order_by("current_stock", "name")
+    replenishment_rows = []
+    for product in low:
+        sold_row = sales_by_product.get(product.pk, {})
+        replenishment_rows.append({
+            "product__name": product.name, "product__sku": product.sku,
+            "stock": product.current_stock, "min_stock": product.min_stock,
+            "daily_qty": sold_row.get("daily_qty", D0),
+        })
     return render(request, "core/report_stock.html", {
         "value": value, "quantity": stock["quantity"] or D0, "product_count": stock["product_count"] or 0,
         "summary": summary, "low": low, "stagnant": stagnant[:300],
@@ -1385,7 +1393,7 @@ def report_stock(request):
         "stagnant_count": len(stagnant), "today": today,
         "d1": d1, "d2": d2, "days": days, "abc_rows": abc_rows[:500],
         "abc_summary": abc_summary, "no_sales_summary": abc_summary["—"], "total_revenue": total_revenue,
-        "replenishment_rows": [r for r in abc_rows if r["replenishment"]][:100],
+        "replenishment_rows": replenishment_rows[:100],
     })
 
 # ---------- Shifts ----------
