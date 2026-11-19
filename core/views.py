@@ -509,6 +509,64 @@ def purchase_order_detail(request, pk):
 @login_required
 @company_required
 @tenant_staff_only
+def purchase_order_print(request, pk):
+    order = get_object_or_404(
+        company_queryset(PurchaseOrder.objects.select_related("supplier", "user"), request), pk=pk
+    )
+    items = list(order.items.select_related("product").all())
+    total = sum((item.line_total for item in items), D0)
+    return render(request, "core/purchase_order_print.html", {
+        "order": order, "items": items, "total": total,
+    })
+
+
+@login_required
+@company_required
+@tenant_staff_only
+def purchase_order_export_csv(request, pk):
+    order = get_object_or_404(
+        company_queryset(PurchaseOrder.objects.select_related("supplier"), request), pk=pk
+    )
+    items = list(order.items.select_related("product").all())
+    response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
+    response["Content-Disposition"] = f'attachment; filename="purchase-order-{order.number or order.pk}.csv"'
+    writer = csv.writer(response, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+
+    def safe_cell(value):
+        value = "" if value is None else str(value)
+        return "'" + value if value.startswith(("=", "+", "-", "@", "\t", "\r")) else value
+
+    writer.writerow(["Замовлення постачальнику", safe_cell(order.number)])
+    writer.writerow(["Постачальник", safe_cell(order.supplier.name)])
+    writer.writerow(["Контактна особа", safe_cell(order.supplier.contact_person)])
+    writer.writerow(["Телефон", safe_cell(order.supplier.phone)])
+    writer.writerow(["Дата", timezone.localtime(order.created_at).strftime("%d.%m.%Y %H:%M")])
+    writer.writerow(["Очікувана доставка", order.expected_date.strftime("%d.%m.%Y") if order.expected_date else ""])
+    writer.writerow(["Статус", order.get_status_display()])
+    writer.writerow(["Примітка", safe_cell(order.note)])
+    writer.writerow([])
+    writer.writerow([
+        "№", "Товар", "Бренд", "Артикул", "Од. виміру", "Замовлено",
+        "Отримано", "Залишок до отримання", "Ціна планова", "Сума планова",
+    ])
+    total = D0
+    for index, item in enumerate(items, start=1):
+        line_total = item.line_total
+        total += line_total
+        writer.writerow([
+            index, safe_cell(item.product.name), safe_cell(item.product.brand),
+            safe_cell(item.product.sku), safe_cell(item.product.unit),
+            str(item.quantity), str(item.received_quantity), str(item.outstanding_quantity),
+            str(item.cost_price), str(line_total),
+        ])
+    writer.writerow([])
+    writer.writerow(["", "", "", "", "", "", "", "Разом:", "", str(total)])
+    return response
+
+
+@login_required
+@company_required
+@tenant_staff_only
 @require_POST
 def purchase_order_update(request, pk):
     try:
