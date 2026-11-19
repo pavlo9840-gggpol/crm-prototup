@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from core.models import Product, Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Supplier, SupplierItem, SupplierPriceChange
+from core.models import Product, Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Supplier, SupplierClaim, SupplierItem, SupplierPriceChange
 from core.tests_tenant_helpers import create_test_company
 
 
@@ -305,6 +305,78 @@ class SupplierPurchaseOrderTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["performance"], [])
         self.assertEqual(response.context["comparisons"], [])
+
+    def test_supplier_claim_lifecycle_is_audited(self):
+        order, item = self.create_order(quantity="5", status=PurchaseOrder.CONFIRMED)
+        response = self.client.post(
+            reverse("supplier_claim_create", args=[order.pk, item.pk]),
+            {"kind": "damaged", "quantity": "1", "requested_amount": "250.00",
+             "description": "Пошкоджено корпус під час доставки"},
+        )
+        self.assertEqual(response.status_code, 302)
+        claim = SupplierClaim.objects.get(order=order)
+        self.assertEqual(claim.claim_number, f"CLM-{claim.pk:06d}")
+        self.assertEqual(claim.status, SupplierClaim.OPEN)
+
+        response = self.client.post(reverse("supplier_claim_update", args=[claim.pk]), {"action": "send"})
+        claim.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(claim.status, SupplierClaim.SENT)
+        self.assertIsNotNone(claim.sent_at)
+
+        self.client.post(
+            reverse("supplier_claim_update", args=[claim.pk]),
+            {"action": "accept", "supplier_response": "Погоджено повернення коштів"},
+        )
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, SupplierClaim.ACCEPTED)
+        self.assertEqual(claim.supplier_response, "Погоджено повернення коштів")
+
+        self.client.post(
+            reverse("supplier_claim_update", args=[claim.pk]),
+            {"action": "resolve", "resolution_note": "Компенсацію погоджено та отримано"},
+        )
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, SupplierClaim.RESOLVED)
+        self.assertEqual(claim.resolved_by, self.owner)
+        self.assertIsNotNone(claim.closed_at)
+
+    def test_supplier_claim_rejects_invalid_quantity_and_requires_reason(self):
+        order, item = self.create_order(quantity="5", status=PurchaseOrder.CONFIRMED)
+        self.client.post(
+            reverse("supplier_claim_create", args=[order.pk, item.pk]),
+            {"kind": "shortage", "quantity": "6", "description": "Не вистачає товару"},
+        )
+        self.assertFalse(SupplierClaim.objects.filter(order=order).exists())
+        self.client.post(
+            reverse("supplier_claim_create", args=[order.pk, item.pk]),
+            {"kind": "shortage", "quantity": "1"},
+        )
+        self.assertFalse(SupplierClaim.objects.filter(order=order).exists())
+
+    def test_supplier_claims_are_tenant_scoped(self):
+        other_owner = get_user_model().objects.create_superuser(
+            username="claim-other-owner", email="", password="secret"
+        )
+        other_company = create_test_company(other_owner, "Other claims company", [])
+        other_supplier = Supplier.objects.create(company=other_company, name="Other supplier")
+        other_product = Product.objects.create(company=other_company, name="Other product", sku="OTHER-CLAIM")
+        other_order = PurchaseOrder.objects.create(
+            company=other_company, supplier=other_supplier, user=other_owner, status=PurchaseOrder.SENT
+        )
+        other_item = PurchaseOrderItem.objects.create(
+            company=other_company, order=other_order, product=other_product,
+            quantity=Decimal("2"), cost_price=Decimal("5"),
+        )
+        foreign_claim = SupplierClaim.objects.create(
+            company=other_company, order=other_order, order_item=other_item, supplier=other_supplier,
+            kind="other", description="Private claim", created_by=other_owner,
+        )
+        response = self.client.get(reverse("supplier_claim_list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, foreign_claim.claim_number)
+        response = self.client.post(reverse("supplier_claim_update", args=[foreign_claim.pk]), {"action": "send"})
+        self.assertEqual(response.status_code, 404)
 
     def test_foreign_company_order_is_not_visible(self):
         other_owner = get_user_model().objects.create_superuser(
