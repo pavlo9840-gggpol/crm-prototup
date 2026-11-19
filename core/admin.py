@@ -149,3 +149,11 @@ class SupplierClaimAdmin(admin.ModelAdmin):
     list_filter = ("status", "kind", "supplier")
     search_fields = ("claim_number", "order__number", "supplier__name", "description")
     readonly_fields = ("claim_number", "created_at", "updated_at", "sent_at", "closed_at")
+
+
+@admin.register(m.SupplierReturn)
+class SupplierReturnAdmin(admin.ModelAdmin):
+    list_display = ("number", "supplier", "purchase_item", "quantity", "unit_cost", "compensation_type", "completed_at")
+    list_filter = ("compensation_type", "supplier")
+    search_fields = ("number", "supplier__name", "purchase_item__purchase__number", "reason")
+    readonly_fields = ("number", "created_at", "completed_at")
