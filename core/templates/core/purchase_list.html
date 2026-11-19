@@ -2,7 +2,7 @@
 <form class="filter">З <input type="date" name="from" value="{{ request.GET.from }}"> до <input type="date" name="to" value="{{ request.GET.to }}">
 <select name="supplier"><option value="">Усі постачальники</option>{% for s in suppliers %}<option value="{{ s.pk }}"{% if selected_supplier == s.pk|stringformat:"s" %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
 <input type="search" name="q" value="{{ q }}" placeholder="№ накладної або постачальник" aria-label="Пошук накладної або постачальника">
-<button class="btn">Фільтр</button> <a class="btn green" href="{% url 'purchase_new' %}">+ Нова накладна</a></form>
+<button class="btn">Фільтр</button> <a class="btn" href="{% url 'purchase_recommendations' %}">Рекомендації закупівлі</a> <a class="btn green" href="{% url 'purchase_new' %}">+ Нова накладна</a></form>
 <p>Знайдено накладних: <strong>{{ summary_count }}</strong> · Сума за фільтром: <strong>{{ summary_total|floatformat:2 }} ₴</strong>{% if summary_count > 300 %} · У таблиці показано перші 300{% endif %}</p>
 {% include "core/_gpbar.html" %}
 <table><tr><th><input type="checkbox" id="selall"><th>№<th>Дата<th>Постачальник<th class="n">Сума<th>Статус</tr>
