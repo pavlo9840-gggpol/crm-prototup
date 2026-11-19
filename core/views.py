@@ -662,7 +662,7 @@ def supplier_analytics(request):
 
         def safe_cell(value):
             value = "" if value is None else str(value)
-            return "'" + value if value.startswith(("=", "+", "-", "@", "\\t", "\\r")) else value
+            return "'" + value if value.startswith(("=", "+", "-", "@", "\t", "\r")) else value
 
         writer.writerow(["Звіт постачальників", f"{date_from} — {date_to}"])
         writer.writerow(["Постачальник", "Замовлень", "Повністю отримано", "Отримано, од.", "Замовлено, од.",
