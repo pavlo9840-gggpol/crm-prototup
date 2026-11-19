@@ -396,7 +396,8 @@ def purchase_recommendations(request):
         sold_qty = sold_by_product.get(product.pk, D0)
         daily_qty = sold_qty / Decimal(period_days)
         target_stock = daily_qty * Decimal(target_days) + (product.min_stock or D0)
-        ordered_qty = pending_by_product.get(product.pk, D0)\n        recommended = max(D0, target_stock - (product.current_stock or D0) - ordered_qty)
+        ordered_qty = pending_by_product.get(product.pk, D0)
+        recommended = max(D0, target_stock - (product.current_stock or D0) - ordered_qty)
         if recommended <= 0 or (daily_qty <= 0 and (product.min_stock or D0) <= (product.current_stock or D0)):
             continue
         recommended = recommended.quantize(Decimal("0.001"), rounding=ROUND_UP)
