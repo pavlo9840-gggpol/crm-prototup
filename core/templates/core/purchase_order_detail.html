@@ -40,6 +40,17 @@
 <button class="btn green">Прийняти та створити накладну</button></form>
 {% else %}Повністю отримано{% endif %}
 {% else %}Після підтвердження{% endif %}
+{% if order.status != "draft" and order.status != "cancelled" %}
+<form method="post" action="{% url 'supplier_claim_create' order.pk item.pk %}" style="display:grid;gap:4px;margin-top:10px;min-width:190px">
+{% csrf_token %}
+<b style="font-size:12px">Зафіксувати претензію</b>
+<select name="kind" required><option value="">Причина</option><option value="shortage">Недопоставка</option><option value="damaged">Пошкодження</option><option value="wrong_item">Не той товар</option><option value="quality">Якість</option><option value="price">Невідповідність ціни</option><option value="late">Запізнення</option><option value="other">Інше</option></select>
+<input type="number" name="quantity" min="0.001" max="{{ item.quantity }}" step="0.001" placeholder="Кількість (за потреби)">
+<input type="number" name="requested_amount" min="0" step="0.01" placeholder="Сума вимоги, грн">
+<textarea name="description" rows="2" maxlength="5000" placeholder="Опис проблеми" required></textarea>
+<button class="btn">Створити претензію</button></form>
+{% endif %}
+{% if item.supplier_claims %}<div style="margin-top:8px;font-size:12px"><b>Претензії:</b>{% for claim in item.supplier_claims %}<div><a href="{% url 'supplier_claim_list' %}">{{ claim.claim_number }}</a> · {{ claim.get_status_display }}</div>{% endfor %}</div>{% endif %}
 </td></tr>{% endfor %}</table>
 <p><a class="btn" href="{% url 'purchase_order_list' %}">До замовлень</a> <a class="btn" href="{% url 'purchase_list' %}">До накладних надходження</a></p>
 {% endblock %}
