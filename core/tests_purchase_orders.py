@@ -62,7 +62,7 @@ class SupplierPurchaseOrderTests(TestCase):
         order, item = self.create_order(quantity="5")
         response = self.client.post(
             reverse("purchase_order_receive", args=[order.pk, item.pk]),
-            {"quantity": "2"},
+            {"quantity": "2", "actual_cost": "9.25"},
         )
         self.assertRedirects(response, reverse("purchase_order_detail", args=[order.pk]))
         item.refresh_from_db()
@@ -74,7 +74,20 @@ class SupplierPurchaseOrderTests(TestCase):
         self.assertEqual(self.product.current_stock, Decimal("2"))
         receipt_item = PurchaseItem.objects.get(order_item=item)
         self.assertEqual(receipt_item.quantity, Decimal("2"))
+        self.assertEqual(receipt_item.cost_price, Decimal("9.25"))
         self.assertTrue(Purchase.objects.filter(pk=receipt_item.purchase_id, company=self.company).exists())
+
+    def test_receipt_rejects_negative_actual_supplier_price(self):
+        order, item = self.create_order(quantity="2")
+        self.client.post(
+            reverse("purchase_order_receive", args=[order.pk, item.pk]),
+            {"quantity": "1", "actual_cost": "-1"},
+        )
+        item.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(item.received_quantity, Decimal("0"))
+        self.assertEqual(self.product.current_stock, Decimal("0"))
+        self.assertFalse(PurchaseItem.objects.filter(order_item=item).exists())
 
     def test_final_receipt_closes_order(self):
         order, item = self.create_order(quantity="3")
