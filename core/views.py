@@ -2,7 +2,7 @@ import json
 import csv
 import re
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_UP
 from functools import wraps
 from urllib.parse import urlencode
 
