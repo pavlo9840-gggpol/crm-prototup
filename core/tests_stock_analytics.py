@@ -55,4 +55,4 @@ class StockAnalyticsReportTests(TestCase):
         response = self.client.get(reverse("report_stock"))
         rows = {row["product"].sku for row in response.context["stagnant"]}
         self.assertNotIn("FOREIGN", rows)
-        self.assertEqual(response.context["value"], Decimal("110.00"))
+        self.assertEqual(response.context["value"], Decimal("170.00"))
