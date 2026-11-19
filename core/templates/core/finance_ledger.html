@@ -3,6 +3,7 @@
 <h2>Фінанси магазину</h2>
 <p class="muted">Управлінський журнал доходів і витрат. Записи не є фіскальними чеками та не змінюють фізичний залишок готівки в касовій зміні.</p>
 
+<p><a class="btn" href="{% url 'cashflow_report' %}">Звіт руху грошових коштів →</a> <a class="btn" href="{% url 'bank_ledger' %}">Банківський журнал →</a></p>
 <form method="get" class="filter">
   <label>З дати <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
   <label>По дату <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
