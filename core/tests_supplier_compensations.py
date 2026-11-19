@@ -118,6 +118,62 @@ class SupplierCompensationTests(TestCase):
         self.assertFalse(SupplierCompensation.objects.exists())
         self.assertFalse(CashOperation.objects.exists())
 
+    def test_credit_note_can_be_voided_with_audit_and_debt_is_restored(self):
+        self.post_compensation({"kind": "credit", "amount": "60.00"})
+        entry = SupplierCompensation.objects.get(supplier_return=self.returned)
+        response = self.client.post(
+            reverse("supplier_compensation_void", args=[entry.pk]),
+            {"reason": "Постачальник відкликав кредит-ноту"},
+        )
+        self.assertRedirects(response, reverse("purchase_detail", args=[self.purchase.pk]))
+        entry.refresh_from_db()
+        self.assertTrue(entry.is_void)
+        self.assertEqual(entry.void_reason, "Постачальник відкликав кредит-ноту")
+        self.assertEqual(entry.voided_by, self.owner)
+        self.assertIsNotNone(entry.voided_at)
+        detail = self.client.get(reverse("purchase_detail", args=[self.purchase.pk]))
+        self.assertEqual(detail.context["settlement_compensated"], Decimal("0.00"))
+        self.assertEqual(detail.context["settlement_balance"], Decimal("200.00"))
+
+    def test_cash_compensation_void_creates_outgoing_reversal_and_restores_drawer(self):
+        shift = Shift.objects.create(
+            company=self.company, cashier=self.owner, opening_cash=Decimal("0.00"), drawer={},
+        )
+        self.post_compensation({"kind": "cash", "amount": "50.00"})
+        entry = SupplierCompensation.objects.get(supplier_return=self.returned)
+        self.assertEqual(shift.cash_ops.count(), 1)
+        response = self.client.post(
+            reverse("supplier_compensation_void", args=[entry.pk]),
+            {"reason": "Помилкова сума"},
+        )
+        self.assertRedirects(response, reverse("purchase_detail", args=[self.purchase.pk]))
+        shift.refresh_from_db()
+        entry.refresh_from_db()
+        self.assertTrue(entry.is_void)
+        self.assertIsNotNone(entry.reversal_cash_operation_id)
+        self.assertEqual(shift.drawer, {})
+        self.assertEqual(shift.cash_ops.count(), 2)
+        self.assertEqual(entry.reversal_cash_operation.kind, "out")
+        self.assertEqual(entry.reversal_cash_operation.amount, Decimal("-50.00"))
+
+    def test_bank_compensation_void_creates_expense_reversal(self):
+        account = BankAccount.objects.create(
+            company=self.company, bank_name="Test bank", iban="UA123456789012345678901234567",
+        )
+        self.post_compensation({"kind": "bank", "amount": "80.00", "bank_account": str(account.pk)})
+        entry = SupplierCompensation.objects.get(supplier_return=self.returned)
+        response = self.client.post(
+            reverse("supplier_compensation_void", args=[entry.pk]),
+            {"reason": "Повернення помилково зараховано"},
+        )
+        self.assertRedirects(response, reverse("purchase_detail", args=[self.purchase.pk]))
+        entry.refresh_from_db()
+        self.assertTrue(entry.is_void)
+        self.assertIsNotNone(entry.reversal_bank_transaction_id)
+        self.assertEqual(entry.reversal_bank_transaction.direction, BankTransaction.EXPENSE)
+        self.assertEqual(entry.reversal_bank_transaction.amount, Decimal("80.00"))
+        self.assertEqual(BankTransaction.objects.filter(company=self.company).count(), 2)
+
     def test_foreign_company_supplier_return_cannot_be_compensated(self):
         other_owner = get_user_model().objects.create_superuser(
             username="supplier-comp-foreign-owner", email="", password="secret"
