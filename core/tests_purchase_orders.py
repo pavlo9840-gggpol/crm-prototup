@@ -97,6 +97,28 @@ class SupplierPurchaseOrderTests(TestCase):
         self.assertEqual(item.received_quantity, Decimal("0"))
         self.assertEqual(self.product.current_stock, Decimal("0"))
 
+    def test_draft_order_can_save_expected_date_and_supplier_note(self):
+        order, _item = self.create_order(status=PurchaseOrder.DRAFT)
+        response = self.client.post(
+            reverse("purchase_order_update", args=[order.pk]),
+            {"expected_date": "2026-12-05", "note": "Доставити до обіду"},
+        )
+        self.assertRedirects(response, reverse("purchase_order_detail", args=[order.pk]))
+        order.refresh_from_db()
+        self.assertEqual(str(order.expected_date), "2026-12-05")
+        self.assertEqual(order.note, "Доставити до обіду")
+
+    def test_sent_order_cannot_be_edited(self):
+        order, _item = self.create_order(status=PurchaseOrder.SENT)
+        response = self.client.post(
+            reverse("purchase_order_update", args=[order.pk]),
+            {"expected_date": "2026-12-05", "note": "Змінена примітка"},
+        )
+        self.assertRedirects(response, reverse("purchase_order_detail", args=[order.pk]))
+        order.refresh_from_db()
+        self.assertIsNone(order.expected_date)
+        self.assertEqual(order.note, "")
+
     def test_foreign_company_order_is_not_visible(self):
         other_owner = get_user_model().objects.create_superuser(
             username="supplier-order-other", email="", password="secret"
