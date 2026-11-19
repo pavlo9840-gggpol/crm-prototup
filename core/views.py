@@ -500,6 +500,32 @@ def purchase_order_detail(request, pk):
 @company_required
 @tenant_staff_only
 @require_POST
+def purchase_order_update(request, pk):
+    try:
+        with transaction.atomic():
+            order = get_object_or_404(
+                company_queryset(PurchaseOrder.objects.select_for_update(), request), pk=pk
+            )
+            if order.status != PurchaseOrder.DRAFT:
+                raise StockError("Редагувати можна лише замовлення у статусі «Чернетка».")
+            raw_date = request.POST.get("expected_date", "").strip()
+            expected_date = datetime.strptime(raw_date, "%Y-%m-%d").date() if raw_date else None
+            note = request.POST.get("note", "").strip()
+            if len(note) > 10000:
+                raise StockError("Примітка не може перевищувати 10 000 символів.")
+            order.expected_date = expected_date
+            order.note = note
+            order.save(update_fields=["expected_date", "note", "updated_at"])
+        messages.success(request, "Дату очікування та примітку збережено.")
+    except (StockError, ValueError) as exc:
+        messages.error(request, str(exc) or "Перевірте дату очікування.")
+    return redirect("purchase_order_detail", pk=pk)
+
+
+@login_required
+@company_required
+@tenant_staff_only
+@require_POST
 def purchase_order_status(request, pk, action):
     with transaction.atomic():
         order = get_object_or_404(company_queryset(PurchaseOrder.objects.select_for_update(), request), pk=pk)
