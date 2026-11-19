@@ -3,6 +3,14 @@
 <p>{{ order.created_at|date:"d.m.Y H:i" }} · {{ order.supplier.name }} · {{ order.user }}</p>
 <p>Статус: <b>{{ order.get_status_display }}</b>{% if order.expected_date %} · Очікується: {{ order.expected_date|date:"d.m.Y" }}{% endif %}</p>
 {% if order.note %}<p>{{ order.note }}</p>{% endif %}
+{% if order.status == "draft" %}
+<form method="post" action="{% url 'purchase_order_update' order.pk %}" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:16px 0;padding:14px;border:1px solid var(--border,#ddd);border-radius:10px">
+{% csrf_token %}
+<label>Очікувана дата доставки<input type="date" name="expected_date" value="{{ order.expected_date|date:'Y-m-d' }}"></label>
+<label style="grid-column:1/-1">Примітка для постачальника<textarea name="note" rows="3" maxlength="10000">{{ order.note }}</textarea></label>
+<div><button class="btn green">Зберегти дані замовлення</button></div>
+</form>
+{% endif %}
 <div style="display:flex;gap:8px;flex-wrap:wrap">
 {% if order.status == "draft" %}<form method="post" action="{% url 'purchase_order_status' order.pk 'send' %}">{% csrf_token %}<button class="btn">Позначити як відправлене</button></form>{% endif %}
 {% if order.status == "sent" %}<form method="post" action="{% url 'purchase_order_status' order.pk 'confirm' %}">{% csrf_token %}<button class="btn green">Підтвердити постачальником</button></form>{% endif %}
