@@ -112,6 +112,9 @@ def current_shift(user, company=None):
 def dashboard(request):
     if not _can_manage_company(request):
         return redirect("pos")
+    from .models import AccountAdvance
+    from .settlement_views import _balance_for
+
     today = timezone.localdate()
     today_sales = done_sales(request.company).filter(created_at__date=today)
     month_sales = done_sales(request.company).filter(created_at__year=today.year, created_at__month=today.month)
@@ -120,21 +123,41 @@ def dashboard(request):
     days = [today - timedelta(days=i) for i in range(6, -1, -1)]
     mx = max([week.get(d, D0) for d in days] + [Decimal("1")])
     bars = [{"day": d, "sum": week.get(d, D0), "h": int(week.get(d, D0) / mx * 100)} for d in days]
+
+    # Reuse the same balance rules as the customer/supplier settlement ledger.
+    # This prevents dashboard debt figures drifting from the accounting screens.
+    purchase_docs = Purchase.objects.filter(company=request.company).select_related("supplier").prefetch_related("settlement_payments")
+    sale_docs = Sale.objects.filter(company=request.company, status=Sale.DONE, customer__isnull=False).select_related("customer").prefetch_related("settlement_payments", "returns")
+    supplier_debt = sum((_balance_for(doc) for doc in purchase_docs), D0)
+    customer_debt = sum((_balance_for(doc) for doc in sale_docs), D0)
+    customer_advances = AccountAdvance.objects.filter(
+        company=request.company, party_type=AccountAdvance.CUSTOMER, is_void=False
+    ).aggregate(total=Sum("remaining"))["total"] or D0
+    supplier_advances = AccountAdvance.objects.filter(
+        company=request.company, party_type=AccountAdvance.SUPPLIER, is_void=False
+    ).aggregate(total=Sum("remaining"))["total"] or D0
+
+    low_products = company_queryset(
+        Product.objects.filter(is_active=True, current_stock__lte=F("min_stock")).select_related("category")
+        .order_by("current_stock", "name"), request
+    )[:8]
     ctx = {
         "today_total": today_sales.aggregate(s=Sum("total"))["s"] or D0,
         "today_count": today_sales.count(),
         "month_total": month_sales.aggregate(s=Sum("total"))["s"] or D0,
         "low_count": company_queryset(Product.objects.filter(is_active=True, current_stock__lte=F("min_stock")), request).count(),
+        "low_products": low_products,
+        "customer_debt": customer_debt, "supplier_debt": supplier_debt,
+        "customer_advances": customer_advances, "supplier_advances": supplier_advances,
         "last_sales": done_sales(request.company).select_related("cashier")[:10],
         "last_moves": company_queryset(StockMovement.objects.select_related("product"), request)[:10],
         "bars": bars,
-        "waiting_orders": company_queryset(SaleItem.objects.filter(company=request.company, sale__company=request.company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE,), request).filter(
-                                                  fulfil_status__in=[SaleItem.ORDERED, SaleItem.ARRIVED]).count(),
+        "waiting_orders": company_queryset(SaleItem.objects.filter(company=request.company, sale__company=request.company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE), request).filter(
+            fulfil_status__in=[SaleItem.ORDERED, SaleItem.ARRIVED]).count(),
         "overdue_orders": company_queryset(SaleItem.objects.filter(company=request.company, sale__company=request.company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE,
-                                                  fulfil_status=SaleItem.ARRIVED, pickup_deadline__lt=today), request).count(),
+            fulfil_status=SaleItem.ARRIVED, pickup_deadline__lt=today), request).count(),
     }
     return render(request, "core/dashboard.html", ctx)
-
 
 # ---------- Products / categories / suppliers ----------
 @tenant_staff_only
