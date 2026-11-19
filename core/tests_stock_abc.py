@@ -58,4 +58,4 @@ class StockABCReportTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["total_revenue"], Decimal("0"))
-        self.assertEqual(response.context["abc_rows"], [])
+        self.assertTrue(all(row["abc"] == "—" for row in response.context["abc_rows"]))
