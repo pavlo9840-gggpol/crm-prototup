@@ -6,13 +6,18 @@
 <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:16px 0">
 <div class="card"><small>Закупівлі</small><h3>{{ account_totals.purchases|floatformat:2 }} ₴</h3></div>
 <div class="card"><small>Сплачено</small><h3>{{ account_totals.paid|floatformat:2 }} ₴</h3></div>
+<div class="card"><small>Компенсації</small><h3>{{ account_totals.compensated|floatformat:2 }} ₴</h3></div>
 <div class="card"><small>Борг постачальнику</small><h3>{{ account_totals.debt|floatformat:2 }} ₴</h3></div>
+<div class="card"><small>Кредит / переплата постачальника</small><h3>{{ account_totals.supplier_credit|floatformat:2 }} ₴</h3></div>
 </div>
 <div class="card"><h3>Аванси постачальнику</h3><p>Невикористаний залишок: <b>{{ account_totals.advance_balance|floatformat:2 }} ₴</b></p><a class="btn green" href="{% url 'advance_new' 'supplier' supplier.pk %}">＋ Видати аванс</a>
 <table><tr><th>Дата</th><th>Початкова сума</th><th>Залишок</th><th>Спосіб</th><th>Статус</th></tr>{% for adv in account_advances %}<tr><td>{{ adv.created_at|date:"d.m.Y H:i" }}</td><td>{{ adv.amount|floatformat:2 }} ₴</td><td>{{ adv.remaining|floatformat:2 }} ₴</td><td>{{ adv.get_payment_method_display }}</td><td>{% if adv.is_void %}Скасовано: {{ adv.void_reason }}{% else %}Активний{% endif %}</td></tr>{% empty %}<tr><td colspan="5">Авансів ще немає.</td></tr>{% endfor %}</table></div>
 <h3>Історія закупівель</h3>
-<table><tr><th>Накладна</th><th>Дата</th><th>Статус</th><th class="n">Сума</th><th class="n">Сплачено</th><th class="n">Борг</th></tr>
-{% for row in purchase_rows %}<tr><td><a href="{% url 'purchase_detail' row.document.pk %}">{{ row.document.number }}</a></td><td>{{ row.document.created_at|date:"d.m.Y H:i" }}</td><td>{{ row.document.status }}</td><td class="n">{{ row.document.total|floatformat:2 }} ₴</td><td class="n">{{ row.paid|floatformat:2 }} ₴</td><td class="n"><b>{{ row.balance|floatformat:2 }} ₴</b></td></tr>{% empty %}<tr><td colspan="6">Закупівель ще немає.</td></tr>{% endfor %}</table>
+<table><tr><th>Накладна</th><th>Дата</th><th>Статус</th><th class="n">Сума</th><th class="n">Сплачено</th><th class="n">Компенсовано</th><th class="n">Борг</th><th class="n">Кредит</th></tr>
+{% for row in purchase_rows %}<tr><td><a href="{% url 'purchase_detail' row.document.pk %}">{{ row.document.number }}</a></td><td>{{ row.document.created_at|date:"d.m.Y H:i" }}</td><td>{{ row.document.status }}</td><td class="n">{{ row.document.total|floatformat:2 }} ₴</td><td class="n">{{ row.paid|floatformat:2 }} ₴</td><td class="n">{{ row.compensated|floatformat:2 }} ₴</td><td class="n"><b>{{ row.balance|floatformat:2 }} ₴</b></td><td class="n">{{ row.supplier_credit|floatformat:2 }} ₴</td></tr>{% empty %}<tr><td colspan="8">Закупівель ще немає.</td></tr>{% endfor %}</table>
+<h3>Історія компенсацій</h3>
+<table><tr><th>Дата</th><th>Документ повернення</th><th>Закупівля</th><th>Спосіб</th><th class="n">Сума</th><th>Документ / рахунок</th></tr>
+{% for comp in account_compensations %}<tr><td>{{ comp.created_at|date:"d.m.Y H:i" }}</td><td>{{ comp.supplier_return.number }}</td><td><a href="{% url 'purchase_detail' comp.purchase_id %}">{{ comp.purchase.number }}</a></td><td>{{ comp.get_kind_display }}</td><td class="n">{{ comp.amount|floatformat:2 }} ₴</td><td>{% if comp.bank_account %}{{ comp.bank_account.iban }}{% else %}{{ comp.number }}{% endif %}</td></tr>{% empty %}<tr><td colspan="6">Компенсацій ще немає.</td></tr>{% endfor %}</table>
 <h3>Історія оплат</h3>
 <table><tr><th>Дата</th><th>Накладна</th><th>Сума</th><th>Спосіб</th><th>Документ</th><th>Статус</th></tr>
 {% for payment in account_payments %}<tr><td>{{ payment.created_at|date:"d.m.Y H:i" }}</td><td><a href="{% url 'purchase_detail' payment.purchase_id %}">{{ payment.purchase.number }}</a></td><td>{{ payment.amount|floatformat:2 }} ₴</td><td>{{ payment.get_payment_method_display }}</td><td>{{ payment.document_ref|default:"—" }}</td><td>{% if payment.is_void %}Скасовано: {{ payment.void_reason }}{% else %}Активна{% endif %}</td></tr>{% empty %}<tr><td colspan="6">Оплат ще немає.</td></tr>{% endfor %}</table>
