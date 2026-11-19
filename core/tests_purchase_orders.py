@@ -211,6 +211,19 @@ class SupplierPurchaseOrderTests(TestCase):
             company=self.company, item=offer,
             old_cost=Decimal("10.00"), new_cost=Decimal("12.00"),
         )
+        other_owner = get_user_model().objects.create_superuser(
+            username="supplier-history-other", email="", password="secret"
+        )
+        other_company = create_test_company(other_owner, "Other history company", [])
+        other_supplier = Supplier.objects.create(company=other_company, name="Other history supplier")
+        other_offer = SupplierItem.objects.create(
+            company=other_company, supplier=other_supplier, brand="OTHER", sku="OTHER-1",
+            sku_norm="OTHER1", cost=Decimal("3.00"),
+        )
+        SupplierPriceChange.objects.create(
+            company=other_company, item=other_offer,
+            old_cost=Decimal("2.00"), new_cost=Decimal("3.00"),
+        )
         response = self.client.get(reverse("supplier_price_history"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["total_changes"], 1)
