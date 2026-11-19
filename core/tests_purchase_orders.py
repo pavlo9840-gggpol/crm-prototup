@@ -310,7 +310,7 @@ class SupplierPurchaseOrderTests(TestCase):
         order, item = self.create_order(quantity="5", status=PurchaseOrder.CONFIRMED)
         response = self.client.post(
             reverse("supplier_claim_create", args=[order.pk, item.pk]),
-            {"kind": "damaged", "quantity": "1", "requested_amount": "250.00",
+            {"kind": "shortage", "quantity": "1", "requested_amount": "250.00",
              "description": "Пошкоджено корпус під час доставки"},
         )
         self.assertEqual(response.status_code, 302)
@@ -353,6 +353,21 @@ class SupplierPurchaseOrderTests(TestCase):
             {"kind": "shortage", "quantity": "1"},
         )
         self.assertFalse(SupplierClaim.objects.filter(order=order).exists())
+
+    def test_supplier_claim_rejects_damaged_quantity_above_received(self):
+        order, item = self.create_order(quantity="5", status=PurchaseOrder.CONFIRMED)
+        self.client.post(
+            reverse("supplier_claim_create", args=[order.pk, item.pk]),
+            {"kind": "damaged", "quantity": "1", "description": "Пошкоджено"},
+        )
+        self.assertFalse(SupplierClaim.objects.filter(order=order).exists())
+        item.received_quantity = Decimal("1")
+        item.save(update_fields=["received_quantity"])
+        self.client.post(
+            reverse("supplier_claim_create", args=[order.pk, item.pk]),
+            {"kind": "damaged", "quantity": "1", "description": "Пошкоджено"},
+        )
+        self.assertEqual(SupplierClaim.objects.filter(order=order).count(), 1)
 
     def test_supplier_claims_are_tenant_scoped(self):
         other_owner = get_user_model().objects.create_superuser(
