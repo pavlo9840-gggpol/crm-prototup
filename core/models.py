@@ -574,10 +574,21 @@ class SupplierCompensation(models.Model):
                 or self.purchase.company_id != self.company_id
                 or self.supplier.company_id != self.company_id):
             raise ValueError("Компенсація має бути прив'язана до повернення, закупівлі й постачальника одного магазину.")
-        if self.kind == self.CASH and (not self.cash_operation_id or self.bank_transaction_id or self.bank_account_id):
-            raise ValueError("Готівкова компенсація повинна мати лише касову операцію.")
-        if self.kind == self.BANK and (not self.bank_transaction_id or not self.bank_account_id or self.cash_operation_id):
-            raise ValueError("Банківська компенсація повинна мати банківську операцію та рахунок.")
+        if self.kind not in {self.CREDIT, self.CASH, self.BANK}:
+            raise ValueError("Невідомий спосіб компенсації постачальника.")
+        if self.kind == self.CASH:
+            if not self.cash_operation_id or self.bank_transaction_id or self.bank_account_id:
+                raise ValueError("Готівкова компенсація повинна мати лише касову операцію.")
+            if (self.cash_operation.company_id != self.company_id
+                    or self.cash_operation.shift.company_id != self.company_id):
+                raise ValueError("Касова операція компенсації належить іншому магазину.")
+        if self.kind == self.BANK:
+            if not self.bank_transaction_id or not self.bank_account_id or self.cash_operation_id:
+                raise ValueError("Банківська компенсація повинна мати банківську операцію та рахунок.")
+            if (self.bank_account.company_id != self.company_id
+                    or self.bank_transaction.company_id != self.company_id
+                    or self.bank_transaction.account_id != self.bank_account_id):
+                raise ValueError("Банківська операція компенсації має бути на рахунку цього магазину.")
         if self.kind == self.CREDIT and (self.cash_operation_id or self.bank_transaction_id or self.bank_account_id):
             raise ValueError("Кредит-нота не повинна створювати рух грошей.")
         super().save(*args, **kwargs)
