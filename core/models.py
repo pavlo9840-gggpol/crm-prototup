@@ -1475,6 +1475,7 @@ class BankTransaction(models.Model):
         ]
         constraints = [
             models.CheckConstraint(condition=Q(amount__gt=0), name="bank_transaction_amount_positive"),
+            models.UniqueConstraint(fields=["company", "import_fingerprint"], name="bank_import_fingerprint_unique"),
         ]
 
     def save(self, *args, **kwargs):
