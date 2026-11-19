@@ -4,8 +4,7 @@
 <form method="get" class="filters">
 <label>Продажі з <input type="date" name="from" value="{{ d1|date:'Y-m-d' }}"></label>
 <label>по <input type="date" name="to" value="{{ d2|date:'Y-m-d' }}"></label>
-<label>Горизонт <select name="target_days">{% for n in "14,30,45,60"|cut:" "|slice:":0" %}{% endfor %}
-<option value="14"{% if target_days == 14 %} selected{% endif %}>14 днів</option>
+<label>Горизонт <select name="target_days"><option value="14"{% if target_days == 14 %} selected{% endif %}>14 днів</option>
 <option value="30"{% if target_days == 30 %} selected{% endif %}>30 днів</option>
 <option value="45"{% if target_days == 45 %} selected{% endif %}>45 днів</option>
 <option value="60"{% if target_days == 60 %} selected{% endif %}>60 днів</option></select></label>
@@ -29,7 +28,7 @@
 <td class="n"><b>{{ r.recommended|floatformat:"-3" }}</b></td>
 <td>{% if r.supplier %}{{ r.supplier.name }}{% else %}<span>Не знайдено у прайсах</span>{% endif %}</td>
 <td class="n">{{ r.unit_cost|floatformat:2 }} ₴</td>
-<td class="n">{% if r.supplier_item.qty_avail != None %}{{ r.supplier_item.qty_avail|floatformat:"-3" }}{% else %}—{% endif %}</td>
+<td class="n">{% if r.supplier_item and r.supplier_item.qty_avail != None %}{{ r.supplier_item.qty_avail|floatformat:"-3" }}{% else %}—{% endif %}</td>
 <td><a class="btn green" href="{% url 'purchase_new' %}?product={{ r.product.pk }}&amp;qty={{ r.supplier_qty }}&amp;cost={{ r.unit_cost }}">У накладну</a></td>
 </tr>
 {% empty %}<tr><td colspan="11">За вибраними умовами закупівля не рекомендується.</td></tr>{% endfor %}
