@@ -16,7 +16,7 @@
       <td class="n">{{ i.returned_quantity|floatformat:"-3" }}</td>
       <td class="n"><b>{{ i.returnable_quantity|floatformat:"-3" }}</b></td>
     </tr>
-    {% if i.returnable_quantity > 0 %}
+    {% if i.returnable_quantity > 0 and i.product.tracking_mode != "serial" %}
     <tr><td colspan="6">
       <form method="post" action="{% url 'supplier_return_create' p.pk i.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
         {% csrf_token %}
@@ -38,9 +38,7 @@
         </label>
         <button class="btn danger" type="submit">Оформити повернення</button>
       </form>
-      {% if i.product.tracking_mode == "serial" %}
-      <small class="muted">Для серійного товару операція поки заблокована до реалізації вибору конкретних серійних номерів.</small>
-      {% elif i.product.tracking_mode == "batch" or i.product.tracking_mode == "expiry" %}
+      {% if i.product.tracking_mode == "batch" or i.product.tracking_mode == "expiry" %}
       <small class="muted">Повернення буде списано саме з невикористаних партій цього надходження.</small>
       {% endif %}
     </td></tr>
