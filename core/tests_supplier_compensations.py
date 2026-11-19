@@ -156,6 +156,21 @@ class SupplierCompensationTests(TestCase):
         self.assertEqual(entry.reversal_cash_operation.kind, "out")
         self.assertEqual(entry.reversal_cash_operation.amount, Decimal("-50.00"))
 
+    def test_bank_compensation_transaction_cannot_be_voided_outside_compensation_workflow(self):
+        account = BankAccount.objects.create(
+            company=self.company, bank_name="Test bank", iban="UA123456789012345678901234567",
+        )
+        self.post_compensation({"kind": "bank", "amount": "40.00", "bank_account": str(account.pk)})
+        entry = SupplierCompensation.objects.get(supplier_return=self.returned)
+        response = self.client.post(
+            reverse("bank_transaction_void", args=[entry.bank_transaction_id]),
+            {"reason": "Не можна обійти документ компенсації"},
+        )
+        self.assertEqual(response.status_code, 302)
+        entry.bank_transaction.refresh_from_db()
+        self.assertFalse(entry.bank_transaction.is_void)
+        self.assertFalse(entry.is_void)
+
     def test_bank_compensation_void_creates_expense_reversal(self):
         account = BankAccount.objects.create(
             company=self.company, bank_name="Test bank", iban="UA123456789012345678901234567",
