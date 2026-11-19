@@ -367,6 +367,55 @@ def purchase_list(request):
 @login_required
 @company_required
 @tenant_staff_only
+def purchase_recommendations(request):
+    """Рекомендації закупівлі за продажами, мінімальним запасом і прайсами."""
+    today = timezone.localdate()
+    d1 = get_date(request, "from", today - timedelta(days=89))
+    d2 = get_date(request, "to", today)
+    if d1 > d2:
+        d1, d2 = d2, d1
+    period_days = max((d2 - d1).days + 1, 1)
+    try:
+        target_days = int(request.GET.get("target_days", "30"))
+    except (TypeError, ValueError):
+        target_days = 30
+    if target_days not in (14, 30, 45, 60):
+        target_days = 30
+    products = company_queryset(Product.objects.filter(is_active=True, product_kind="goods").select_related("category"), request).order_by("name")
+    sold = _items(d1, d2, request.company).filter(source=SaleItem.STOCK).values("product_id").annotate(qty=Sum(NET))
+    sold_by_product = {row["product_id"]: max(D0, row["qty"] or D0) for row in sold}
+    rows, total_units, total_cost = [], D0, D0
+    for product in products:
+        sold_qty = sold_by_product.get(product.pk, D0)
+        daily_qty = sold_qty / Decimal(period_days)
+        target_stock = daily_qty * Decimal(target_days) + (product.min_stock or D0)
+        recommended = max(D0, target_stock - (product.current_stock or D0))
+        if recommended <= 0 or (daily_qty <= 0 and (product.min_stock or D0) <= (product.current_stock or D0)):
+            continue
+        recommended = recommended.quantize(Decimal("0.001"), rounding=ROUND_UP)
+        offers = company_queryset(SupplierItem.objects.filter(available=True, cost__gt=0).select_related("supplier"), request).filter(
+            Q(product=product) | Q(sku_norm=product.sku_norm, brand__iexact=product.brand)
+        ).order_by("cost", "-updated_at")
+        offer = offers.first()
+        supplier_qty = recommended
+        if offer and offer.qty_avail is not None:
+            supplier_qty = min(recommended, max(D0, offer.qty_avail))
+        unit_cost = offer.cost if offer else product.cost_price
+        rows.append({"product": product, "sold_qty": sold_qty, "daily_qty": daily_qty,
+            "target_stock": target_stock, "recommended": recommended, "supplier": offer.supplier if offer else None,
+            "supplier_item": offer, "supplier_qty": supplier_qty, "unit_cost": unit_cost,
+            "estimated_total": supplier_qty * unit_cost})
+        total_units += supplier_qty
+        total_cost += supplier_qty * unit_cost
+    rows.sort(key=lambda row: (row["supplier"] is None, -row["estimated_total"], row["product"].name))
+    return render(request, "core/purchase_recommendations.html", {
+        "rows": rows[:500], "target_days": target_days, "d1": d1, "d2": d2,
+        "period_days": period_days, "total_units": total_units, "total_cost": total_cost,
+        "recommendation_count": len(rows)})
+
+@login_required
+@company_required
+@tenant_staff_only
 def purchase_new(request):
     if request.method == "POST":
         sid, new_name = request.POST.get("supplier"), request.POST.get("new_supplier", "").strip()
@@ -412,9 +461,18 @@ def purchase_new(request):
             return redirect("purchase_detail", pk=pur.pk)
         except StockError as e:
             messages.error(request, str(e))
+    initial_lines = []
+    product_ids, quantities, costs = request.GET.getlist("product"), request.GET.getlist("qty"), request.GET.getlist("cost")
+    if len(product_ids) == len(quantities) == len(costs):
+        for pid, raw_qty, raw_cost in zip(product_ids, quantities, costs):
+            product = company_queryset(Product.objects.filter(is_active=True), request).filter(pk=pid or 0).first()
+            qty, cost = dec(raw_qty), dec(raw_cost)
+            if product and qty is not None and qty > 0 and cost is not None and cost >= 0:
+                initial_lines.append({"product_id": product.pk, "quantity": str(qty), "cost": str(cost)})
     return render(request, "core/purchase_form.html", {
         "suppliers": company_queryset(Supplier.objects.filter(is_active=True), request),
-        "products": company_queryset(Product.objects.filter(is_active=True), request)})
+        "products": company_queryset(Product.objects.filter(is_active=True), request),
+        "initial_lines": initial_lines})
 
 
 @login_required
