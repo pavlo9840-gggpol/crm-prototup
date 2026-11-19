@@ -9,7 +9,7 @@ from django.db.models import Sum
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from .models import BankAccount, BankTransaction
+from .models import BankAccount, BankTransaction, BankReconciliation, SettlementPayment
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -112,11 +112,35 @@ def bank_ledger(request):
         incoming = rows.filter(direction=BankTransaction.INCOME).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
         outgoing = rows.filter(direction=BankTransaction.EXPENSE).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
         balances.append({"account": account, "income": incoming, "expense": outgoing, "balance": incoming - outgoing})
+    active_reconciliations = BankReconciliation.objects.filter(company=request.company, is_void=False).select_related("settlement_payment", "settlement_payment__sale", "settlement_payment__purchase", "matched_by")
+    reconciliation_by_transaction = {r.bank_transaction_id: r for r in active_reconciliations}
+    eligible_payments = SettlementPayment.objects.filter(company=request.company, payment_method="bank", is_void=False).exclude(
+        bank_reconciliations__is_void=False
+    ).select_related("sale", "purchase")
+    candidates_by_transaction = {}
+    for entry in entries:
+        candidates = []
+        if not entry.is_void and entry.pk not in reconciliation_by_transaction:
+            expected_document = "sale" if entry.direction == BankTransaction.INCOME else "purchase"
+            for payment in eligible_payments:
+                if payment.amount != entry.amount:
+                    continue
+                if (expected_document == "sale" and not payment.sale_id) or (expected_document == "purchase" and not payment.purchase_id):
+                    continue
+                document = payment.sale or payment.purchase
+                candidates.append({
+                    "payment": payment,
+                    "document": document,
+                    "label": f"{'Продаж' if payment.sale_id else 'Закупівля'} №{document.number or document.pk} · {payment.amount:.2f} ₴ · {payment.created_at:%d.%m.%Y}",
+                })
+        candidates_by_transaction[entry.pk] = candidates
     return render(request, "core/bank_ledger.html", {
         "accounts": accounts, "balances": balances, "entries": entries,
         "account_form": account_form, "transaction_form": transaction_form,
         "date_from": date_from, "date_to": date_to,
         "income": income, "expense": expense, "balance": income - expense,
+        "reconciliation_by_transaction": reconciliation_by_transaction,
+        "candidates_by_transaction": candidates_by_transaction,
     })
 
 
@@ -288,3 +312,60 @@ def bank_export_csv(request):
     for entry in entries:
         writer.writerow([entry.transaction_date.isoformat(), entry.account.bank_name, entry.account.iban, entry.account.currency, entry.get_direction_display(), entry.category, str(entry.amount), entry.counterparty, entry.document_ref, entry.note, "Скасовано" if entry.is_void else "Активна", entry.void_reason])
     return response
+
+@tenant_staff_only
+@company_required
+def bank_reconcile(request, pk):
+    if request.method != "POST":
+        return redirect("bank_ledger")
+    with transaction.atomic():
+        entry = BankTransaction.objects.select_for_update().filter(pk=pk, company=request.company, is_void=False).first()
+        if not entry:
+            messages.error(request, "Банківську операцію не знайдено.")
+            return redirect("bank_ledger")
+        if BankReconciliation.objects.filter(bank_transaction=entry, is_void=False).exists():
+            messages.error(request, "Ця операція вже звірена.")
+            return redirect("bank_ledger")
+        payment = SettlementPayment.objects.select_for_update().filter(
+            pk=request.POST.get("payment_id"), company=request.company, payment_method="bank", is_void=False,
+        ).select_related("sale", "purchase").first()
+        if not payment:
+            messages.error(request, "Платіж не знайдено або він недоступний для звірки.")
+            return redirect("bank_ledger")
+        expected_direction = BankTransaction.INCOME if payment.sale_id else BankTransaction.EXPENSE
+        if payment.amount != entry.amount or expected_direction != entry.direction:
+            messages.error(request, "Сума або напрямок платежу не відповідає банківській операції.")
+            return redirect("bank_ledger")
+        if BankReconciliation.objects.filter(settlement_payment=payment, is_void=False).exists():
+            messages.error(request, "Цей платіж уже звірено з іншою банківською операцією.")
+            return redirect("bank_ledger")
+        BankReconciliation.objects.create(
+            company=request.company, bank_transaction=entry, settlement_payment=payment, matched_by=request.user,
+        )
+    messages.success(request, "Банківську операцію звірено з платежем. Обидва записи залишаються в історії.")
+    return redirect("bank_ledger")
+
+
+@tenant_staff_only
+@company_required
+def bank_reconciliation_void(request, pk):
+    if request.method != "POST":
+        return redirect("bank_ledger")
+    reason = (request.POST.get("reason") or "").strip()
+    if not reason:
+        messages.error(request, "Вкажіть причину скасування звірки.")
+        return redirect("bank_ledger")
+    with transaction.atomic():
+        reconciliation = BankReconciliation.objects.select_for_update().filter(
+            pk=pk, company=request.company, is_void=False,
+        ).first()
+        if not reconciliation:
+            messages.error(request, "Звірку не знайдено або вже скасовано.")
+            return redirect("bank_ledger")
+        reconciliation.is_void = True
+        reconciliation.voided_at = timezone.now()
+        reconciliation.voided_by = request.user
+        reconciliation.void_reason = reason[:250]
+        reconciliation.save(update_fields=["is_void", "voided_at", "voided_by", "void_reason"])
+    messages.success(request, "Звірку скасовано; записи залишилися в аудиті.")
+    return redirect("bank_ledger")
