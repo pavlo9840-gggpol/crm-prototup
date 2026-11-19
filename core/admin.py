@@ -141,3 +141,11 @@ class PurchaseOrderAdmin(admin.ModelAdmin):
 class PurchaseOrderItemAdmin(admin.ModelAdmin):
     list_display = ("order", "product", "quantity", "received_quantity", "cost_price")
     search_fields = ("order__number", "product__name", "product__sku")
+
+
+@admin.register(m.SupplierClaim)
+class SupplierClaimAdmin(admin.ModelAdmin):
+    list_display = ("claim_number", "supplier", "order", "kind", "status", "created_at")
+    list_filter = ("status", "kind", "supplier")
+    search_fields = ("claim_number", "order__number", "supplier__name", "description")
+    readonly_fields = ("claim_number", "created_at", "updated_at", "sent_at", "closed_at")
