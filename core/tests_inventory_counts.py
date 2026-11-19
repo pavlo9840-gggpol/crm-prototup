@@ -183,3 +183,14 @@ class InventoryCountWorkflowTests(TestCase):
         self.assertEqual(movement.quantity_change, D("-2.000"))
         self.assertIn("Пошкодження", movement.note)
         self.assertIn("Пошкоджена упаковка при прийманні", movement.note)
+
+    def test_movement_history_csv_export_respects_filters_and_has_utf8_bom(self):
+        services.add_movement(self.product, D("3"), "purchase", "PUR-CSV", self.user, "CSV test")
+        services.add_movement(self.product, D("-1"), "sale", "SALE-CSV", self.user, "CSV test")
+        response = self.client.get("/inventory/movements/?type=purchase&export=csv")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertTrue(response.content.startswith(b"\\xef\\xbb\\xbf"))
+        content = response.content.decode("utf-8-sig")
+        self.assertIn("PUR-CSV", content)
+        self.assertNotIn("SALE-CSV", content)
