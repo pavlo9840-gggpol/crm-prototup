@@ -16,12 +16,19 @@
 {% if order.status == "sent" %}<form method="post" action="{% url 'purchase_order_status' order.pk 'confirm' %}">{% csrf_token %}<button class="btn green">Підтвердити постачальником</button></form>{% endif %}
 {% if order.status == "draft" or order.status == "sent" or order.status == "confirmed" %}<form method="post" action="{% url 'purchase_order_status' order.pk 'cancel' %}">{% csrf_token %}<button class="btn red">Скасувати замовлення</button></form>{% endif %}
 </div>
-<table><tr><th>Товар</th><th>Артикул</th><th class="n">Замовлено</th><th class="n">Отримано</th><th class="n">Залишилось</th><th class="n">Ціна</th><th>Приймання</th></tr>
-{% for item in items %}<tr><td>{{ item.product.name }}</td><td>{{ item.product.sku }}</td><td class="n">{{ item.quantity|floatformat:"-3" }}</td><td class="n">{{ item.received_quantity|floatformat:"-3" }}</td><td class="n"><b>{{ item.outstanding_quantity|floatformat:"-3" }}</b></td><td class="n">{{ item.cost_price|floatformat:2 }} ₴</td><td>
+<table><tr><th>Товар</th><th>Артикул</th><th class="n">Замовлено</th><th class="n">Отримано</th><th class="n">Залишилось</th><th class="n">Планова / фактична ціна</th><th>Приймання</th></tr>
+{% for item in items %}<tr><td>{{ item.product.name }}</td><td>{{ item.product.sku }}</td><td class="n">{{ item.quantity|floatformat:"-3" }}</td><td class="n">{{ item.received_quantity|floatformat:"-3" }}</td><td class="n"><b>{{ item.outstanding_quantity|floatformat:"-3" }}</b></td><td class="n"><b>{{ item.cost_price|floatformat:2 }} ₴</b> план
+{% for receipt in item.receipt_price_rows %}
+<div style="font-size:12px;white-space:nowrap">{{ receipt.date|date:"d.m.Y" }}: {{ receipt.actual_cost|floatformat:2 }} ₴ × {{ receipt.quantity|floatformat:"-3" }}
+{% if receipt.delta > 0 %}<span style="color:#b45309">(+{{ receipt.delta|floatformat:2 }} ₴)</span>{% elif receipt.delta < 0 %}<span style="color:#15803d">({{ receipt.delta|floatformat:2 }} ₴)</span>{% else %}<span>без відхилення</span>{% endif %}</div>
+{% endfor %}
+</td><td>
 {% if order.status == "confirmed" or order.status == "partial" %}
 {% if item.outstanding_quantity > 0 %}
 <form method="post" action="{% url 'purchase_order_receive' order.pk item.pk %}" style="display:grid;gap:4px;min-width:190px">{% csrf_token %}
 <input type="number" name="quantity" min="0.001" max="{{ item.outstanding_quantity }}" step="0.001" placeholder="Кількість" required>
+<label style="font-size:12px">Фактична ціна за одиницю
+<input type="number" name="actual_cost" min="0" step="0.01" value="{{ item.cost_price }}" required></label>
 {% if item.product.tracking_mode == "batch" or item.product.tracking_mode == "expiry" %}<input name="batch_number" maxlength="80" placeholder="№ партії">{% endif %}
 {% if item.product.tracking_mode == "expiry" %}<input type="date" name="expiry_date" required>{% endif %}
 {% if item.product.tracking_mode == "serial" %}<textarea name="serial_numbers" rows="2" placeholder="Серійний номер на рядок" required></textarea>{% endif %}
