@@ -9,7 +9,7 @@ from django.db.models import Sum
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from .models import FinanceEntry
+from .models import BankTransaction, CashOperation, FinanceEntry
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -113,3 +113,64 @@ def finance_entry_void(request, pk):
         entry.save(update_fields=["is_void", "voided_at", "voided_by", "void_reason"])
     messages.success(request, "Операцію скасовано. Запис залишився в журналі для аудиту.")
     return redirect("finance_ledger")
+
+@tenant_staff_only
+@company_required
+def cashflow_report(request):
+    today = timezone.localdate()
+    first = today.replace(day=1)
+    date_from = _date_param(request.GET.get("from"), first)
+    date_to = _date_param(request.GET.get("to"), today)
+    if date_to < date_from:
+        date_from, date_to = first, today
+
+    cash_operations = CashOperation.objects.filter(
+        company=request.company, created_at__date__gte=date_from, created_at__date__lte=date_to
+    ).select_related("shift", "user")
+    bank_operations = BankTransaction.objects.filter(
+        company=request.company, transaction_date__gte=date_from, transaction_date__lte=date_to, is_void=False
+    ).select_related("account", "created_by")
+
+    cash_in = cash_operations.filter(kind="in").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+    cash_out = cash_operations.filter(kind="out").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+    cash_adjust = cash_operations.filter(kind="adjust").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+    bank_in = bank_operations.filter(direction=BankTransaction.INCOME).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+    bank_out = bank_operations.filter(direction=BankTransaction.EXPENSE).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+
+    daily = {}
+    for op in cash_operations:
+        day = op.created_at.date()
+        row = daily.setdefault(day, {"cash_in": Decimal("0.00"), "cash_out": Decimal("0.00"), "cash_adjust": Decimal("0.00"), "bank_in": Decimal("0.00"), "bank_out": Decimal("0.00")})
+        if op.kind == "in":
+            row["cash_in"] += op.amount
+        elif op.kind == "out":
+            row["cash_out"] += op.amount
+        else:
+            row["cash_adjust"] += op.amount
+    for op in bank_operations:
+        day = op.transaction_date
+        row = daily.setdefault(day, {"cash_in": Decimal("0.00"), "cash_out": Decimal("0.00"), "cash_adjust": Decimal("0.00"), "bank_in": Decimal("0.00"), "bank_out": Decimal("0.00")})
+        if op.direction == BankTransaction.INCOME:
+            row["bank_in"] += op.amount
+        else:
+            row["bank_out"] += op.amount
+
+    daily_rows = []
+    for day in sorted(daily, reverse=True):
+        row = daily[day]
+        row["date"] = day
+        row["cash_net"] = row["cash_in"] - row["cash_out"]
+        row["bank_net"] = row["bank_in"] - row["bank_out"]
+        row["net"] = row["cash_net"] + row["bank_net"]
+        daily_rows.append(row)
+
+    return render(request, "core/cashflow_report.html", {
+        "date_from": date_from, "date_to": date_to,
+        "cash_operations": cash_operations, "bank_operations": bank_operations,
+        "daily_rows": daily_rows,
+        "cash_in": cash_in, "cash_out": cash_out, "cash_adjust": cash_adjust,
+        "bank_in": bank_in, "bank_out": bank_out,
+        "cash_net": cash_in - cash_out, "bank_net": bank_in - bank_out,
+        "total_in": cash_in + bank_in, "total_out": cash_out + bank_out,
+        "total_net": cash_in - cash_out + bank_in - bank_out,
+    })
