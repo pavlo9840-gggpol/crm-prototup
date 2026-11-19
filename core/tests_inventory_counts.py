@@ -162,7 +162,8 @@ class InventoryCountWorkflowTests(TestCase):
         base = {"product": self.product.pk, "kind": "writeoff", "quantity": "1.000", "reason": "", "note": ""}
         response = self.client.post("/inventory/adjust/", base)
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(StockAdjustment.objects.exists())
+        self.assertIn("reason", response.context["form"].errors)
+        self.assertIn("note", response.context["form"].errors)
         self.assertFalse(StockAdjustment.objects.exists())
         self.product.refresh_from_db()
         self.assertEqual(self.product.current_stock, D("10.000"))
