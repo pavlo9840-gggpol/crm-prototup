@@ -359,6 +359,65 @@ class PurchaseItem(models.Model):
         return self.quantity * self.cost_price
 
 
+class PurchaseOrder(models.Model):
+    DRAFT = "draft"
+    SENT = "sent"
+    CONFIRMED = "confirmed"
+    PARTIAL = "partial"
+    RECEIVED = "received"
+    CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (DRAFT, "Чернетка"), (SENT, "Відправлено"), (CONFIRMED, "Підтверджено"),
+        (PARTIAL, "Частково отримано"), (RECEIVED, "Отримано"), (CANCELLED, "Скасовано"),
+    ]
+
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="purchase_orders")
+    number = models.CharField("Номер замовлення", max_length=24, blank=True, db_index=True)
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="purchase_orders")
+    status = models.CharField("Статус", max_length=12, choices=STATUS_CHOICES, default=DRAFT, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    expected_date = models.DateField("Очікувана дата", null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    user = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="created_purchase_orders")
+    note = models.TextField("Примітка", blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["company", "status", "created_at"], name="po_company_status_idx"),
+            models.Index(fields=["company", "supplier", "status"], name="po_company_supplier_idx"),
+        ]
+
+    def __str__(self):
+        return self.number or f"Замовлення #{self.pk}"
+
+
+class PurchaseOrderItem(models.Model):
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="purchase_order_items")
+    order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="purchase_order_items")
+    supplier_item = models.ForeignKey("SupplierItem", null=True, blank=True, on_delete=models.SET_NULL,
+                                      related_name="purchase_order_items")
+    quantity = models.DecimalField("Замовлено", max_digits=12, decimal_places=3)
+    received_quantity = models.DecimalField("Отримано", max_digits=12, decimal_places=3, default=0)
+    cost_price = models.DecimalField("Ціна замовлення", max_digits=12, decimal_places=2)
+
+    class Meta:
+        ordering = ["product__name", "pk"]
+        indexes = [models.Index(fields=["company", "product"], name="poi_company_product_idx")]
+
+    @property
+    def outstanding_quantity(self):
+        return max(Decimal("0"), self.quantity - self.received_quantity)
+
+    @property
+    def line_total(self):
+        return self.quantity * self.cost_price
+
+
 class StockBatch(models.Model):
     """Окрема партія надходження з власною собівартістю та залишком."""
     company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="stock_batches")
