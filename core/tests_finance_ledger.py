@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import BankAccount, BankTransaction, FinanceEntry, Shift
+from core.models import BankAccount, BankTransaction, BankReconciliation, FinanceEntry, SettlementPayment, Shift, Sale, Customer
 from core.tests_tenant_helpers import create_test_company
 
 
@@ -376,6 +376,28 @@ class BankLedgerTests(TestCase):
         page = self.client.get(reverse("bank_ledger"))
         self.assertEqual(page.context["balances"][0]["balance"], Decimal("0.00"))
         self.assertContains(page, "Помилкова сума")
+
+    def test_matches_bank_income_to_sale_payment_and_keeps_unmatch_audit(self):
+        customer = Customer.objects.create(company=self.company, name="Test customer", phone="0501110001")
+        sale = Sale.objects.create(company=self.company, cashier=self.owner, customer=customer,
+            total=Decimal("450.00"), cash_amount=Decimal("0.00"), card_amount=Decimal("0.00"))
+        payment = SettlementPayment.objects.create(company=self.company, sale=sale, amount=Decimal("450.00"),
+            payment_method="bank", created_by=self.owner)
+        entry = BankTransaction.objects.create(company=self.company, account=self.account,
+            transaction_date="2026-11-18", direction="income", category="Оплата продажу",
+            amount=Decimal("450.00"), created_by=self.owner)
+        self.client.force_login(self.owner)
+        self.client.post(reverse("bank_reconcile", args=[entry.pk]), {"payment_id": payment.pk})
+        reconciliation = BankReconciliation.objects.get(bank_transaction=entry, is_void=False)
+        self.assertEqual(reconciliation.settlement_payment_id, payment.pk)
+        self.client.post(reverse("bank_reconciliation_void", args=[reconciliation.pk]), {
+            "reason": "Виправлення",
+        })
+        reconciliation.refresh_from_db()
+        self.assertTrue(reconciliation.is_void)
+        self.assertEqual(reconciliation.void_reason, "Виправлення")
+        self.assertIsNotNone(reconciliation.voided_at)
+        self.assertEqual(reconciliation.voided_by, self.owner)
 
     def test_cashier_cannot_view_or_write_bank_ledger(self):
         self.client.force_login(self.cashier)
