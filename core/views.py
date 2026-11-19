@@ -22,7 +22,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment, SupplierClaim, SupplierReturn)
+                     Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment, SupplierClaim, SupplierReturn, SupplierCompensation)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -1147,20 +1147,32 @@ def purchase_detail(request, pk):
     purchase = get_object_or_404(company_queryset(Purchase.objects.select_related("supplier"), request), pk=pk)
     payments = purchase.settlement_payments.filter(company=request.company, is_void=False)
     paid = payments.aggregate(total=Sum("amount"))["total"] or D0
+    compensated = SupplierCompensation.objects.filter(
+        company=request.company, purchase=purchase
+    ).aggregate(total=Sum("amount"))["total"] or D0
     from .models import AccountAdvance
     available_advances = AccountAdvance.objects.filter(
         company=request.company, party_type=AccountAdvance.SUPPLIER, supplier_id=purchase.supplier_id,
         is_void=False, remaining__gt=0,
     )
-    purchase_items = list(purchase.items.select_related("product").prefetch_related("supplier_returns"))
+    bank_accounts = BankAccount.objects.filter(company=request.company)
+    purchase_items = list(purchase.items.select_related("product").prefetch_related("supplier_returns__compensations"))
     for item in purchase_items:
         item.returned_quantity = sum((row.quantity for row in item.supplier_returns.all()), D0)
         item.returnable_quantity = max(D0, item.quantity - item.returned_quantity)
+        for returned in item.supplier_returns.all():
+            returned.compensated_amount = sum((entry.amount for entry in returned.compensations.all()), D0)
+            returned.compensation_remaining = max(D0, returned.total - returned.compensated_amount)
     return render(request, "core/purchase_detail.html", {
         "p": purchase, "purchase_items": purchase_items,
         "settlement_payments": purchase.settlement_payments.select_related("created_by", "voided_by", "advance"),
-        "settlement_paid": paid, "settlement_balance": max(D0, purchase.total - paid),
-        "available_advances": available_advances,
+        "supplier_compensations": SupplierCompensation.objects.filter(
+            company=request.company, purchase=purchase
+        ).select_related("supplier_return", "created_by", "bank_account"),
+        "settlement_paid": paid, "settlement_compensated": compensated,
+        "settlement_balance": max(D0, purchase.total - paid - compensated),
+        "supplier_credit": max(D0, paid + compensated - purchase.total),
+        "available_advances": available_advances, "bank_accounts": bank_accounts,
     })
 
 
