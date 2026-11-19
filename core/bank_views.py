@@ -133,14 +133,13 @@ def bank_ledger(request):
                     "document": document,
                     "label": f"{'Продаж' if payment.sale_id else 'Закупівля'} №{document.number or document.pk} · {payment.amount:.2f} ₴ · {payment.created_at:%d.%m.%Y}",
                 })
-        candidates_by_transaction[entry.pk] = candidates
+        entry.active_reconciliation = reconciliation_by_transaction.get(entry.pk)
+        entry.reconciliation_candidates = candidates
     return render(request, "core/bank_ledger.html", {
         "accounts": accounts, "balances": balances, "entries": entries,
         "account_form": account_form, "transaction_form": transaction_form,
         "date_from": date_from, "date_to": date_to,
         "income": income, "expense": expense, "balance": income - expense,
-        "reconciliation_by_transaction": reconciliation_by_transaction,
-        "candidates_by_transaction": candidates_by_transaction,
     })
 
 
