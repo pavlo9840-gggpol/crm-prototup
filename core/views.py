@@ -22,7 +22,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment)
+                     Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -537,6 +537,105 @@ def purchase_order_control(request):
         "orders": rows, "today": today, "selected_delivery": filter_mode,
         "overdue_count": overdue_count, "incomplete_count": incomplete_count,
         "outstanding_units": outstanding_units, "outstanding_value": outstanding_value,
+    })
+
+
+@login_required
+@company_required
+@tenant_staff_only
+def supplier_analytics(request):
+    """Порівняння пропозицій і фактична якість постачань у межах поточної компанії."""
+    today = timezone.localdate()
+    default_from = today - timedelta(days=90)
+    try:
+        date_from = date.fromisoformat(request.GET.get("from", "").strip()) if request.GET.get("from") else default_from
+        date_to = date.fromisoformat(request.GET.get("to", "").strip()) if request.GET.get("to") else today
+        if date_from > date_to:
+            raise ValueError
+    except ValueError:
+        date_from, date_to = default_from, today
+        messages.error(request, "Перевірте період звіту: дата початку має бути не пізніше дати завершення.")
+    supplier_id = request.GET.get("supplier", "").strip()
+    query = request.GET.get("q", "").strip()
+    receipt_items = PurchaseItem.objects.select_related("purchase")
+    item_query = PurchaseOrderItem.objects.select_related("product").prefetch_related(
+        Prefetch("receipt_items", queryset=receipt_items)
+    )
+    orders = company_queryset(
+        PurchaseOrder.objects.select_related("supplier").prefetch_related(Prefetch("items", queryset=item_query)),
+        request,
+    ).filter(created_at__date__gte=date_from, created_at__date__lte=date_to).exclude(
+        status__in=(PurchaseOrder.DRAFT, PurchaseOrder.CANCELLED)
+    )
+    if supplier_id.isdigit():
+        orders = orders.filter(supplier_id=int(supplier_id))
+    stats = {}
+    for order in orders.order_by("supplier__name", "-created_at")[:2000]:
+        row = stats.setdefault(order.supplier_id, {
+            "supplier": order.supplier, "orders": 0, "completed": 0, "on_time": 0,
+            "orders_with_due_date": 0, "ordered_qty": D0, "received_qty": D0,
+            "planned_value": D0, "planned_received_value": D0, "actual_value": D0, "price_qty": D0,
+        })
+        row["orders"] += 1
+        order_ordered = D0
+        order_received = D0
+        latest_receipt = None
+        for item in order.items.all():
+            order_ordered += item.quantity
+            row["ordered_qty"] += item.quantity
+            row["planned_value"] += item.quantity * item.cost_price
+            for receipt in item.receipt_items.all():
+                order_received += receipt.quantity
+                row["received_qty"] += receipt.quantity
+                row["planned_received_value"] += receipt.quantity * item.cost_price
+                row["actual_value"] += receipt.quantity * receipt.cost_price
+                row["price_qty"] += receipt.quantity
+                receipt_date = timezone.localtime(receipt.purchase.created_at).date()
+                latest_receipt = max(latest_receipt, receipt_date) if latest_receipt else receipt_date
+        if order_ordered > 0 and order_received >= order_ordered:
+            row["completed"] += 1
+            if order.expected_date:
+                row["orders_with_due_date"] += 1
+                if latest_receipt and latest_receipt <= order.expected_date:
+                    row["on_time"] += 1
+    performance = []
+    for row in stats.values():
+        row["fill_rate"] = (
+            (row["received_qty"] / row["ordered_qty"] * Decimal("100")).quantize(Decimal("0.1"))
+            if row["ordered_qty"] else D0
+        )
+        row["on_time_rate"] = (
+            (Decimal(row["on_time"]) / row["orders_with_due_date"] * Decimal("100")).quantize(Decimal("0.1"))
+            if row["orders_with_due_date"] else None
+        )
+        row["price_delta"] = row["actual_value"] - row["planned_received_value"]
+        row["avg_actual_cost"] = (
+            (row["actual_value"] / row["price_qty"]).quantize(Decimal("0.01")) if row["price_qty"] else None
+        )
+        performance.append(row)
+    performance.sort(key=lambda x: (
+        x["on_time_rate"] is None, -(x["on_time_rate"] or D0), -x["fill_rate"], x["supplier"].name
+    ))
+    offers = company_queryset(SupplierItem.objects.select_related("supplier", "product"), request).filter(
+        available=True, cost__gt=0, product__isnull=False, supplier__is_active=True
+    )
+    if supplier_id.isdigit():
+        offers = offers.filter(supplier_id=int(supplier_id))
+    if query:
+        offers = offers.filter(
+            Q(product__name__icontains=query) | Q(product__sku__icontains=query)
+            | Q(brand__icontains=query) | Q(sku__icontains=query)
+        )
+    grouped = {}
+    for offer in offers.order_by("product__name", "cost", "supplier__name")[:5000]:
+        group = grouped.setdefault(offer.product_id, {"product": offer.product, "offers": []})
+        group["offers"].append(offer)
+    comparisons = [group for group in grouped.values() if len(group["offers"]) >= 2]
+    comparisons.sort(key=lambda x: x["product"].name.lower())
+    return render(request, "core/supplier_analytics.html", {
+        "performance": performance, "comparisons": comparisons[:200],
+        "suppliers": company_queryset(Supplier.objects.filter(is_active=True).order_by("name"), request),
+        "selected_supplier": supplier_id, "query": query, "date_from": date_from, "date_to": date_to,
     })
 
 
