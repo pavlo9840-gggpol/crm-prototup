@@ -1458,6 +1458,7 @@ class BankTransaction(models.Model):
     counterparty = models.CharField("Контрагент", max_length=150, blank=True)
     document_ref = models.CharField("Документ / призначення", max_length=120, blank=True)
     note = models.CharField("Примітка", max_length=250, blank=True)
+    import_fingerprint = models.CharField(max_length=64, blank=True, null=True, db_index=True)
     created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="bank_transactions")
     created_at = models.DateTimeField(auto_now_add=True)
     is_void = models.BooleanField("Скасовано", default=False, db_index=True)
