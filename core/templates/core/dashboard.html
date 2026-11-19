@@ -18,6 +18,12 @@
   <div class="card {% if low_count %}low{% endif %}">Потрібно поповнити<b>{{ low_count }}</b><a href="{% url 'inventory' %}?status=low">Перевірити залишки →</a></div>
   <div class="card {% if overdue_orders %}low{% endif %}">Замовлення для клієнтів<b>{{ waiting_orders }}</b>{% if overdue_orders %}<span class="err">Прострочених: {{ overdue_orders }}</span>{% endif %}<a href="{% url 'orders' %}">Відкрити замовлення →</a></div>
 </div>
+<div class="kpi">
+  <div class="card {% if customer_debt %}low{% endif %}">Борг клієнтів<b>{{ customer_debt|floatformat:2 }} ₴</b><a href="{% url 'settlements_home' %}">Контроль розрахунків →</a></div>
+  <div class="card {% if supplier_debt %}low{% endif %}">Борг постачальникам<b>{{ supplier_debt|floatformat:2 }} ₴</b><a href="{% url 'settlements_home' %}">Контроль розрахунків →</a></div>
+  <div class="card">Невикористані аванси клієнтів<b>{{ customer_advances|floatformat:2 }} ₴</b><a href="{% url 'settlements_home' %}">Аванси →</a></div>
+  <div class="card">Аванси постачальникам<b>{{ supplier_advances|floatformat:2 }} ₴</b><a href="{% url 'settlements_home' %}">Аванси →</a></div>
+</div>
 
 <div class="grid2">
   <section>
@@ -63,6 +69,16 @@
       <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0"><span>Прострочені замовлення</span><b class="{% if overdue_orders %}err{% endif %}">{{ overdue_orders }}</b></div>
       {% if low_count %}<a class="btn gray" style="display:block;text-align:center;margin-top:8px" href="{% url 'inventory' %}?status=low">Перевірити дефіцит</a>{% endif %}
       {% if overdue_orders %}<a class="btn red" style="display:block;text-align:center;margin-top:8px" href="{% url 'orders' %}">Перевірити прострочені</a>{% endif %}
+    </div>
+    <div class="card">
+      <h3>Критичні залишки</h3>
+      {% for p in low_products %}
+        <div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
+          <span>{{ p.name }} <small class="muted">{{ p.sku }}</small></span>
+          <b class="{% if p.current_stock <= 0 %}err{% endif %}">{{ p.current_stock|floatformat:"-3" }} / {{ p.min_stock|floatformat:"-3" }}</b>
+        </div>
+      {% empty %}<div class="muted">Немає товарів нижче мінімального залишку.</div>{% endfor %}
+      <a href="{% url 'inventory' %}?status=low">Усі проблемні залишки →</a>
     </div>
     <div class="card">
       <h3>Швидкі дії</h3>
