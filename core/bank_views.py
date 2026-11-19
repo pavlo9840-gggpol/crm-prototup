@@ -159,6 +159,9 @@ def bank_transaction_void(request, pk):
         if not entry:
             messages.error(request, "Операцію не знайдено або її вже скасовано.")
             return redirect("bank_ledger")
+        if BankReconciliation.objects.filter(bank_transaction=entry, is_void=False).exists():
+            messages.error(request, "Спочатку скасуйте звірку, потім можна скасувати банківський запис.")
+            return redirect("bank_ledger")
         entry.is_void = True
         entry.voided_at = timezone.now()
         entry.voided_by = request.user
