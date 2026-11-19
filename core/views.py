@@ -980,14 +980,33 @@ def inventory_count_detail(request, pk):
             Q(product__name__icontains=q) | Q(product__sku__icontains=q)
             | Q(product__barcode__icontains=q) | Q(product__extra_barcodes__barcode__icontains=q)
         ).distinct()
+    all_items = InventoryCountItem.objects.filter(inventory_count=count, company=request.company)
     if status == "counted":
         items = items.filter(counted_quantity__isnull=False)
     elif status == "pending":
         items = items.filter(counted_quantity__isnull=True)
-    summary = InventoryCountItem.objects.filter(inventory_count=count, company=request.company).aggregate(
+    elif status in ("difference", "surplus", "shortage"):
+        items = items.filter(counted_quantity__isnull=False)
+        baseline = "book_quantity_at_approval" if count.status == InventoryCount.APPROVED else "expected_quantity"
+        if status == "surplus":
+            items = items.filter(**{f"counted_quantity__gt": F(baseline)})
+        elif status == "shortage":
+            items = items.filter(**{f"counted_quantity__lt": F(baseline)})
+        else:
+            items = items.exclude(counted_quantity=F(baseline))
+    summary = all_items.aggregate(
         total=Count("pk"), counted=Count("pk", filter=Q(counted_quantity__isnull=False)),
-        difference=Sum(F("counted_quantity") - F("expected_quantity")),
     )
+    baseline_field = "book_quantity_at_approval" if count.status == InventoryCount.APPROVED else "expected_quantity"
+    counted_rows = all_items.filter(counted_quantity__isnull=False).values("counted_quantity", baseline_field)
+    surplus = shortage = D0
+    for row in counted_rows:
+        delta = row["counted_quantity"] - (row[baseline_field] or D0)
+        if delta > 0:
+            surplus += delta
+        elif delta < 0:
+            shortage += abs(delta)
+    summary.update({"surplus": surplus, "shortage": shortage, "net_difference": surplus - shortage})
     return render(request, "core/inventory_count_detail.html", {
         "count": count, "items": items[:1000], "q": q, "status": status, "summary": summary,
     })
