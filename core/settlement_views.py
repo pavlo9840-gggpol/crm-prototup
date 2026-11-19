@@ -377,7 +377,7 @@ def supplier_return_compensate(request, pk):
             pk=returned.purchase_item.purchase_id, company=request.company
         )
         already_compensated = SupplierCompensation.objects.filter(
-            company=request.company, supplier_return=returned
+            company=request.company, supplier_return=returned, is_void=False
         ).aggregate(total=Sum("amount"))["total"] or D0
         remaining = returned.total - already_compensated
         amount = form.cleaned_data["amount"]
