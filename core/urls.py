@@ -73,6 +73,7 @@ urlpatterns = [
     path("orders/<int:pk>/<str:action>/", tr.order_action, name="order_action"),
     path("my-sales/", tr.manager_sales, name="manager_sales"),
     path("supplier-prices/", tr.supplier_prices, name="supplier_prices"),
+    path("supplier-prices/history/", tr.supplier_price_history, name="supplier_price_history"),
     path("supplier-prices/map/", tr.price_map, name="price_map"),
     path("supplier-prices/apply/", tr.price_apply, name="price_apply"),
     path("suppliers/<int:pk>/api/", tr.supplier_api, name="supplier_api"),
