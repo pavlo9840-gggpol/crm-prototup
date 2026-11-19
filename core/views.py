@@ -1161,7 +1161,7 @@ def purchase_detail(request, pk):
         item.returned_quantity = sum((row.quantity for row in item.supplier_returns.all()), D0)
         item.returnable_quantity = max(D0, item.quantity - item.returned_quantity)
         for returned in item.supplier_returns.all():
-            returned.compensated_amount = sum((entry.amount for entry in returned.compensations.all()), D0)
+            returned.compensated_amount = sum((entry.amount for entry in returned.compensations.all() if not entry.is_void), D0)
             returned.compensation_remaining = max(D0, returned.total - returned.compensated_amount)
     return render(request, "core/purchase_detail.html", {
         "p": purchase, "purchase_items": purchase_items,
