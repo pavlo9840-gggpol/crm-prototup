@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from django import forms
 from django.contrib import messages
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -245,13 +245,17 @@ def bank_import(request):
                         if BankTransaction.objects.filter(company=request.company, import_fingerprint=fingerprint).exists():
                             duplicate_count += 1
                             continue
-                        BankTransaction.objects.create(
-                            company=request.company, account=account, transaction_date=transaction_date,
-                            direction=direction, category=category[:80], amount=amount,
-                            counterparty=counterparty[:150], document_ref=document_ref[:120], note=note[:250],
-                            created_by=request.user, import_fingerprint=fingerprint,
-                        )
-                        imported += 1
+                        try:
+                            with transaction.atomic():
+                                BankTransaction.objects.create(
+                                    company=request.company, account=account, transaction_date=transaction_date,
+                                    direction=direction, category=category[:80], amount=amount,
+                                    counterparty=counterparty[:150], document_ref=document_ref[:120], note=note[:250],
+                                    created_by=request.user, import_fingerprint=fingerprint,
+                                )
+                            imported += 1
+                        except IntegrityError:
+                            duplicate_count += 1
                     except (ValueError, InvalidOperation) as exc:
                         error_count += 1
                         errors.append(f"Рядок {row_no}: {exc}")
