@@ -1101,7 +1101,7 @@ def supplier_return_create(request, pk, item_pk):
             if product.tracking_mode in {"batch", "expiry"}:
                 batches = list(StockBatch.objects.select_for_update().filter(
                     company=request.company, product=product, purchase_item=item, remaining_quantity__gt=0
-                ).order_by("expiry_date", "received_at", "pk"))
+                ).order_by(F("expiry_date").asc(nulls_last=True), "received_at", "pk"))
                 batch_available = sum((batch.remaining_quantity for batch in batches), D0)
                 if batch_available < qty:
                     raise StockError(
