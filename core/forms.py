@@ -244,6 +244,14 @@ class AdjustForm(forms.ModelForm):
             raise forms.ValidationError("Кількість має бути більше нуля")
         return q
 
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("kind") == "writeoff" and not cleaned.get("reason"):
+            self.add_error("reason", "Для списання обов'язково вкажіть причину.")
+        if cleaned.get("kind") == "writeoff" and not (cleaned.get("note") or "").strip():
+            self.add_error("note", "Для списання обов'язково додайте пояснення.")
+        return cleaned
+
 
 class CompanyForm(forms.ModelForm):
     class Meta:
