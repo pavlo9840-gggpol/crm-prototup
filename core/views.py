@@ -634,7 +634,7 @@ def supplier_analytics(request):
         )
         performance.append(row)
     performance.sort(key=lambda x: (
-        x["on_time_rate"] is None, -(x["on_time_rate"] or D0), -x["fill_rate"], x["supplier"].name
+        x["rating_score"] is None, -(x["rating_score"] or D0), x["supplier"].name
     ))
     offers = company_queryset(SupplierItem.objects.select_related("supplier", "product"), request).filter(
         available=True, cost__gt=0, product__isnull=False, supplier__is_active=True
@@ -754,7 +754,7 @@ def supplier_claim_create(request, pk, item_pk):
     item = get_object_or_404(PurchaseOrderItem.objects.select_related("product"), pk=item_pk, order=order, company=request.company)
     try:
         if order.status in (PurchaseOrder.DRAFT, PurchaseOrder.CANCELLED):
-            raise StockError("Претензію можна створити лише для відправленого або підтвердженого замовлення.")
+            raise StockError("Претензію не можна створити для чернетки або скасованого замовлення.")
         kind = request.POST.get("kind", "").strip()
         if kind not in dict(SupplierClaim.KIND_CHOICES):
             raise StockError("Оберіть коректну причину претензії.")
