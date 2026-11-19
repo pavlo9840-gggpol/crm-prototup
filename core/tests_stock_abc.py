@@ -45,7 +45,7 @@ class StockABCReportTests(TestCase):
         self.assertEqual(rows["NO-SALES"]["abc"], "—")
         self.assertEqual(rows["A-1"]["revenue"], Decimal("800.00"))
         self.assertGreater(rows["A-1"]["coverage_days"], 0)
-        self.assertIn(rows["C-1"], response.context["replenishment_rows"])
+        self.assertTrue(any(row["product__sku"] == "C-1" for row in response.context["replenishment_rows"]))
         self.assertEqual(response.context["total_revenue"], Decimal("1000.00"))
         self.assertContains(response, "ABC-аналіз")
         self.assertContains(response, "Днів запасу")
