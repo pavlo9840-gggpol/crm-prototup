@@ -38,4 +38,11 @@ class UnifiedNavigationTests(TestCase):
     def test_cashier_is_redirected_to_point_of_sale_from_dashboard(self):
         self.client.force_login(self.cashier)
         response = self.client.get(reverse("dashboard"))
-        self.assertRedirects(response, reverse("pos"), fetch_redirect_response=False)
+        self.assertRedirects(response, reverse("pos"), fetch_redirect_response=False)  <div class="card {% if overdue_orders %}low{% endif %}">Замовлення для клієнтів<b>{{ waiting_orders }}</b>{% if overdue_orders %}<span class="err">Прострочених: {{ overdue_orders }}</span>{% endif %}<a href="{% url 'orders' %}">Відкрити замовлення →</a></div>
+</div>
+<div class="kpi">
+  <div class="card {% if customer_debt %}low{% endif %}">Борг клієнтів<b>{{ customer_debt|floatformat:2 }} ₴</b><a href="{% url 'settlements_home' %}">Контроль розрахунків →</a></div>
+  <div class="card {% if supplier_debt %}low{% endif %}">Борг постачальникам<b>{{ supplier_debt|floatformat:2 }} ₴</b><a href="{% url 'settlements_home' %}">Контроль розрахунків →</a></div>
+  <div class="card">Невикористані аванси клієнтів<b>{{ customer_advances|floatformat:2 }} ₴</b><a href="{% url 'settlements_home' %}">Аванси →</a></div>
+  <div class="card">Аванси постачальникам<b>{{ supplier_advances|floatformat:2 }} ₴</b><a href="{% url 'settlements_home' %}">Аванси →</a></div>
+</div>
