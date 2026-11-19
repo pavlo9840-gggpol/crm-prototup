@@ -75,6 +75,7 @@ urlpatterns = [
     path("catalogue/", cat.catalogue_home, name="catalogue_home"),
     path("rates/", cv.rates, name="rates"),
     path("finance/", fv.finance_ledger, name="finance_ledger"),
+    path("finance/cashflow/", fv.cashflow_report, name="cashflow_report"),
     path("bank/", bv.bank_ledger, name="bank_ledger"),
     path("bank/import/", bv.bank_import, name="bank_import"),
     path("bank/export.csv", bv.bank_export_csv, name="bank_export_csv"),
