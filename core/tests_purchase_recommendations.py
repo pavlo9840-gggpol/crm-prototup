@@ -66,3 +66,12 @@ class PurchaseRecommendationTests(TestCase):
         response = self.client.get(reverse("purchase_recommendations"))
         ids = {item["product"].pk for item in response.context["rows"]}
         self.assertNotIn(foreign.pk, ids)
+
+    def test_recommendation_prefills_purchase_document(self):
+        response = self.client.get(reverse("purchase_new"), {
+            "product": str(self.product.pk), "qty": "3.000", "cost": "8.50",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["initial_lines"], [{
+            "product_id": self.product.pk, "quantity": "3.000", "cost": "8.50",
+        }])
