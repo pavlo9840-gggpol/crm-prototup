@@ -22,7 +22,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment)
+                     Purchase, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -412,6 +412,160 @@ def purchase_recommendations(request):
         "rows": rows[:500], "target_days": target_days, "d1": d1, "d2": d2,
         "period_days": period_days, "total_units": total_units, "total_cost": total_cost,
         "recommendation_count": len(rows)})
+
+
+@login_required
+@company_required
+@tenant_staff_only
+@require_POST
+def purchase_order_create(request):
+    product_ids = request.POST.getlist("product")
+    quantities = request.POST.getlist("qty")
+    offer_ids = request.POST.getlist("offer")
+    if not product_ids or not (len(product_ids) == len(quantities) == len(offer_ids)):
+        messages.error(request, "Оберіть товари з підтвердженими пропозиціями постачальників.")
+        return redirect("purchase_recommendations")
+    grouped = {}
+    try:
+        with transaction.atomic():
+            for index, (pid, raw_qty, offer_id) in enumerate(zip(product_ids, quantities, offer_ids), start=1):
+                product = company_queryset(Product.objects.all(), request).filter(pk=pid or 0).first()
+                qty = dec(raw_qty)
+                offer = company_queryset(SupplierItem.objects.select_related("supplier"), request).filter(
+                    pk=offer_id or 0, available=True
+                ).first()
+                if not product or not offer or offer.supplier.company_id != request.company.pk:
+                    raise StockError(f"Рядок {index}: товар або пропозиція постачальника недоступні.")
+                if offer.product_id and offer.product_id != product.pk:
+                    raise StockError(f"Рядок {index}: пропозиція не відповідає вибраному товару.")
+                if not offer.product_id and (offer.sku_norm != product.sku_norm or (offer.brand or "").casefold() != (product.brand or "").casefold()):
+                    raise StockError(f"Рядок {index}: артикул і бренд пропозиції не збігаються з товаром.")
+                if qty is None or qty <= 0:
+                    raise StockError(f"Рядок {index}: кількість має бути більшою за нуль.")
+                if offer.qty_avail is not None and qty > offer.qty_avail:
+                    raise StockError(f"Рядок {index}: у постачальника доступно лише {offer.qty_avail}.")
+                grouped.setdefault(offer.supplier_id, []).append((product, qty, offer))
+            created = []
+            for supplier_id, lines in grouped.items():
+                supplier = company_queryset(Supplier.objects.filter(is_active=True), request).get(pk=supplier_id)
+                order = PurchaseOrder.objects.create(company=request.company, supplier=supplier, user=request.user)
+                order.number = f"PO-{order.pk:06d}"
+                order.save(update_fields=["number"])
+                for product, qty, offer in lines:
+                    PurchaseOrderItem.objects.create(
+                        company=request.company, order=order, product=product,
+                        supplier_item=offer, quantity=qty, cost_price=offer.cost,
+                    )
+                created.append(order)
+        messages.success(request, f"Створено замовлень постачальникам: {len(created)}.")
+        return redirect("purchase_order_list")
+    except (StockError, Supplier.DoesNotExist) as exc:
+        messages.error(request, str(exc))
+        return redirect("purchase_recommendations")
+
+
+@login_required
+@company_required
+@tenant_staff_only
+def purchase_order_list(request):
+    orders = company_queryset(PurchaseOrder.objects.select_related("supplier", "user"), request)
+    status = request.GET.get("status", "").strip()
+    if status in dict(PurchaseOrder.STATUS_CHOICES):
+        orders = orders.filter(status=status)
+    return render(request, "core/purchase_order_list.html", {
+        "orders": orders[:300], "statuses": PurchaseOrder.STATUS_CHOICES, "selected_status": status,
+    })
+
+
+@login_required
+@company_required
+@tenant_staff_only
+def purchase_order_detail(request, pk):
+    order = get_object_or_404(
+        company_queryset(PurchaseOrder.objects.select_related("supplier", "user"), request), pk=pk
+    )
+    items = order.items.select_related("product", "supplier_item").all()
+    return render(request, "core/purchase_order_detail.html", {"order": order, "items": items})
+
+
+@login_required
+@company_required
+@tenant_staff_only
+@require_POST
+def purchase_order_status(request, pk, action):
+    with transaction.atomic():
+        order = get_object_or_404(company_queryset(PurchaseOrder.objects.select_for_update(), request), pk=pk)
+        now = timezone.now()
+        if action == "send" and order.status == PurchaseOrder.DRAFT:
+            order.status, order.sent_at = PurchaseOrder.SENT, now
+        elif action == "confirm" and order.status == PurchaseOrder.SENT:
+            order.status, order.confirmed_at = PurchaseOrder.CONFIRMED, now
+        elif action == "cancel" and order.status in (PurchaseOrder.DRAFT, PurchaseOrder.SENT, PurchaseOrder.CONFIRMED):
+            if order.items.filter(received_quantity__gt=0).exists():
+                messages.error(request, "Замовлення з уже отриманими товарами не можна скасувати.")
+                return redirect("purchase_order_detail", pk=order.pk)
+            order.status, order.closed_at = PurchaseOrder.CANCELLED, now
+        else:
+            messages.error(request, "Ця зміна статусу зараз недоступна.")
+            return redirect("purchase_order_detail", pk=order.pk)
+        order.save(update_fields=["status", "sent_at", "confirmed_at", "closed_at", "updated_at"])
+    messages.success(request, "Статус замовлення оновлено.")
+    return redirect("purchase_order_detail", pk=pk)
+
+
+@login_required
+@company_required
+@tenant_staff_only
+@require_POST
+def purchase_order_receive(request, pk, item_pk):
+    try:
+        with transaction.atomic():
+            order = get_object_or_404(
+                company_queryset(PurchaseOrder.objects.select_for_update().select_related("supplier"), request), pk=pk
+            )
+            if order.status not in (PurchaseOrder.CONFIRMED, PurchaseOrder.PARTIAL):
+                raise StockError("Спочатку підтвердіть замовлення постачальнику.")
+            item = get_object_or_404(
+                PurchaseOrderItem.objects.select_for_update().select_related("product"),
+                pk=item_pk, order=order, company=request.company,
+            )
+            qty = dec(request.POST.get("quantity"))
+            if qty is None or qty <= 0 or qty > item.outstanding_quantity:
+                raise StockError(f"Вкажіть кількість від 0.001 до {item.outstanding_quantity}.")
+            raw_expiry = request.POST.get("expiry_date", "").strip()
+            expiry = datetime.strptime(raw_expiry, "%Y-%m-%d").date() if raw_expiry else None
+            batch_number = request.POST.get("batch_number", "").strip()
+            serials = request.POST.get("serial_numbers", "").splitlines()
+            product = item.product
+            if product.tracking_mode == "expiry" and not expiry:
+                raise StockError("Для цього товару потрібно вказати термін придатності.")
+            if product.tracking_mode == "serial" and not any(x.strip() for x in serials):
+                raise StockError("Для серійного товару введіть серійні номери.")
+            if product.tracking_mode not in ("batch", "expiry") and (batch_number or expiry):
+                raise StockError("Цей товар не використовує партійний облік.")
+            if product.tracking_mode != "serial" and any(x.strip() for x in serials):
+                raise StockError("Цей товар не використовує серійний облік.")
+            receipt = services.create_purchase(
+                request.user, order.supplier,
+                [(product, qty, item.cost_price, batch_number, expiry, serials)],
+                update_cost=False, company=request.company,
+            )
+            receipt_item = receipt.items.get(product=product)
+            receipt_item.order_item = item
+            receipt_item.save(update_fields=["order_item"])
+            item.received_quantity += qty
+            item.save(update_fields=["received_quantity"])
+            remaining = order.items.filter(received_quantity__lt=F("quantity")).exists()
+            if remaining:
+                order.status = PurchaseOrder.PARTIAL
+            else:
+                order.status, order.closed_at = PurchaseOrder.RECEIVED, timezone.now()
+            order.save(update_fields=["status", "closed_at", "updated_at"])
+        messages.success(request, f"Створено накладну надходження {receipt.number}; отримано {qty}.")
+    except (StockError, ValueError) as exc:
+        messages.error(request, str(exc) or "Перевірте дату придатності.")
+    return redirect("purchase_order_detail", pk=pk)
+
 
 @login_required
 @company_required
