@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from . import cash as cashlib
-from .models import AccountAdvance, BankReconciliation, CashOperation, Customer, Purchase, Sale, SettlementPayment, Shift, Supplier
+from .models import AccountAdvance, BankAccount, BankReconciliation, BankTransaction, CashOperation, Customer, Purchase, Sale, SettlementPayment, Shift, Supplier, SupplierCompensation, SupplierReturn
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -40,6 +40,13 @@ class AdvanceForm(forms.Form):
     note = forms.CharField(max_length=250, required=False, label="Примітка")
 
 
+class SupplierCompensationForm(forms.Form):
+    kind = forms.ChoiceField(choices=SupplierCompensation.KINDS, label="Фактичний спосіб компенсації")
+    amount = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"), label="Сума компенсації")
+    bank_account = forms.ModelChoiceField(queryset=BankAccount.objects.none(), required=False, label="Банківський рахунок")
+    note = forms.CharField(max_length=250, required=False, label="Примітка")
+
+
 class SettlementVoidForm(forms.Form):
     reason = forms.CharField(max_length=250, label="Причина скасування")
 
@@ -51,9 +58,22 @@ def _paid_for(document):
     return document.settlement_payments.filter(company=document.company, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
 
 
+def _supplier_compensated_for(document):
+    cached = getattr(document, "_prefetched_objects_cache", {}).get("supplier_compensations")
+    if cached is not None:
+        return sum((entry.amount for entry in cached), D0)
+    return document.supplier_compensations.filter(company=document.company).aggregate(
+        total=Sum("amount")
+    )["total"] or D0
+
+
+def _supplier_net_balance_for(document):
+    return document.total - _paid_for(document) - _supplier_compensated_for(document)
+
+
 def _balance_for(document):
     if isinstance(document, Purchase):
-        return max(D0, document.total - _paid_for(document))
+        return max(D0, _supplier_net_balance_for(document))
     cached_returns = getattr(document, "_prefetched_objects_cache", {}).get("returns")
     returned = (sum((item.total for item in cached_returns), D0) if cached_returns is not None
                 else document.returns.filter(company=document.company).aggregate(total=Sum("total"))["total"] or D0)
@@ -315,6 +335,84 @@ def supplier_account(request, pk):
         "supplier": supplier, "purchase_rows": rows, "account_totals": totals,
         "account_payments": payments, "account_advances": advances,
     })
+
+
+@tenant_staff_only
+@company_required
+def supplier_return_compensate(request, pk):
+    if request.method != "POST":
+        return redirect("settlements_home")
+    form = SupplierCompensationForm(request.POST, company=request.company)
+    if not form.is_valid():
+        messages.error(request, "Перевірте спосіб, суму та банківський рахунок компенсації.")
+        return redirect(request.META.get("HTTP_REFERER") or "settlements_home")
+
+    with transaction.atomic():
+        returned = get_object_or_404(
+            SupplierReturn.objects.select_for_update().select_related(
+                "supplier", "purchase_item__purchase"
+            ).filter(company=request.company),
+            pk=pk,
+        )
+        purchase = Purchase.objects.select_for_update().get(
+            pk=returned.purchase_item.purchase_id, company=request.company
+        )
+        already_compensated = SupplierCompensation.objects.filter(
+            company=request.company, supplier_return=returned
+        ).aggregate(total=Sum("amount"))["total"] or D0
+        remaining = returned.total - already_compensated
+        amount = form.cleaned_data["amount"]
+        kind = form.cleaned_data["kind"]
+        if amount > remaining:
+            messages.error(request, f"Сума перевищує невідшкодований залишок повернення: {remaining:.2f} ₴.")
+            return redirect("purchase_detail", pk=purchase.pk)
+
+        cash_operation = None
+        bank_transaction = None
+        bank_account = None
+        if kind == SupplierCompensation.CASH:
+            shift = Shift.objects.select_for_update().filter(
+                company=request.company, cashier=request.user, closed_at__isnull=True
+            ).first()
+            if not shift:
+                messages.error(request, "Для повернення готівки відкрийте касову зміну під своїм обліковим записом.")
+                return redirect("purchase_detail", pk=purchase.pk)
+            counts = cashlib.decompose(cashlib.to_kop(amount))
+            drawer_after = cashlib.add(cashlib.clean(shift.drawer), counts)
+            cash_operation = CashOperation.objects.create(
+                company=request.company, shift=shift, user=request.user, kind="in", amount=amount,
+                detail={"source": "supplier_return_compensation", "supplier_return_id": returned.pk,
+                        "counts": cashlib.store(counts)},
+                note=f"Повернення від постачальника · {returned.number}"[:200],
+            )
+            shift.drawer = cashlib.store(drawer_after)
+            shift.save(update_fields=["drawer"])
+        elif kind == SupplierCompensation.BANK:
+            bank_account = form.cleaned_data.get("bank_account")
+            if not bank_account or bank_account.company_id != request.company.pk:
+                messages.error(request, "Оберіть банківський рахунок цього магазину.")
+                return redirect("purchase_detail", pk=purchase.pk)
+            bank_transaction = BankTransaction.objects.create(
+                company=request.company, account=bank_account, transaction_date=timezone.localdate(),
+                direction=BankTransaction.INCOME, category="Повернення від постачальника",
+                amount=amount, counterparty=returned.supplier.name,
+                document_ref=returned.number, note=form.cleaned_data["note"].strip()[:250],
+                created_by=request.user,
+            )
+
+        compensation = SupplierCompensation.objects.create(
+            company=request.company, supplier_return=returned, purchase=purchase,
+            supplier=returned.supplier, kind=kind, amount=amount,
+            bank_account=bank_account, cash_operation=cash_operation,
+            bank_transaction=bank_transaction, note=form.cleaned_data["note"].strip(),
+            created_by=request.user,
+        )
+    messages.success(
+        request,
+        f"Компенсацію {compensation.number} на {amount:.2f} ₴ проведено. "
+        "Вона врахована у взаєморозрахунках із постачальником.",
+    )
+    return redirect("purchase_detail", pk=purchase.pk)
 
 
 @tenant_staff_only
