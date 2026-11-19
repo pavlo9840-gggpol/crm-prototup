@@ -15,15 +15,17 @@
 <div class="card">Рекомендована кількість з урахуванням доступності: <b>{{ total_units|floatformat:"-3" }}</b></div>
 <div class="card">Орієнтовна сума: <b>{{ total_cost|floatformat:2 }} ₴</b></div>
 </div>
-<p><small>Прайс постачальника — найнижча актуальна доступна ціна серед прив'язаних або точно зіставлених за брендом та артикулом позицій. Якщо відома наявність постачальника, у швидке додавання передається не більше цієї кількості. Перевірте ціну й залишок перед проведенням накладної. Система поки не враховує відкриті замовлення постачальникам: окремого документа замовлення закупівлі ще немає.</small></p>
-<p><button type="button" class="btn green" id="add-selected">Додати вибрані позиції в одну накладну</button></p>
+<p><small>Прайс постачальника — найнижча актуальна доступна ціна серед прив'язаних або точно зіставлених за брендом та артикулом позицій. Якщо відома наявність постачальника, у швидке додавання передається не більше цієї кількості. Перевірте ціну й залишок перед проведенням накладної. Відкриті замовлення постачальникам віднімаються від потреби, щоб не замовляти повторно вже очікуваний товар.</small></p>
+<form id="order-form" method="post" action="{% url 'purchase_order_create' %}" hidden>{% csrf_token %}</form>
+<p><button type="button" class="btn green" id="add-selected">Створити замовлення постачальникам із вибраних позицій</button> <a class="btn" href="{% url 'purchase_order_list' %}">Замовлення постачальникам</a></p>
 <table>
-<tr><th><input type="checkbox" id="select-all" aria-label="Вибрати всі"></th><th>Товар</th><th>Артикул</th><th class="n">Залишок</th><th class="n">Мінімум</th><th class="n">Продано</th><th class="n">Продаж/день</th><th class="n">Потрібно</th><th>Постачальник</th><th class="n">Ціна</th><th class="n">Доступно</th><th></th></tr>
+<tr><th><input type="checkbox" id="select-all" aria-label="Вибрати всі"></th><th>Товар</th><th>Артикул</th><th class="n">Залишок</th><th class="n">У замовленнях</th><th class="n">Мінімум</th><th class="n">Продано</th><th class="n">Продаж/день</th><th class="n">Потрібно</th><th>Постачальник</th><th class="n">Ціна</th><th class="n">Доступно</th><th></th></tr>
 {% for r in rows %}
 <tr>
-<td><input type="checkbox" class="purchase-select" data-product="{{ r.product.pk }}" data-qty="{{ r.supplier_qty }}" data-cost="{{ r.unit_cost }}"></td>
+<td><input type="checkbox" class="purchase-select" data-product="{{ r.product.pk }}" data-qty="{{ r.supplier_qty }}" data-offer="{{ r.supplier_item.pk|default:'' }}" {% if not r.supplier_item %}disabled title="Немає пропозиції постачальника"{% endif %}></td>
 <td>{{ r.product.name }}</td><td>{{ r.product.sku }}</td>
 <td class="n">{{ r.product.current_stock|floatformat:"-3" }}</td>
+<td class="n">{{ r.ordered_qty|floatformat:"-3" }}</td>
 <td class="n">{{ r.product.min_stock|floatformat:"-3" }}</td>
 <td class="n">{{ r.sold_qty|floatformat:"-3" }}</td>
 <td class="n">{{ r.daily_qty|floatformat:"-3" }}</td>
@@ -33,23 +35,23 @@
 <td class="n">{% if r.supplier_item and r.supplier_item.qty_avail != None %}{{ r.supplier_item.qty_avail|floatformat:"-3" }}{% else %}—{% endif %}</td>
 <td><a class="btn green" href="{% url 'purchase_new' %}?product={{ r.product.pk }}&amp;qty={{ r.supplier_qty }}&amp;cost={{ r.unit_cost }}">У накладну</a></td>
 </tr>
-{% empty %}<tr><td colspan="12">За вибраними умовами закупівля не рекомендується.</td></tr>{% endfor %}
+{% empty %}<tr><td colspan="13">За вибраними умовами закупівля не рекомендується.</td></tr>{% endfor %}
 </table>
 <p><a class="btn" href="{% url 'purchase_list' %}">До накладних надходження</a></p>
 <script>
 document.getElementById("select-all")?.addEventListener("change", event => {
-  document.querySelectorAll(".purchase-select").forEach(item => item.checked = event.target.checked);
+  document.querySelectorAll(".purchase-select:not(:disabled)").forEach(item => item.checked = event.target.checked);
 });
 document.getElementById("add-selected")?.addEventListener("click", () => {
-  const selected = [...document.querySelectorAll(".purchase-select:checked")];
-  if (!selected.length) { alert("Оберіть хоча б один товар."); return; }
-  const params = new URLSearchParams();
+  const selected = [...document.querySelectorAll(".purchase-select:checked:not(:disabled)")];
+  if (!selected.length) { alert("Оберіть хоча б один товар із пропозицією постачальника."); return; }
+  const form = document.getElementById("order-form");
   selected.forEach(item => {
-    params.append("product", item.dataset.product);
-    params.append("qty", item.dataset.qty);
-    params.append("cost", item.dataset.cost);
+    [["product", item.dataset.product], ["qty", item.dataset.qty], ["offer", item.dataset.offer]].forEach(([name, value]) => {
+      const input = document.createElement("input"); input.type = "hidden"; input.name = name; input.value = value; form.appendChild(input);
+    });
   });
-  window.location.href = "{% url 'purchase_new' %}?" + params.toString();
+  form.hidden = false; form.submit();
 });
 </script>
 {% endblock %}
