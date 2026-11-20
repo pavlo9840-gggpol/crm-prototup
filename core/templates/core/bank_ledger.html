@@ -2,7 +2,7 @@
 {% block content %}
 <h2>Банківські рахунки та операції</h2>
 <div style="margin:10px 0"><a class="btn" href="{% url 'bank_import' %}">Імпорт CSV-виписки</a> <a class="btn" href="{% url 'bank_export_csv' %}?from={{ date_from|date:'Y-m-d' }}&to={{ date_to|date:'Y-m-d' }}">Експорт журналу CSV</a></div>
-<p class="muted">Ручний управлінський журнал банківських рухів. Це не підключення до банку, не імпорт виписки та не підтвердження фактичного балансу банку. Дані потрібно звіряти з офіційною випискою.</p>
+<p class="muted">Ручний управлінський журнал банківських рухів. Початковий залишок задається вручну як баланс на початок зазначеної дати; операції з цієї дати додаються до нього. Розрахунковий залишок не є підтвердженням фактичного балансу банку — звіряйте його з офіційною випискою.</p>
 
 <form method="get" class="filter">
   <label>З дати <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
@@ -19,10 +19,16 @@
 <div class="card">
   <h3>Рахунки магазину</h3>
   <table>
-    <thead><tr><th>Банк</th><th>IBAN</th><th>Валюта</th><th class="n">Надійшло за весь журнал</th><th class="n">Списано</th><th class="n">Розрахункова різниця</th></tr></thead>
+    <thead><tr><th>Банк / IBAN</th><th>Початковий залишок</th><th class="n">Залишок на початок періоду</th><th class="n">Надходження за період</th><th class="n">Списання за період</th><th class="n">Розрахунковий залишок на кінець</th></tr></thead>
     <tbody>
     {% for row in balances %}
-      <tr><td>{{ row.account.bank_name }}{% if row.account.is_default %} · Основний{% endif %}</td><td>{{ row.account.iban }}</td><td>{{ row.account.currency }}</td><td class="n">{{ row.income|floatformat:2 }}</td><td class="n">{{ row.expense|floatformat:2 }}</td><td class="n">{{ row.balance|floatformat:2 }}</td></tr>
+      <tr>
+        <td>{{ row.account.bank_name }}{% if row.account.is_default %} · Основний{% endif %}<br><small>{{ row.account.iban }} · {{ row.account.currency }}</small></td>
+        <td>{{ row.account.opening_balance|floatformat:2 }} {{ row.account.currency }}<br><small>станом на {{ row.account.opening_balance_date|date:"d.m.Y" }}</small></td>
+        <td class="n">{% if row.opening_at_period is not None %}{{ row.opening_at_period|floatformat:2 }} {{ row.account.currency }}{% else %}Не визначено{% endif %}</td>
+        <td class="n">{{ row.period_income|floatformat:2 }}</td><td class="n">{{ row.period_expense|floatformat:2 }}</td>
+        <td class="n"><strong>{% if row.closing_at_period is not None %}{{ row.closing_at_period|floatformat:2 }} {{ row.account.currency }}{% else %}Не визначено{% endif %}</strong></td>
+      </tr>
     {% empty %}<tr><td colspan="6">Рахунки ще не додані.</td></tr>{% endfor %}
     </tbody>
   </table>
