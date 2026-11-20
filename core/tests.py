@@ -574,6 +574,19 @@ class FinanceOverviewReportTest(TestCase):
         self.assertTrue(response.content.startswith(b"\xef\xbb\xbf"))
         self.assertIn(b"'=CMD()", response.content)
 
+    def test_cash_withdrawals_are_reported_as_positive_outflows(self):
+        from decimal import Decimal
+        from core.models import CashOperation, Shift
+
+        shift = Shift.objects.create(company=self.company, cashier=self.user)
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                     kind="out", amount=Decimal("-25.00"), note="Вилучення")
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                     kind="in", amount=Decimal("10.00"), note="Внесення")
+        response = self.client.get("/reports/finance/")
+        self.assertEqual(response.context["cash_in"], Decimal("10.00"))
+        self.assertEqual(response.context["cash_out"], Decimal("25.00"))
+
     def test_returns_are_recognized_in_the_period_they_are_processed(self):
         from datetime import timedelta
         from decimal import Decimal
