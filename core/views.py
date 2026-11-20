@@ -127,7 +127,9 @@ def dashboard(request):
 
     # Reuse the same balance rules as the customer/supplier settlement ledger.
     # This prevents dashboard debt figures drifting from the accounting screens.
-    purchase_docs = Purchase.objects.filter(company=request.company).select_related("supplier").prefetch_related("settlement_payments")
+    purchase_docs = Purchase.objects.filter(company=request.company).select_related("supplier").prefetch_related(
+        "settlement_payments", "supplier_compensations", "credit_applications_in", "credit_applications_out"
+    )
     sale_docs = Sale.objects.filter(company=request.company, status=Sale.DONE, customer__isnull=False).select_related("customer").prefetch_related("settlement_payments", "returns")
     supplier_debt = sum((_balance_for(doc) for doc in purchase_docs), D0)
     customer_debt = sum((_balance_for(doc) for doc in sale_docs), D0)
