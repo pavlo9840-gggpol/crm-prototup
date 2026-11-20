@@ -355,7 +355,7 @@ def bank_export_csv(request):
     from django.http import HttpResponse
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = 'attachment; filename="bank-journal-%s-%s.csv"' % (date_from.isoformat(), date_to.isoformat())
-    response.write("\\ufeff")
+    response.write("\ufeff")
     writer = csv.writer(response, delimiter=";")
     writer.writerow([
         "Дата", "Банк", "IBAN", "Валюта", "Початковий залишок", "Дата початкового залишку",
