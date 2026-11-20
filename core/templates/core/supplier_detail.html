@@ -10,6 +10,11 @@
 <div class="card"><small>Борг постачальнику</small><h3>{{ account_totals.debt|floatformat:2 }} ₴</h3></div>
 <div class="card"><small>Кредит / переплата постачальника</small><h3>{{ account_totals.supplier_credit|floatformat:2 }} ₴</h3></div>
 </div>
+<p><a class="btn" href="?export=csv">↓ Експорт повного журналу CSV</a></p>
+<div class="card"><h3>Єдиний журнал взаєморозрахунків</h3>
+<p><small>Закупівлі збільшують борг; оплати та компенсації зменшують. Аванси й переміщення кредиту показані окремо та не змінюють борг закупівель у цьому журналі. Скасовані операції залишаються в історії, але не впливають на залишок.</small></p>
+<table><tr><th>Дата</th><th>Операція</th><th>Документ</th><th>Опис</th><th class="n">Сума</th><th class="n">Вплив на борг</th><th class="n">Залишок</th><th>Стан</th></tr>
+{% for event in account_events %}<tr><td>{{ event.date|date:"d.m.Y H:i" }}</td><td>{{ event.kind }}</td><td>{% if event.url %}<a href="{{ event.url }}">{{ event.document }}</a>{% else %}{{ event.document }}{% endif %}</td><td>{{ event.description|default:"—" }}</td><td class="n">{{ event.amount|floatformat:2 }}</td><td class="n">{{ event.effect|floatformat:2 }}</td><td class="n"><b>{{ event.running_balance|floatformat:2 }}</b></td><td>{% if event.is_void %}Скасовано{% else %}Активна{% endif %}</td></tr>{% empty %}<tr><td colspan="8">Операцій ще немає.</td></tr>{% endfor %}</table></div>
 <div class="card"><h3>Аванси постачальнику</h3><p>Невикористаний залишок: <b>{{ account_totals.advance_balance|floatformat:2 }} ₴</b></p><a class="btn green" href="{% url 'advance_new' 'supplier' supplier.pk %}">＋ Видати аванс</a>
 <table><tr><th>Дата</th><th>Початкова сума</th><th>Залишок</th><th>Спосіб</th><th>Статус</th></tr>{% for adv in account_advances %}<tr><td>{{ adv.created_at|date:"d.m.Y H:i" }}</td><td>{{ adv.amount|floatformat:2 }} ₴</td><td>{{ adv.remaining|floatformat:2 }} ₴</td><td>{{ adv.get_payment_method_display }}</td><td>{% if adv.is_void %}Скасовано: {{ adv.void_reason }}{% else %}Активний{% endif %}</td></tr>{% empty %}<tr><td colspan="5">Авансів ще немає.</td></tr>{% endfor %}</table></div>
 <h3>Історія закупівель</h3>
