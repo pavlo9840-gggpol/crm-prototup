@@ -1,5 +1,6 @@
 """Customer and supplier document settlement register."""
 import csv
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from django import forms
@@ -8,6 +9,7 @@ from django.db import transaction
 from django.db.models import Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.db.models import Q
 from django.utils import timezone
 
 from . import cash as cashlib
@@ -386,6 +388,16 @@ def supplier_account(request, pk):
                        "description": f"{receipt.supplier_return.number} · {receipt.note}".strip(" ·"),
                        "amount": receipt.quantity, "effect": D0, "is_void": False,
                        "url": f"/purchases/{receipt.supplier_return.purchase_item.purchase_id}/"})
+    date_from_raw = request.GET.get("date_from", "").strip()
+    date_to_raw = request.GET.get("date_to", "").strip()
+    date_from = date.fromisoformat(date_from_raw) if date_from_raw else None
+    date_to = date.fromisoformat(date_to_raw) if date_to_raw else None
+    if date_from:
+        start = timezone.make_aware(datetime.combine(date_from, time.min))
+        events = [event for event in events if event["date"] >= start]
+    if date_to:
+        end = timezone.make_aware(datetime.combine(date_to, time.max))
+        events = [event for event in events if event["date"] <= end]
     events.sort(key=lambda item: (item["date"], item["kind"], item["document"]), reverse=True)
     running = D0
     for event in reversed(events):
@@ -410,6 +422,78 @@ def supplier_account(request, pk):
         "supplier": supplier, "purchase_rows": rows, "account_totals": totals,
         "account_payments": payments[:200], "account_advances": advances,
         "account_compensations": compensations[:200], "account_events": events[:500],
+        "date_from": date_from_raw, "date_to": date_to_raw,
+    })
+
+
+@tenant_staff_only
+@company_required
+def supplier_balances_report(request):
+    suppliers = Supplier.objects.filter(company=request.company).order_by("name")
+    query = request.GET.get("q", "").strip()
+    if query:
+        suppliers = suppliers.filter(Q(name__icontains=query) | Q(contact_person__icontains=query) | Q(phone__icontains=query))
+    active = request.GET.get("active", "")
+    if active == "1":
+        suppliers = suppliers.filter(is_active=True)
+    elif active == "0":
+        suppliers = suppliers.filter(is_active=False)
+
+    date_from_raw = request.GET.get("date_from", "").strip()
+    date_to_raw = request.GET.get("date_to", "").strip()
+    date_from = date.fromisoformat(date_from_raw) if date_from_raw else None
+    date_to = date.fromisoformat(date_to_raw) if date_to_raw else None
+    rows = []
+    totals = {"debt": D0, "credit": D0, "advance": D0, "purchases_period": D0,
+              "payments_period": D0, "compensations_period": D0}
+    for supplier in suppliers:
+        purchases = Purchase.objects.filter(company=request.company, supplier=supplier)
+        debt = credit = purchase_sum = paid_sum = compensation_sum = D0
+        for purchase in purchases:
+            paid = _paid_for(purchase)
+            compensated = _supplier_compensated_for(purchase)
+            net = purchase.total - paid - compensated
+            debt += max(D0, net)
+            credit += max(D0, -net)
+            if (not date_from or purchase.created_at.date() >= date_from) and (not date_to or purchase.created_at.date() <= date_to):
+                purchase_sum += purchase.total
+        payment_qs = SettlementPayment.objects.filter(company=request.company, purchase__supplier=supplier, is_void=False)
+        compensation_qs = SupplierCompensation.objects.filter(company=request.company, supplier=supplier, is_void=False)
+        if date_from:
+            payment_qs = payment_qs.filter(created_at__date__gte=date_from)
+            compensation_qs = compensation_qs.filter(created_at__date__gte=date_from)
+        if date_to:
+            payment_qs = payment_qs.filter(created_at__date__lte=date_to)
+            compensation_qs = compensation_qs.filter(created_at__date__lte=date_to)
+        paid_sum = payment_qs.aggregate(total=Sum("amount"))["total"] or D0
+        compensation_sum = compensation_qs.aggregate(total=Sum("amount"))["total"] or D0
+        advance = AccountAdvance.objects.filter(company=request.company, supplier=supplier, is_void=False).aggregate(total=Sum("remaining"))["total"] or D0
+        totals["debt"] += debt
+        totals["credit"] += credit
+        totals["advance"] += advance
+        totals["purchases_period"] += purchase_sum
+        totals["payments_period"] += paid_sum
+        totals["compensations_period"] += compensation_sum
+        if purchases.exists() or advance:
+            rows.append({"supplier": supplier, "debt": debt, "credit": credit, "advance": advance,
+                         "purchases_period": purchase_sum, "payments_period": paid_sum,
+                         "compensations_period": compensation_sum})
+    if request.GET.get("export") == "csv":
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="supplier-balances.csv"'
+        response.write("\ufeff")
+        writer = csv.writer(response, delimiter=";")
+        writer.writerow(["Постачальник", "Борг", "Переплата", "Невикористаний аванс",
+                         "Закупівлі за період", "Оплати за період", "Компенсації за період"])
+        for row in rows:
+            writer.writerow([row["supplier"].name, str(row["debt"]), str(row["credit"]), str(row["advance"]),
+                             str(row["purchases_period"]), str(row["payments_period"]), str(row["compensations_period"])])
+        writer.writerow(["РАЗОМ", str(totals["debt"]), str(totals["credit"]), str(totals["advance"]),
+                         str(totals["purchases_period"]), str(totals["payments_period"]), str(totals["compensations_period"])])
+        return response
+    return render(request, "core/supplier_balances_report.html", {
+        "rows": rows, "totals": totals, "q": query, "active": active,
+        "date_from": date_from_raw, "date_to": date_to_raw,
     })
 
 
