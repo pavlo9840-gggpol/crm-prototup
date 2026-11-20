@@ -315,7 +315,7 @@ def finance_controls(request):
         AccountAdvance, BankReconciliation, Customer, Purchase, Sale,
         SettlementPayment, Supplier,
     )
-    from .settlement_views import _balance_for
+    from .settlement_views import _balance_for, _supplier_net_balance_for
 
     today = timezone.localdate()
     first = today.replace(day=1)
@@ -355,6 +355,8 @@ def finance_controls(request):
     # This keeps supplier credit transfers, compensations and customer returns consistent.
     customer_debts = []
     customer_debt_total = zero
+    customer_credits = []
+    customer_credit_total = zero
     sales = Sale.objects.filter(
         company=request.company, status=Sale.DONE, customer__isnull=False,
     ).select_related("customer").prefetch_related("settlement_payments", "returns")
@@ -363,9 +365,22 @@ def finance_controls(request):
         if balance > 0:
             customer_debt_total += balance
             customer_debts.append({"document": sale, "party": sale.customer, "balance": balance})
+        sale_returns = sale._prefetched_objects_cache.get("returns", [])
+        returned_total = sum((item.total for item in sale_returns), zero)
+        refunded_total = sum((item.cash_amount + item.card_amount for item in sale_returns), zero)
+        paid_total = sale.cash_amount + sale.card_amount + sum(
+            (payment.amount for payment in sale._prefetched_objects_cache.get("settlement_payments", [])
+             if not payment.is_void), zero
+        )
+        customer_credit = paid_total - refunded_total - (sale.total - returned_total)
+        if customer_credit > 0:
+            customer_credit_total += customer_credit
+            customer_credits.append({"document": sale, "party": sale.customer, "balance": customer_credit})
 
     supplier_debts = []
+    supplier_credits = []
     supplier_debt_total = zero
+    supplier_credit_total = zero
     purchases = Purchase.objects.filter(company=request.company).select_related("supplier").prefetch_related(
         "settlement_payments", "supplier_compensations", "credit_applications_in", "credit_applications_out",
     )
@@ -374,6 +389,11 @@ def finance_controls(request):
         if balance > 0:
             supplier_debt_total += balance
             supplier_debts.append({"document": purchase, "party": purchase.supplier, "balance": balance})
+        raw_balance = _supplier_net_balance_for(purchase)
+        if raw_balance < 0:
+            credit = -raw_balance
+            supplier_credit_total += credit
+            supplier_credits.append({"document": purchase, "party": purchase.supplier, "balance": credit})
 
     # A voided cash settlement must have its compensating movement recorded.
     reversal_gaps = SettlementPayment.objects.filter(
@@ -396,5 +416,9 @@ def finance_controls(request):
         "customer_debts": sorted(customer_debts, key=lambda row: row["balance"], reverse=True)[:100],
         "supplier_debts": sorted(supplier_debts, key=lambda row: row["balance"], reverse=True)[:100],
         "customer_debt_total": customer_debt_total, "supplier_debt_total": supplier_debt_total,
+        "customer_credits": sorted(customer_credits, key=lambda row: row["balance"], reverse=True)[:100],
+        "customer_credit_total": customer_credit_total,
+        "supplier_credits": sorted(supplier_credits, key=lambda row: row["balance"], reverse=True)[:100],
+        "supplier_credit_total": supplier_credit_total,
         "reversal_gaps": reversal_gaps, "active_matches": active_matches,
     })
