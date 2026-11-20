@@ -749,3 +749,26 @@ class FinanceControlsReportTest(TestCase):
         response = self.client.get("/reports/finance/controls/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.context["reversal_gaps"]), 1)
+
+
+    def test_controls_report_identifies_customer_refunds_due_and_supplier_credit(self):
+        from decimal import Decimal
+        from core.models import Customer, Purchase, Sale, SaleReturn, Supplier, SupplierCreditApplication
+        customer = Customer.objects.create(company=self.company, name="Credit customer", phone="+380501234569")
+        supplier = Supplier.objects.create(company=self.company, name="Credit supplier")
+        sale = Sale.objects.create(company=self.company, cashier=self.user, customer=customer,
+                                   total=Decimal("100.00"), cash_amount=Decimal("100.00"),
+                                   status=Sale.DONE)
+        SaleReturn.objects.create(company=self.company, sale=sale, user=self.user,
+                                  total=Decimal("20.00"), refund_method="pending")
+        source = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
+                                         total=Decimal("100.00"))
+        target = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
+                                         total=Decimal("50.00"))
+        SupplierCreditApplication.objects.create(company=self.company, source_purchase=source,
+                                                 target_purchase=target, amount=Decimal("130.00"),
+                                                 created_by=self.user)
+        response = self.client.get("/reports/finance/controls/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["customer_credit_total"], Decimal("20.00"))
+        self.assertEqual(response.context["supplier_credit_total"], Decimal("30.00"))
