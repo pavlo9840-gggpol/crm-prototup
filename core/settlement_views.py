@@ -640,6 +640,12 @@ def supplier_credit_apply(request, target_pk):
     except Exception:
         amount = D0
     source_pk = request.POST.get("source_purchase")
+    try:
+        source_pk = int(source_pk)
+        target_pk = int(target_pk)
+    except (TypeError, ValueError):
+        messages.error(request, "Оберіть коректні накладні для заліку.")
+        return redirect("purchase_detail", pk=target_pk)
     note = (request.POST.get("note") or "").strip()[:250]
     if amount <= 0:
         messages.error(request, "Сума заліку має бути більшою за нуль.")
