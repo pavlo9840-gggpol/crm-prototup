@@ -335,7 +335,13 @@ def supplier_account(request, pk):
     for purchase in purchases:
         paid = _paid_for(purchase)
         compensated = _supplier_compensated_for(purchase)
-        net_balance = purchase.total - paid - compensated
+        credit_in = SupplierCreditApplication.objects.filter(
+            company=request.company, target_purchase=purchase, is_void=False
+        ).aggregate(total=Sum("amount"))["total"] or D0
+        credit_out = SupplierCreditApplication.objects.filter(
+            company=request.company, source_purchase=purchase, is_void=False
+        ).aggregate(total=Sum("amount"))["total"] or D0
+        net_balance = purchase.total - paid - compensated - credit_in + credit_out
         balance = max(D0, net_balance)
         supplier_credit = max(D0, -net_balance)
         totals["purchases"] += purchase.total
@@ -452,7 +458,13 @@ def supplier_balances_report(request):
         for purchase in purchases:
             paid = _paid_for(purchase)
             compensated = _supplier_compensated_for(purchase)
-            net = purchase.total - paid - compensated
+            credit_in = SupplierCreditApplication.objects.filter(
+                company=request.company, target_purchase=purchase, is_void=False
+            ).aggregate(total=Sum("amount"))["total"] or D0
+            credit_out = SupplierCreditApplication.objects.filter(
+                company=request.company, source_purchase=purchase, is_void=False
+            ).aggregate(total=Sum("amount"))["total"] or D0
+            net = purchase.total - paid - compensated - credit_in + credit_out
             debt += max(D0, net)
             credit += max(D0, -net)
             if (not date_from or purchase.created_at.date() >= date_from) and (not date_to or purchase.created_at.date() <= date_to):
