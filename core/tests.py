@@ -660,3 +660,92 @@ class FinanceOverviewReportTest(TestCase):
         self.assertEqual(response.context["revenue"], Decimal("-150.00"))
         self.assertEqual(response.context["cost"], Decimal("-90.00"))
         self.assertEqual(response.context["gross_profit"], Decimal("-60.00"))
+
+
+class FinanceControlsReportTest(TestCase):
+    def setUp(self):
+        from core.models import Company, StaffMembership
+        U = get_user_model()
+        self.user = U.objects.create_superuser("controlsadmin", "", "x")
+        self.company = Company.objects.create(name="Controls test", slug="controls-test", owner=self.user)
+        StaffMembership.objects.create(company=self.company, user=self.user, role="owner")
+        self.client.login(username="controlsadmin", password="x")
+
+    def test_controls_report_shows_debts_advances_and_unmatched_bank_items(self):
+        from decimal import Decimal
+        from django.utils import timezone
+        from core.models import (
+            AccountAdvance, BankAccount, BankReconciliation, BankTransaction,
+            Customer, Purchase, Sale, SettlementPayment, Supplier,
+        )
+        customer = Customer.objects.create(company=self.company, name="Control customer", phone="+380501234567")
+        supplier = Supplier.objects.create(company=self.company, name="Control supplier")
+        sale = Sale.objects.create(company=self.company, cashier=self.user, customer=customer,
+                                   total=Decimal("200.00"), cash_amount=Decimal("50.00"),
+                                   status=Sale.DONE)
+        purchase = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
+                                           total=Decimal("300.00"))
+        customer_payment = SettlementPayment.objects.create(
+            company=self.company, sale=sale, amount=Decimal("15.00"),
+            payment_method="bank", created_by=self.user,
+        )
+        supplier_payment = SettlementPayment.objects.create(
+            company=self.company, purchase=purchase, amount=Decimal("20.00"),
+            payment_method="bank", created_by=self.user,
+        )
+        account = BankAccount.objects.create(company=self.company, bank_name="Control bank",
+                                             iban="UA123456789012345678901234567")
+        matched_in = BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.INCOME, category="Оплата клієнта",
+            amount=Decimal("15.00"), created_by=self.user,
+        )
+        matched_out = BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.EXPENSE, category="Оплата постачальнику",
+            amount=Decimal("20.00"), created_by=self.user,
+        )
+        BankReconciliation.objects.create(company=self.company, bank_transaction=matched_in,
+                                           settlement_payment=customer_payment, matched_by=self.user)
+        BankReconciliation.objects.create(company=self.company, bank_transaction=matched_out,
+                                           settlement_payment=supplier_payment, matched_by=self.user)
+        BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.INCOME, category="Невідоме надходження",
+            amount=Decimal("30.00"), created_by=self.user,
+        )
+        AccountAdvance.objects.create(company=self.company, party_type=AccountAdvance.CUSTOMER,
+                                      customer=customer, amount=Decimal("25.00"), remaining=Decimal("25.00"),
+                                      payment_method="bank", created_by=self.user)
+        AccountAdvance.objects.create(company=self.company, party_type=AccountAdvance.SUPPLIER,
+                                      supplier=supplier, amount=Decimal("35.00"), remaining=Decimal("35.00"),
+                                      payment_method="bank", created_by=self.user)
+
+        response = self.client.get("/reports/finance/controls/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["customer_debt_total"], Decimal("135.00"))
+        self.assertEqual(response.context["supplier_debt_total"], Decimal("280.00"))
+        self.assertEqual(response.context["customer_advance_total"], Decimal("25.00"))
+        self.assertEqual(response.context["supplier_advance_total"], Decimal("35.00"))
+        self.assertEqual(response.context["bank_unmatched_in"], Decimal("30.00"))
+        self.assertEqual(response.context["bank_unmatched_out"], Decimal("0.00"))
+        self.assertEqual(response.context["payment_unmatched_in"], Decimal("0.00"))
+        self.assertEqual(response.context["payment_unmatched_out"], Decimal("0.00"))
+        self.assertEqual(response.context["active_matches"], 2)
+
+    def test_controls_report_flags_voided_cash_payment_without_reversal(self):
+        from decimal import Decimal
+        from core.models import CashOperation, Customer, Sale, SettlementPayment, Shift
+        customer = Customer.objects.create(company=self.company, name="Reversal customer", phone="+380501234568")
+        sale = Sale.objects.create(company=self.company, cashier=self.user, customer=customer,
+                                   total=Decimal("100.00"), status=Sale.DONE)
+        shift = Shift.objects.create(company=self.company, cashier=self.user)
+        operation = CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                                 kind="in", amount=Decimal("20.00"))
+        SettlementPayment.objects.create(company=self.company, sale=sale, amount=Decimal("20.00"),
+                                         payment_method="cash", cash_operation=operation,
+                                         created_by=self.user, is_void=True,
+                                         void_reason="Помилковий платіж")
+        response = self.client.get("/reports/finance/controls/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["reversal_gaps"]), 1)
