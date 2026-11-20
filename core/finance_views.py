@@ -423,9 +423,9 @@ def finance_controls(request):
         bank_transaction__isnull=False, reversal_bank_transaction__isnull=True,
     ).select_related("supplier", "voided_by")[:100])
 
-    # Period closing controls: a cash drawer has a real opening and counted
-    # closing only per shift. Bank accounts have no opening-balance field yet,
-    # so show period movement rather than inventing an absolute bank balance.
+    # Period movement is shown separately from profit. The bank ledger now
+    # calculates account opening/closing balances from each account's dated
+    # opening balance; this report keeps its cross-account movement totals.
     shifts = Shift.objects.filter(
         company=request.company, opened_at__date__lte=date_to,
     ).filter(
