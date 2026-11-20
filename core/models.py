@@ -828,6 +828,8 @@ class BankAccount(models.Model):
     currency = models.CharField("Валюта", max_length=5, default="UAH")
     note = models.CharField("Примітка", max_length=150, blank=True)
     is_default = models.BooleanField("Основний", default=False)
+    opening_balance = models.DecimalField("Початковий залишок", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    opening_balance_date = models.DateField("Дата початкового залишку", default=timezone.localdate)
 
     class Meta:
         ordering = ["-is_default", "id"]
