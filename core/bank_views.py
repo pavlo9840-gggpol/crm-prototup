@@ -9,7 +9,7 @@ from django.db.models import Sum
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from .models import BankAccount, BankTransaction, BankReconciliation, SettlementPayment, SupplierCompensation
+from .models import AccountAdvance, BankAccount, BankTransaction, BankReconciliation, SettlementPayment, SupplierCompensation
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -117,7 +117,9 @@ def bank_ledger(request):
     eligible_payments = SettlementPayment.objects.filter(company=request.company, payment_method="bank", is_void=False).exclude(
         bank_reconciliations__is_void=False
     ).select_related("sale", "purchase")
-    candidates_by_transaction = {}
+    eligible_advances = AccountAdvance.objects.filter(
+        company=request.company, payment_method="bank", is_void=False,
+    ).exclude(bank_reconciliations__is_void=False).select_related("customer", "supplier")
     for entry in entries:
         candidates = []
         if not entry.is_void and entry.pk not in reconciliation_by_transaction:
@@ -129,9 +131,17 @@ def bank_ledger(request):
                     continue
                 document = payment.sale or payment.purchase
                 candidates.append({
-                    "payment": payment,
-                    "document": document,
+                    "ref": f"payment:{payment.pk}",
                     "label": f"{'Продаж' if payment.sale_id else 'Закупівля'} №{document.number or document.pk} · {payment.amount:.2f} ₴ · {payment.created_at:%d.%m.%Y}",
+                })
+            expected_party = AccountAdvance.CUSTOMER if entry.direction == BankTransaction.INCOME else AccountAdvance.SUPPLIER
+            for advance in eligible_advances:
+                if advance.party_type != expected_party or advance.amount != entry.amount:
+                    continue
+                party = advance.customer if advance.party_type == AccountAdvance.CUSTOMER else advance.supplier
+                candidates.append({
+                    "ref": f"advance:{advance.pk}",
+                    "label": f"{'Аванс клієнта' if advance.party_type == AccountAdvance.CUSTOMER else 'Аванс постачальнику'} · {party} · {advance.amount:.2f} ₴ · {advance.created_at:%d.%m.%Y}",
                 })
         entry.active_reconciliation = reconciliation_by_transaction.get(entry.pk)
         entry.reconciliation_candidates = candidates
@@ -345,23 +355,50 @@ def bank_reconcile(request, pk):
         if BankReconciliation.objects.filter(bank_transaction=entry, is_void=False).exists():
             messages.error(request, "Ця операція вже звірена.")
             return redirect("bank_ledger")
-        payment = SettlementPayment.objects.select_for_update().filter(
-            pk=request.POST.get("payment_id"), company=request.company, payment_method="bank", is_void=False,
-        ).select_related("sale", "purchase").first()
-        if not payment:
-            messages.error(request, "Платіж не знайдено або він недоступний для звірки.")
+        match_ref = (request.POST.get("match_ref") or "").strip()
+        try:
+            match_type, raw_pk = match_ref.split(":", 1)
+            match_pk = int(raw_pk)
+        except (ValueError, TypeError):
+            messages.error(request, "Оберіть платіж або аванс для звірки.")
             return redirect("bank_ledger")
-        expected_direction = BankTransaction.INCOME if payment.sale_id else BankTransaction.EXPENSE
-        if payment.amount != entry.amount or expected_direction != entry.direction:
-            messages.error(request, "Сума або напрямок платежу не відповідає банківській операції.")
-            return redirect("bank_ledger")
-        if BankReconciliation.objects.filter(settlement_payment=payment, is_void=False).exists():
-            messages.error(request, "Цей платіж уже звірено з іншою банківською операцією.")
+        if match_type == "payment":
+            payment = SettlementPayment.objects.select_for_update().filter(
+                pk=match_pk, company=request.company, payment_method="bank", is_void=False,
+            ).select_related("sale", "purchase").first()
+            if not payment:
+                messages.error(request, "Платіж не знайдено або він недоступний для звірки.")
+                return redirect("bank_ledger")
+            expected_direction = BankTransaction.INCOME if payment.sale_id else BankTransaction.EXPENSE
+            if payment.amount != entry.amount or expected_direction != entry.direction:
+                messages.error(request, "Сума або напрямок платежу не відповідає банківській операції.")
+                return redirect("bank_ledger")
+            if BankReconciliation.objects.filter(settlement_payment=payment, is_void=False).exists():
+                messages.error(request, "Цей платіж уже звірено з іншою банківською операцією.")
+                return redirect("bank_ledger")
+            match_kwargs = {"settlement_payment": payment}
+        elif match_type == "advance":
+            advance = AccountAdvance.objects.select_for_update().filter(
+                pk=match_pk, company=request.company, payment_method="bank", is_void=False,
+            ).select_related("customer", "supplier").first()
+            if not advance:
+                messages.error(request, "Аванс не знайдено або він недоступний для звірки.")
+                return redirect("bank_ledger")
+            expected_direction = BankTransaction.INCOME if advance.party_type == AccountAdvance.CUSTOMER else BankTransaction.EXPENSE
+            if advance.amount != entry.amount or expected_direction != entry.direction:
+                messages.error(request, "Сума або напрямок банківської операції не відповідає авансу.")
+                return redirect("bank_ledger")
+            if BankReconciliation.objects.filter(account_advance=advance, is_void=False).exists():
+                messages.error(request, "Цей аванс уже звірено з іншою банківською операцією.")
+                return redirect("bank_ledger")
+            match_kwargs = {"account_advance": advance}
+        else:
+            messages.error(request, "Невідомий тип документа для звірки.")
             return redirect("bank_ledger")
         BankReconciliation.objects.create(
-            company=request.company, bank_transaction=entry, settlement_payment=payment, matched_by=request.user,
+            company=request.company, bank_transaction=entry, matched_by=request.user, **match_kwargs,
         )
-    messages.success(request, "Банківську операцію звірено з платежем. Обидва записи залишаються в історії.")
+    messages.success(request, "Банківську операцію звірено з документом. Обидва записи залишаються в історії.")
     return redirect("bank_ledger")
 
 
