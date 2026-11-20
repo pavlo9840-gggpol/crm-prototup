@@ -764,7 +764,7 @@ class FinanceControlsReportTest(TestCase):
         source = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
                                          total=Decimal("100.00"))
         target = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
-                                         total=Decimal("50.00"))
+                                         total=Decimal("200.00"))
         SupplierCreditApplication.objects.create(company=self.company, source_purchase=source,
                                                  target_purchase=target, amount=Decimal("130.00"),
                                                  created_by=self.user)
