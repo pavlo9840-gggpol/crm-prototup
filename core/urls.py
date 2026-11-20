@@ -149,6 +149,7 @@ urlpatterns = [
     path("customers/<int:pk>/", sv.customer_account, name="customer_detail"),
     path("customers/<int:pk>/edit/", v.customer_edit, name="customer_edit"),
     path("reports/finance/", fv.finance_overview, name="finance_overview"),
+    path("reports/finance/controls/", fv.finance_controls, name="finance_controls"),
     path("reports/daily/", v.report_daily, name="report_daily"),
     path("reports/monthly/", v.report_monthly, name="report_monthly"),
     path("reports/top-products/", v.report_top, name="report_top"),
