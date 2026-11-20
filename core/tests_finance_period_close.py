@@ -42,6 +42,9 @@ class FinancePeriodCloseTests(TestCase):
         self.assertEqual(close.snapshot["balance_basis"], "current_at_close")
         self.assertIn("created_at", close.snapshot)
         self.assertEqual(close.closed_by, self.user)
+        self.assertTrue(close.verify_checksum())
+        close.snapshot["metrics"]["cash_net_movement"] = "999999.00"
+        self.assertFalse(close.verify_checksum())
 
     def test_period_close_cannot_be_overwritten_by_a_second_submission(self):
         self._close()
