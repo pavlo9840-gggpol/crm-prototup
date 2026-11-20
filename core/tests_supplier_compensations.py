@@ -294,6 +294,13 @@ class SupplierCompensationTests(TestCase):
         self.assertEqual(row["debt"], Decimal("0.00"))
         self.assertEqual(row["credit"], Decimal("100.00"))
 
+    def test_supplier_balances_csv_neutralizes_formula_like_supplier_names(self):
+        self.supplier.name = "=HYPERLINK(\"https://example.invalid\",\"click\")"
+        self.supplier.save(update_fields=["name"])
+        response = self.client.get(reverse("supplier_balances_report"), {"export": "csv"})
+        self.assertIn("'=HYPERLINK".encode("utf-8"), response.content)
+        self.assertNotIn(b"\n=HYPERLINK", response.content)
+
     def test_supplier_balances_report_exports_csv(self):
         response = self.client.get(reverse("supplier_balances_report"), {"export": "csv"})
         self.assertEqual(response.status_code, 200)
