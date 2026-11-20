@@ -625,5 +625,6 @@ def finance_controls(request):
         "period_bank_net": period_bank_net,
         "period_net_movement": period_cash_net + period_bank_net,
         "period_close": period_close,
+        "period_close_integrity": period_close.verify_checksum() if period_close else None,
         "period_snapshot_checksum": snapshot_checksum,
     })
