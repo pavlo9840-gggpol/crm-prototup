@@ -1802,3 +1802,33 @@ class SupplierCreditApplication(models.Model):
                 or self.source_purchase_id == self.target_purchase_id):
             raise ValueError("Залік кредиту має бути між різними закупівлями одного постачальника й магазину.")
         super().save(*args, **kwargs)
+
+
+class SupplierReplacementReceipt(models.Model):
+    """Physical replacement stock received against a supplier return, without a new payable."""
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="supplier_replacement_receipts")
+    supplier_return = models.ForeignKey(SupplierReturn, on_delete=models.PROTECT, related_name="replacement_receipts")
+    purchase = models.ForeignKey(Purchase, on_delete=models.PROTECT, related_name="supplier_replacement_receipts")
+    purchase_item = models.OneToOneField(PurchaseItem, on_delete=models.PROTECT, related_name="supplier_replacement_receipt")
+    quantity = models.DecimalField("Кількість заміни", max_digits=12, decimal_places=3)
+    unit_cost = models.DecimalField("Облікова собівартість", max_digits=12, decimal_places=2)
+    note = models.CharField(max_length=250, blank=True)
+    created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="supplier_replacement_receipts_created")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="supplier_replacement_qty_positive"),
+            models.CheckConstraint(condition=Q(unit_cost__gte=0), name="supplier_replacement_cost_nonnegative"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if (self.company_id != self.supplier_return.company_id
+                or self.company_id != self.purchase.company_id
+                or self.company_id != self.purchase_item.company_id
+                or self.purchase.supplier_id != self.supplier_return.supplier_id
+                or self.purchase_item.purchase_id != self.purchase_id
+                or self.purchase_item.product_id != self.supplier_return.purchase_item.product_id):
+            raise ValueError("Заміна має відповідати магазину, постачальнику й товару первісного повернення.")
+        super().save(*args, **kwargs)
