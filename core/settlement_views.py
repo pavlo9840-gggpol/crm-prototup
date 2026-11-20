@@ -396,20 +396,27 @@ def supplier_account(request, pk):
                        "url": f"/purchases/{receipt.supplier_return.purchase_item.purchase_id}/"})
     date_from_raw = request.GET.get("date_from", "").strip()
     date_to_raw = request.GET.get("date_to", "").strip()
-    date_from = date.fromisoformat(date_from_raw) if date_from_raw else None
-    date_to = date.fromisoformat(date_to_raw) if date_to_raw else None
-    if date_from:
-        start = timezone.make_aware(datetime.combine(date_from, time.min))
-        events = [event for event in events if event["date"] >= start]
-    if date_to:
-        end = timezone.make_aware(datetime.combine(date_to, time.max))
-        events = [event for event in events if event["date"] <= end]
+    try:
+        date_from = date.fromisoformat(date_from_raw) if date_from_raw else None
+        date_to = date.fromisoformat(date_to_raw) if date_to_raw else None
+        if date_from and date_to and date_from > date_to:
+            raise ValueError("Дата початку періоду пізніше дати завершення.")
+    except ValueError:
+        messages.error(request, "Некоректний період. Перевірте дати початку й завершення.")
+        date_from = date_to = None
+        date_from_raw = date_to_raw = ""
     events.sort(key=lambda item: (item["date"], item["kind"], item["document"]), reverse=True)
     running = D0
     for event in reversed(events):
         running += event["effect"]
         event["running_balance"] = running
     events.reverse()
+    if date_from:
+        start = timezone.make_aware(datetime.combine(date_from, time.min))
+        events = [event for event in events if event["date"] >= start]
+    if date_to:
+        end = timezone.make_aware(datetime.combine(date_to, time.max))
+        events = [event for event in events if event["date"] <= end]
 
     if request.GET.get("export") == "csv":
         response = HttpResponse(content_type="text/csv; charset=utf-8")
