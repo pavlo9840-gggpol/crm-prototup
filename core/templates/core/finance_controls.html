@@ -8,6 +8,7 @@
   <label>По дату <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
   <button class="btn">Показати період</button>
 </form>
+<p><a class="btn" href="?from={{ date_from|date:'Y-m-d' }}&to={{ date_to|date:'Y-m-d' }}&export=csv">Завантажити підсумковий CSV</a></p>
 <h3>Поточні залишки взаєморозрахунків</h3>
 <div class="kpi">
   <div class="card">Борг клієнтів<b>{{ customer_debt_total|floatformat:2 }} ₴</b></div>
