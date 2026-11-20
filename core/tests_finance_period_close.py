@@ -39,6 +39,8 @@ class FinancePeriodCloseTests(TestCase):
         canonical = json.dumps(close.snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         self.assertEqual(close.checksum, hashlib.sha256(canonical.encode("utf-8")).hexdigest())
         self.assertEqual(close.snapshot["period"], {"from": "2026-11-01", "to": "2026-11-30"})
+        self.assertEqual(close.snapshot["balance_basis"], "current_at_close")
+        self.assertIn("created_at", close.snapshot)
         self.assertEqual(close.closed_by, self.user)
 
     def test_period_close_cannot_be_overwritten_by_a_second_submission(self):
