@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from core.models import Product, Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Supplier, SupplierClaim, SupplierItem, SupplierPriceChange, SupplierReturn, StockMovement, StockBatch
+from core.models import Product, Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Supplier, SupplierClaim, SupplierItem, SupplierPriceChange, SupplierReturn, SupplierReplacementReceipt, StockMovement, StockBatch
 from core.tests_tenant_helpers import create_test_company
 
 
@@ -496,3 +496,54 @@ class SupplierPurchaseOrderTests(TestCase):
         )
         response = self.client.get(reverse("purchase_order_detail", args=[other_order.pk]))
         self.assertEqual(response.status_code, 404)
+
+
+class SupplierReplacementReceiptTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.owner = User.objects.create_superuser(username="supplier-replacement-owner", email="", password="secret")
+        self.company = create_test_company(self.owner, "Supplier replacement company", [])
+        self.client.force_login(self.owner)
+        self.supplier = Supplier.objects.create(company=self.company, name="Replacement Supplier")
+        self.product = Product.objects.create(
+            company=self.company, name="Replacement filter", sku="RF-001", brand="ACME",
+            current_stock=Decimal("0"), cost_price=Decimal("12.50"),
+        )
+        self.purchase = Purchase.objects.create(
+            company=self.company, supplier=self.supplier, user=self.owner, total=Decimal("25.00"),
+        )
+        self.item = PurchaseItem.objects.create(
+            company=self.company, purchase=self.purchase, product=self.product,
+            quantity=Decimal("2"), cost_price=Decimal("12.50"),
+        )
+        self.returned = SupplierReturn.objects.create(
+            company=self.company, purchase_item=self.item, supplier=self.supplier,
+            quantity=Decimal("2"), unit_cost=Decimal("12.50"), compensation_type="replacement",
+            reason="Defective item", completed_at=timezone.now(), created_by=self.owner,
+        )
+
+    def test_replacement_receipt_adds_stock_without_creating_supplier_debt(self):
+        response = self.client.post(
+            reverse("supplier_replacement_receive", args=[self.returned.pk]),
+            {"quantity": "1", "note": "Перша частина заміни"},
+        )
+        self.assertRedirects(response, reverse("purchase_detail", args=[self.purchase.pk]))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("1"))
+        receipt = SupplierReplacementReceipt.objects.get(supplier_return=self.returned)
+        self.assertEqual(receipt.quantity, Decimal("1"))
+        self.assertEqual(receipt.purchase.total, Decimal("0"))
+        self.assertEqual(receipt.purchase.status, "Заміна постачальника")
+        movement = StockMovement.objects.get(doc_ref=receipt.purchase.number)
+        self.assertEqual(movement.movement_type, "supplier_replacement")
+        self.assertEqual(movement.quantity_change, Decimal("1"))
+
+    def test_replacement_receipt_cannot_exceed_returned_quantity(self):
+        response = self.client.post(
+            reverse("supplier_replacement_receive", args=[self.returned.pk]),
+            {"quantity": "3"},
+        )
+        self.assertRedirects(response, reverse("purchase_detail", args=[self.purchase.pk]))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("0"))
+        self.assertFalse(SupplierReplacementReceipt.objects.filter(supplier_return=self.returned).exists())
