@@ -15,6 +15,26 @@
   <div class="card">Невикористані аванси клієнтів<b>{{ customer_advance_total|floatformat:2 }} ₴</b></div>
   <div class="card">Аванси постачальникам<b>{{ supplier_advance_total|floatformat:2 }} ₴</b></div>
 </div>
+<div class="kpi">
+  <div class="card">Переплати / суми до повернення клієнтам<b>{{ customer_credit_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Переплата постачальникам / кредит<b>{{ supplier_credit_total|floatformat:2 }} ₴</b></div>
+</div>
+<div class="grid">
+  <section>
+    <h3>Переплати та суми до повернення клієнтам</h3>
+    <table><tr><th>Клієнт</th><th>Продаж</th><th>Сума</th></tr>
+    {% for row in customer_credits %}
+    <tr><td>{{ row.party }}</td><td>{{ row.document.number|default:row.document.pk }}</td><td>{{ row.balance|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="3">Переплат клієнтів немає.</td></tr>{% endfor %}</table>
+  </section>
+  <section>
+    <h3>Кредит / переплата постачальникам</h3>
+    <table><tr><th>Постачальник</th><th>Закупівля</th><th>Кредит</th></tr>
+    {% for row in supplier_credits %}
+    <tr><td>{{ row.party }}</td><td>{{ row.document.number|default:row.document.pk }}</td><td>{{ row.balance|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="3">Кредитних залишків немає.</td></tr>{% endfor %}</table>
+  </section>
+</div>
 <h3>Банківська звірка за період</h3>
 <div class="kpi">
   <div class="card">Незвірені надходження виписки<b>{{ bank_unmatched_in|floatformat:2 }} ₴</b></div>
