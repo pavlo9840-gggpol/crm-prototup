@@ -476,7 +476,7 @@ def finance_controls(request):
         response["Content-Disposition"] = (
             f'attachment; filename="finance-controls-{date_from.isoformat()}-{date_to.isoformat()}.csv"'
         )
-        response.write("\\ufeff")
+        response.write("\ufeff")
         writer = csv.writer(response, delimiter=";")
         writer.writerow(["Фінансовий контроль", f"{date_from.isoformat()} — {date_to.isoformat()}"])
         writer.writerow(["Показник", "Сума / значення"])
