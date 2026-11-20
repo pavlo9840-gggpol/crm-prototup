@@ -1549,12 +1549,21 @@ class FinancePeriodClose(models.Model):
             ),
         ]
 
+    def verify_checksum(self):
+        import hashlib
+        import json
+        canonical = json.dumps(self.snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return self.checksum == expected
+
     def save(self, *args, **kwargs):
         from django.core.exceptions import ValidationError
         if self.pk:
             raise ValidationError("Знімок закритого фінансового періоду незмінний.")
         if self.date_to < self.date_from:
             raise ValidationError("Кінець періоду не може бути раніше початку.")
+        if not self.verify_checksum():
+            raise ValidationError("Контрольна сума знімка не відповідає його вмісту.")
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
