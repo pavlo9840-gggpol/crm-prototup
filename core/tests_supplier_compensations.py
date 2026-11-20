@@ -269,6 +269,38 @@ class SupplierCompensationTests(TestCase):
         self.assertIn("Закупівля".encode("utf-8"), response.content)
         self.assertIn("Компенсація".encode("utf-8"), response.content)
 
+    def test_supplier_account_and_balances_report_include_credit_transfers(self):
+        from core.models import SettlementPayment, SupplierCreditApplication
+        SettlementPayment.objects.create(
+            company=self.company, purchase=self.purchase, amount=Decimal("200.00"),
+            payment_method="bank", created_by=self.owner,
+        )
+        self.post_compensation({"kind": "credit", "amount": "200.00"})
+        target = Purchase.objects.create(
+            company=self.company, supplier=self.supplier, user=self.owner,
+            total=Decimal("100.00"),
+        )
+        application = SupplierCreditApplication.objects.create(
+            company=self.company, source_purchase=self.purchase, target_purchase=target,
+            amount=Decimal("100.00"), created_by=self.owner,
+        )
+        self.assertFalse(application.is_void)
+        account = self.client.get(reverse("supplier_account", args=[self.supplier.pk]))
+        self.assertEqual(account.context["account_totals"]["debt"], Decimal("0.00"))
+        self.assertEqual(account.context["account_totals"]["supplier_credit"], Decimal("100.00"))
+        report = self.client.get(reverse("supplier_balances_report"))
+        self.assertEqual(report.status_code, 200)
+        row = next(item for item in report.context["rows"] if item["supplier"].pk == self.supplier.pk)
+        self.assertEqual(row["debt"], Decimal("0.00"))
+        self.assertEqual(row["credit"], Decimal("100.00"))
+
+    def test_supplier_balances_report_exports_csv(self):
+        response = self.client.get(reverse("supplier_balances_report"), {"export": "csv"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.content.startswith(bytes((239, 187, 191))))
+        self.assertIn("Постачальник".encode("utf-8"), response.content)
+        self.assertIn(self.supplier.name.encode("utf-8"), response.content)
+
     def test_supplier_account_shows_credit_after_compensation_exceeds_remaining_debt(self):
         # An earlier payment means a full supplier refund can create a credit balance.
         from core.models import SettlementPayment
