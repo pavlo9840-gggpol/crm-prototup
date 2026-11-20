@@ -748,7 +748,7 @@ class InventoryCountItem(models.Model):
 class StockMovement(models.Model):
     company = models.ForeignKey("Company", null=True, blank=True, on_delete=models.PROTECT, related_name="+", db_index=True)
     TYPES = [
-        ("purchase", "Надходження"), ("sale", "Видаток продажу"),
+        ("purchase", "Надходження"), ("supplier_replacement", "Заміна від постачальника"), ("sale", "Видаток продажу"),
         ("customer_return", "Повернення від клієнта"), ("supplier_return", "Повернення постачальнику"),
         ("writeoff", "Списання"), ("surplus", "Надлишок"), ("shortage", "Нестача"),
         ("opening", "Початковий залишок"), ("transit_stock", "Оприбутковано: клієнт не забрав"),
