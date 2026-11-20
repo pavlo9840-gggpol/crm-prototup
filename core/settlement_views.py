@@ -454,8 +454,15 @@ def supplier_balances_report(request):
 
     date_from_raw = request.GET.get("date_from", "").strip()
     date_to_raw = request.GET.get("date_to", "").strip()
-    date_from = date.fromisoformat(date_from_raw) if date_from_raw else None
-    date_to = date.fromisoformat(date_to_raw) if date_to_raw else None
+    try:
+        date_from = date.fromisoformat(date_from_raw) if date_from_raw else None
+        date_to = date.fromisoformat(date_to_raw) if date_to_raw else None
+        if date_from and date_to and date_from > date_to:
+            raise ValueError("Invalid date range")
+    except ValueError:
+        messages.error(request, "Некоректний період. Перевірте дати початку й завершення.")
+        date_from = date_to = None
+        date_from_raw = date_to_raw = ""
     rows = []
     totals = {"debt": D0, "credit": D0, "advance": D0, "purchases_period": D0,
               "payments_period": D0, "compensations_period": D0}
