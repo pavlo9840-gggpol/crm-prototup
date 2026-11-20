@@ -1768,3 +1768,37 @@ class BankReconciliation(models.Model):
             raise ValueError("Звіряти можна лише платежі способом «Банк».")
         super().save(*args, **kwargs)
 
+
+
+class SupplierCreditApplication(models.Model):
+    """Transfer excess supplier credit from one purchase document to another."""
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="supplier_credit_applications")
+    source_purchase = models.ForeignKey(Purchase, on_delete=models.PROTECT, related_name="credit_applications_out")
+    target_purchase = models.ForeignKey(Purchase, on_delete=models.PROTECT, related_name="credit_applications_in")
+    amount = models.DecimalField("Сума заліку", max_digits=14, decimal_places=2)
+    note = models.CharField("Примітка", max_length=250, blank=True)
+    created_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="supplier_credit_applications_created")
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_void = models.BooleanField("Скасовано", default=False, db_index=True)
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(USER, null=True, blank=True, on_delete=models.PROTECT, related_name="supplier_credit_applications_voided")
+    void_reason = models.CharField(max_length=250, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [
+            models.Index(fields=["company", "source_purchase"], name="sup_credit_src_idx"),
+            models.Index(fields=["company", "target_purchase"], name="sup_credit_dst_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="supplier_credit_application_positive"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if (self.source_purchase.company_id != self.company_id
+                or self.target_purchase.company_id != self.company_id
+                or self.source_purchase.supplier_id != self.target_purchase.supplier_id
+                or self.source_purchase.supplier.company_id != self.company_id
+                or self.source_purchase_id == self.target_purchase_id):
+            raise ValueError("Залік кредиту має бути між різними закупівлями одного постачальника й магазину.")
+        super().save(*args, **kwargs)
