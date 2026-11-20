@@ -5,11 +5,11 @@ from decimal import Decimal
 from django import forms
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Count, F, Sum, ExpressionWrapper, DecimalField
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from .models import BankTransaction, CashOperation, FinanceEntry
+from .models import BankTransaction, CashOperation, FinanceEntry, Sale, SaleItem
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -173,4 +173,111 @@ def cashflow_report(request):
         "cash_net": cash_in - cash_out, "bank_net": bank_in - bank_out,
         "total_in": cash_in + bank_in, "total_out": cash_out + bank_out,
         "total_net": cash_in - cash_out + bank_in - bank_out,
+    })
+
+
+
+@tenant_staff_only
+@company_required
+def finance_overview(request):
+    """Consolidated management P&L; cash/bank movements are deliberately shown separately."""
+    today = timezone.localdate()
+    first = today.replace(day=1)
+    date_from = _date_param(request.GET.get("from"), first)
+    date_to = _date_param(request.GET.get("to"), today)
+    if date_to < date_from:
+        date_from, date_to = first, today
+
+    zero = Decimal("0.00")
+    decimal_field = DecimalField(max_digits=18, decimal_places=2)
+    items = SaleItem.objects.filter(
+        company=request.company,
+        sale__company=request.company,
+        sale__status=Sale.DONE,
+        earned_at__date__gte=date_from,
+        earned_at__date__lte=date_to,
+    )
+    item_totals = items.aggregate(
+        revenue=Sum(ExpressionWrapper(
+            (F("quantity") - F("returned_qty")) * F("price"),
+            output_field=decimal_field,
+        )),
+        cost=Sum(ExpressionWrapper(
+            (F("quantity") - F("returned_qty")) * F("cost_price"),
+            output_field=decimal_field,
+        )),
+        units=Sum(F("quantity") - F("returned_qty")),
+        lines=Count("pk"),
+    )
+    revenue = item_totals["revenue"] or zero
+    cost = item_totals["cost"] or zero
+    gross_profit = revenue - cost
+
+    entries = FinanceEntry.objects.filter(
+        company=request.company,
+        created_at__date__gte=date_from,
+        created_at__date__lte=date_to,
+        is_void=False,
+    )
+    entry_totals = entries.values("entry_type").annotate(total=Sum("amount"))
+    entry_amounts = {row["entry_type"]: row["total"] or zero for row in entry_totals}
+    other_income = entry_amounts.get(FinanceEntry.INCOME, zero)
+    expenses = entry_amounts.get(FinanceEntry.EXPENSE, zero)
+    operating_result = gross_profit + other_income - expenses
+
+    expense_rows = list(entries.filter(entry_type=FinanceEntry.EXPENSE)
+                         .values("category").annotate(total=Sum("amount"), count=Count("pk"))
+                         .order_by("-total", "category"))
+
+    # These are statement/drawer movements, not profit. Keep them separate to
+    # avoid counting POS takings or settlements twice.
+    cash_ops = CashOperation.objects.filter(
+        company=request.company, created_at__date__gte=date_from,
+        created_at__date__lte=date_to,
+    )
+    cash_in = cash_ops.filter(kind="in").aggregate(total=Sum("amount"))["total"] or zero
+    cash_out = cash_ops.filter(kind="out").aggregate(total=Sum("amount"))["total"] or zero
+    bank_ops = BankTransaction.objects.filter(
+        company=request.company, transaction_date__gte=date_from,
+        transaction_date__lte=date_to, is_void=False,
+    )
+    bank_in = bank_ops.filter(direction=BankTransaction.INCOME).aggregate(total=Sum("amount"))["total"] or zero
+    bank_out = bank_ops.filter(direction=BankTransaction.EXPENSE).aggregate(total=Sum("amount"))["total"] or zero
+
+    if request.GET.get("export") == "csv":
+        import csv
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="financial-overview.csv"'
+        response.write("\ufeff")
+        writer = csv.writer(response, delimiter=";")
+        writer.writerow(["Показник", "Сума, грн"])
+        rows = [
+            ("Виручка за переданими товарами/послугами", revenue),
+            ("Собівартість реалізованого", cost),
+            ("Валова маржа", gross_profit),
+            ("Інші доходи", other_income),
+            ("Операційні витрати", expenses),
+            ("Операційний результат", operating_result),
+            ("Каса: внесення", cash_in), ("Каса: вилучення", cash_out),
+            ("Банк: надходження", bank_in), ("Банк: списання", bank_out),
+        ]
+        for label, amount in rows:
+            writer.writerow([label, str(amount)])
+        writer.writerow([])
+        writer.writerow(["Категорія витрат", "Сума, грн", "Кількість записів"])
+        for row in expense_rows:
+            category = str(row["category"] or "")
+            if category[:1] in ("=", "+", "-", "@", "\t", "\r"):
+                category = "'" + category
+            writer.writerow([category, str(row["total"] or zero), row["count"]])
+        return response
+
+    return render(request, "core/finance_overview.html", {
+        "date_from": date_from, "date_to": date_to,
+        "revenue": revenue, "cost": cost, "gross_profit": gross_profit,
+        "other_income": other_income, "expenses": expenses,
+        "operating_result": operating_result, "expense_rows": expense_rows,
+        "units": item_totals["units"] or zero,
+        "cash_in": cash_in, "cash_out": cash_out,
+        "bank_in": bank_in, "bank_out": bank_out,
     })
