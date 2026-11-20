@@ -10,7 +10,15 @@
 <div class="card"><small>Борг постачальнику</small><h3>{{ account_totals.debt|floatformat:2 }} ₴</h3></div>
 <div class="card"><small>Кредит / переплата постачальника</small><h3>{{ account_totals.supplier_credit|floatformat:2 }} ₴</h3></div>
 </div>
-<p><a class="btn" href="?export=csv">↓ Експорт повного журналу CSV</a></p>
+<style>@media print{.no-print{display:none!important}main{max-width:none!important;padding:0!important}table{box-shadow:none!important}}</style>
+<form method="get" class="filter no-print">
+<label>З дати <input type="date" name="date_from" value="{{ date_from }}"></label>
+<label>До дати <input type="date" name="date_to" value="{{ date_to }}"></label>
+<button class="btn">Фільтрувати журнал</button>
+<button class="btn gray" name="export" value="csv">Експорт CSV</button>
+<button class="btn gray" type="button" onclick="window.print()">Друк акта звірки</button>
+<a class="btn gray" href="{% url 'supplier_balances_report' %}">Загальний звіт</a>
+</form>
 <div class="card"><h3>Єдиний журнал взаєморозрахунків</h3>
 <p><small>Закупівлі збільшують борг; оплати та компенсації зменшують. Аванси й переміщення кредиту показані окремо та не змінюють борг закупівель у цьому журналі. Скасовані операції залишаються в історії, але не впливають на залишок.</small></p>
 <table><tr><th>Дата</th><th>Операція</th><th>Документ</th><th>Опис</th><th class="n">Сума</th><th class="n">Вплив на борг</th><th class="n">Залишок</th><th>Стан</th></tr>
