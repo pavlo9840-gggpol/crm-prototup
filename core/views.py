@@ -1150,7 +1150,19 @@ def purchase_detail(request, pk):
     compensated = SupplierCompensation.objects.filter(
         company=request.company, purchase=purchase, is_void=False
     ).aggregate(total=Sum("amount"))["total"] or D0
-    from .models import AccountAdvance
+    from .models import AccountAdvance, SupplierCreditApplication
+    credit_in = SupplierCreditApplication.objects.filter(company=request.company, target_purchase=purchase, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
+    credit_out = SupplierCreditApplication.objects.filter(company=request.company, source_purchase=purchase, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
+    credit_applications = SupplierCreditApplication.objects.filter(company=request.company, target_purchase=purchase).select_related("source_purchase", "created_by", "voided_by")
+    credit_sources = []
+    for source in Purchase.objects.filter(company=request.company, supplier_id=purchase.supplier_id).exclude(pk=purchase.pk).order_by("-created_at")[:100]:
+        source_paid = source.settlement_payments.filter(company=request.company, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
+        source_comp = SupplierCompensation.objects.filter(company=request.company, purchase=source, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
+        source_used = SupplierCreditApplication.objects.filter(company=request.company, source_purchase=source, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
+        source_credit = max(D0, source_paid + source_comp - source.total - source_used)
+        if source_credit > 0:
+            source.available_supplier_credit = source_credit
+            credit_sources.append(source)
     available_advances = AccountAdvance.objects.filter(
         company=request.company, party_type=AccountAdvance.SUPPLIER, supplier_id=purchase.supplier_id,
         is_void=False, remaining__gt=0,
@@ -1170,8 +1182,10 @@ def purchase_detail(request, pk):
             company=request.company, purchase=purchase
         ).select_related("supplier_return", "created_by", "bank_account"),
         "settlement_paid": paid, "settlement_compensated": compensated,
-        "settlement_balance": max(D0, purchase.total - paid - compensated),
-        "supplier_credit": max(D0, paid + compensated - purchase.total),
+        "settlement_balance": max(D0, purchase.total - paid - compensated - credit_in),
+        "supplier_credit": max(D0, paid + compensated - purchase.total - credit_out),
+        "supplier_credit_applications": credit_applications,
+        "supplier_credit_sources": credit_sources,
         "available_advances": available_advances, "bank_accounts": bank_accounts,
     })
 
