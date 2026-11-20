@@ -133,7 +133,7 @@ def cashflow_report(request):
     ).select_related("account", "created_by")
 
     cash_in = cash_operations.filter(kind="in").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
-    cash_out = cash_operations.filter(kind="out").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+    cash_out = - (cash_operations.filter(kind="out").aggregate(total=Sum("amount"))["total"] or Decimal("0.00"))
     cash_adjust = cash_operations.filter(kind="adjust").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
     bank_in = bank_operations.filter(direction=BankTransaction.INCOME).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
     bank_out = bank_operations.filter(direction=BankTransaction.EXPENSE).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
@@ -145,7 +145,7 @@ def cashflow_report(request):
         if op.kind == "in":
             row["cash_in"] += op.amount
         elif op.kind == "out":
-            row["cash_out"] += op.amount
+            row["cash_out"] += abs(op.amount)
         else:
             row["cash_adjust"] += op.amount
     for op in bank_operations:
@@ -254,7 +254,7 @@ def finance_overview(request):
         created_at__date__lte=date_to,
     )
     cash_in = cash_ops.filter(kind="in").aggregate(total=Sum("amount"))["total"] or zero
-    cash_out = cash_ops.filter(kind="out").aggregate(total=Sum("amount"))["total"] or zero
+    cash_out = -(cash_ops.filter(kind="out").aggregate(total=Sum("amount"))["total"] or zero)
     bank_ops = BankTransaction.objects.filter(
         company=request.company, transaction_date__gte=date_from,
         transaction_date__lte=date_to, is_void=False,
