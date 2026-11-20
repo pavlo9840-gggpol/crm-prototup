@@ -556,6 +556,14 @@ class FinanceOverviewReportTest(TestCase):
         self.assertEqual(response.context["other_income"], Decimal("50.00"))
         self.assertEqual(response.context["expenses"], Decimal("30.00"))
         self.assertEqual(response.context["operating_result"], Decimal("140.00"))
+        # A second tenant's sale must never leak into this report.
+        other = Company.objects.create(name="Other tenant", slug="finance-other", owner=self.user)
+        other_product = Product.objects.create(company=other, name="Other item", sku="FIN-OTHER", price=999, cost_price=500)
+        other_sale = Sale.objects.create(company=other, cashier=self.user, total=Decimal("999.00"), status=Sale.DONE)
+        SaleItem.objects.create(company=other, sale=other_sale, product=other_product, quantity=1,
+                                original_price=999, price=999, cost_price=500, earned_at=timezone.now())
+        response = self.client.get("/reports/finance/")
+        self.assertEqual(response.context["revenue"], Decimal("300.00"))
 
     def test_report_csv_export_and_formula_safe_category(self):
         self.FinanceEntry.objects.create(company=self.company, entry_type="expense", category="=CMD()",
@@ -563,5 +571,34 @@ class FinanceOverviewReportTest(TestCase):
         response = self.client.get("/reports/finance/?export=csv")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/csv", response["Content-Type"])
-        self.assertTrue(response.content.startswith(b"\\xef\\xbb\\xbf"))
+        self.assertTrue(response.content.startswith(b"\xef\xbb\xbf"))
         self.assertIn(b"'=CMD()", response.content)
+
+    def test_returns_are_recognized_in_the_period_they_are_processed(self):
+        from datetime import timedelta
+        from decimal import Decimal
+        from django.utils import timezone
+        from core.models import Product, Sale, SaleItem, SaleReturn, SaleReturnItem
+
+        product = Product.objects.create(company=self.company, name="Returned item", sku="FIN-RET",
+                                         price=150, cost_price=90)
+        old_sale = Sale.objects.create(company=self.company, cashier=self.user, total=Decimal("150.00"),
+                                       status=Sale.DONE)
+        old_earned_at = timezone.now() - timedelta(days=40)
+        item = SaleItem.objects.create(company=self.company, sale=old_sale, product=product, quantity=1,
+                                       original_price=150, price=150, cost_price=90,
+                                       returned_qty=1, earned_at=old_earned_at)
+        sale_return = SaleReturn.objects.create(company=self.company, sale=old_sale, user=self.user,
+                                                total=Decimal("150.00"), refund_method="card",
+                                                card_amount=Decimal("150.00"))
+        SaleReturnItem.objects.create(company=self.company, sale_return=sale_return, sale_item=item,
+                                      quantity=1, price=Decimal("150.00"))
+
+        response = self.client.get("/reports/finance/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["gross_sales"], Decimal("0.00"))
+        self.assertEqual(response.context["returned_revenue"], Decimal("150.00"))
+        self.assertEqual(response.context["returned_cost"], Decimal("90.00"))
+        self.assertEqual(response.context["revenue"], Decimal("-150.00"))
+        self.assertEqual(response.context["cost"], Decimal("-90.00"))
+        self.assertEqual(response.context["gross_profit"], Decimal("-60.00"))
