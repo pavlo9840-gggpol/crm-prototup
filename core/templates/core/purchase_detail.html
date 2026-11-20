@@ -47,6 +47,29 @@
     <tr><td colspan="6">
       <b>Повернення {{ ret.number }}</b> · {{ ret.created_at|date:"d.m.Y H:i" }} · {{ ret.quantity|floatformat:"-3" }} од. · {{ ret.total|floatformat:2 }} ₴ · Очікується: {{ ret.get_compensation_type_display }} · {{ ret.reason }}
       <br><small>Компенсовано: {{ ret.compensated_amount|floatformat:2 }} ₴ · Залишок: {{ ret.compensation_remaining|floatformat:2 }} ₴</small>
+      {% if ret.compensation_type == "replacement" %}
+      <br><small>Заміна отримана: {{ ret.replacement_received_quantity|floatformat:"-3" }} / {{ ret.quantity|floatformat:"-3" }} од. · Залишилось: {{ ret.replacement_remaining_quantity|floatformat:"-3" }} од.</small>
+      {% for receipt in ret.replacement_receipts.all %}
+      <p class="muted">Надходження заміни {{ receipt.purchase.number }} · {{ receipt.quantity|floatformat:"-3" }} од. · {{ receipt.created_at|date:"d.m.Y H:i" }} · {{ receipt.created_by }}</p>
+      {% endfor %}
+      {% if ret.replacement_remaining_quantity > 0 %}
+      <form method="post" action="{% url 'supplier_replacement_receive' ret.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:8px">
+        {% csrf_token %}
+        <label>Кількість заміни<input type="number" name="quantity" min="0.001" max="{{ ret.replacement_remaining_quantity }}" step="0.001" required></label>
+        {% if i.product.tracking_mode == "batch" or i.product.tracking_mode == "expiry" %}
+        <label>Номер партії<input name="batch_number" maxlength="80"></label>
+        {% endif %}
+        {% if i.product.tracking_mode == "expiry" %}
+        <label>Термін придатності<input type="date" name="expiry_date" required></label>
+        {% endif %}
+        {% if i.product.tracking_mode == "serial" %}
+        <label>Серійні номери (по одному в рядку)<textarea name="serial_numbers" rows="3" required></textarea></label>
+        {% endif %}
+        <label>Примітка<input name="note" maxlength="250"></label>
+        <button class="btn green" type="submit">Оприбуткувати заміну</button>
+      </form>
+      {% endif %}
+      {% endif %}
       {% if ret.compensation_remaining > 0 %}
       <form method="post" action="{% url 'supplier_return_compensate' ret.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:8px">
         {% csrf_token %}
