@@ -1737,7 +1737,8 @@ class BankReconciliation(models.Model):
     """Auditable match between a bank statement transaction and a recorded settlement payment."""
     company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="bank_reconciliations")
     bank_transaction = models.ForeignKey(BankTransaction, on_delete=models.PROTECT, related_name="reconciliations")
-    settlement_payment = models.ForeignKey("SettlementPayment", on_delete=models.PROTECT, related_name="bank_reconciliations")
+    settlement_payment = models.ForeignKey("SettlementPayment", null=True, blank=True, on_delete=models.PROTECT, related_name="bank_reconciliations")
+    account_advance = models.ForeignKey("AccountAdvance", null=True, blank=True, on_delete=models.PROTECT, related_name="bank_reconciliations")
     matched_at = models.DateTimeField(auto_now_add=True)
     matched_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="bank_reconciliations_created")
     is_void = models.BooleanField(default=False, db_index=True)
@@ -1749,23 +1750,48 @@ class BankReconciliation(models.Model):
         ordering = ["-matched_at", "-id"]
         constraints = [
             models.UniqueConstraint(fields=["bank_transaction"], condition=Q(is_void=False), name="uniq_active_bank_reconciliation"),
-            models.UniqueConstraint(fields=["settlement_payment"], condition=Q(is_void=False), name="uniq_active_payment_reconciliation"),
+            models.UniqueConstraint(fields=["settlement_payment"], condition=Q(is_void=False, settlement_payment__isnull=False), name="uniq_active_payment_reconciliation"),
+            models.UniqueConstraint(fields=["account_advance"], condition=Q(is_void=False, account_advance__isnull=False), name="uniq_active_advance_reconciliation"),
+            models.CheckConstraint(
+                condition=(Q(settlement_payment__isnull=False, account_advance__isnull=True) |
+                           Q(settlement_payment__isnull=True, account_advance__isnull=False)),
+                name="bank_reconciliation_exactly_one_source",
+            ),
         ]
 
     def save(self, *args, **kwargs):
         if self.bank_transaction.company_id != self.company_id:
             raise ValueError("Банківська операція належить іншому магазину.")
-        if self.settlement_payment.company_id != self.company_id:
-            raise ValueError("Платіж належить іншому магазину.")
-        if self.bank_transaction.is_void or self.settlement_payment.is_void:
-            raise ValueError("Скасовані операції не можна звіряти.")
-        if self.bank_transaction.amount != self.settlement_payment.amount:
-            raise ValueError("Суми банківської операції та платежу мають збігатися.")
-        expected_direction = "income" if self.settlement_payment.sale_id else "expense"
-        if self.bank_transaction.direction != expected_direction:
-            raise ValueError("Напрямок банківської операції не відповідає документу.")
-        if self.settlement_payment.payment_method != "bank":
-            raise ValueError("Звіряти можна лише платежі способом «Банк».")
+        if bool(self.settlement_payment_id) == bool(self.account_advance_id):
+            raise ValueError("Звірка має посилатися рівно на один платіж або аванс.")
+        if self.bank_transaction.is_void:
+            raise ValueError("Скасовану банківську операцію не можна звіряти.")
+        if self.settlement_payment_id:
+            payment = self.settlement_payment
+            if payment.company_id != self.company_id:
+                raise ValueError("Платіж належить іншому магазину.")
+            if payment.is_void:
+                raise ValueError("Скасовані операції не можна звіряти.")
+            if self.bank_transaction.amount != payment.amount:
+                raise ValueError("Суми банківської операції та платежу мають збігатися.")
+            expected_direction = "income" if payment.sale_id else "expense"
+            if self.bank_transaction.direction != expected_direction:
+                raise ValueError("Напрямок банківської операції не відповідає документу.")
+            if payment.payment_method != "bank":
+                raise ValueError("Звіряти можна лише платежі способом «Банк».")
+        else:
+            advance = self.account_advance
+            if advance.company_id != self.company_id:
+                raise ValueError("Аванс належить іншому магазину.")
+            if advance.is_void:
+                raise ValueError("Скасований аванс не можна звіряти.")
+            if advance.payment_method != "bank":
+                raise ValueError("Звіряти можна лише банківські аванси.")
+            if self.bank_transaction.amount != advance.amount:
+                raise ValueError("Сума банківської операції має збігатися з початковою сумою авансу.")
+            expected_direction = BankTransaction.INCOME if advance.party_type == AccountAdvance.CUSTOMER else BankTransaction.EXPENSE
+            if self.bank_transaction.direction != expected_direction:
+                raise ValueError("Напрямок банківської операції не відповідає типу авансу.")
         super().save(*args, **kwargs)
 
 
