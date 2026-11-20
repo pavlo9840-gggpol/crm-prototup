@@ -4,13 +4,16 @@ from decimal import Decimal
 
 from django import forms
 from django.contrib import messages
-from django.db import transaction
+import hashlib
+import json
+
+from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Sum, ExpressionWrapper, DecimalField, Q
 from django.shortcuts import redirect, render
 from django.http import HttpResponse
 from django.utils import timezone
 
-from .models import BankTransaction, CashOperation, FinanceEntry, Sale, SaleItem, SaleReturnItem
+from .models import BankTransaction, CashOperation, FinanceEntry, FinancePeriodClose, Sale, SaleItem, SaleReturnItem
 from . import cash as cashlib
 from .tenant_context import company_required
 from .views import tenant_staff_only
@@ -478,6 +481,71 @@ def finance_controls(request):
         bank_transaction__transaction_date__gte=date_from,
         bank_transaction__transaction_date__lte=date_to,
     ).count()
+
+    # This is a frozen management-control snapshot, not a posting lock or a
+    # substitute for statutory accounting statements.
+    period_snapshot = {
+        "schema_version": 1,
+        "period": {"from": date_from.isoformat(), "to": date_to.isoformat()},
+        "metrics": {
+            "customer_debt": str(customer_debt_total),
+            "supplier_debt": str(supplier_debt_total),
+            "customer_credit_due": str(customer_credit_total),
+            "supplier_credit": str(supplier_credit_total),
+            "customer_advances_remaining": str(customer_advance_total),
+            "supplier_advances_remaining": str(supplier_advance_total),
+            "bank_unmatched_income": str(bank_unmatched_in),
+            "bank_unmatched_expense": str(bank_unmatched_out),
+            "bank_payments_unmatched_income": str(payment_unmatched_in),
+            "bank_payments_unmatched_expense": str(payment_unmatched_out),
+            "cash_income": str(cash_period_in),
+            "cash_expense": str(cash_period_out),
+            "cash_adjustments": str(cash_adjustments),
+            "cash_net_movement": str(period_cash_net),
+            "bank_income": str(bank_period_in),
+            "bank_expense": str(bank_period_out),
+            "bank_net_movement": str(period_bank_net),
+            "combined_net_movement": str(period_cash_net + period_bank_net),
+            "shift_opening_cash": str(shift_opening_total),
+            "shift_expected_cash": str(shift_expected_total),
+            "shift_counted_cash": str(shift_counted_total),
+            "shift_discrepancy": str(shift_discrepancy_total),
+        },
+        "counts": {
+            "closed_shifts": closed_shift_count,
+            "open_shifts": open_shift_count,
+            "active_bank_matches": active_matches,
+            "payment_reversal_gaps": reversal_gaps.count(),
+            "supplier_compensation_reversal_gaps": len(compensation_reversal_gaps),
+        },
+    }
+    canonical_snapshot = json.dumps(period_snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    snapshot_checksum = hashlib.sha256(canonical_snapshot.encode("utf-8")).hexdigest()
+    period_close = FinancePeriodClose.objects.filter(
+        company=request.company, date_from=date_from, date_to=date_to,
+    ).select_related("closed_by").first()
+
+    if request.method == "POST" and request.POST.get("action") == "close_period":
+        if request.POST.get("confirm_snapshot") != "1":
+            messages.error(request, "Підтвердіть фіксацію незмінного знімка періоду.")
+        elif period_close:
+            messages.warning(request, "Для цього періоду знімок уже існує. Його не перезаписано.")
+        else:
+            try:
+                with transaction.atomic():
+                    period_close = FinancePeriodClose.objects.create(
+                        company=request.company,
+                        date_from=date_from,
+                        date_to=date_to,
+                        snapshot=period_snapshot,
+                        checksum=snapshot_checksum,
+                        closed_by=request.user,
+                    )
+                messages.success(request, "Контрольний знімок фінансового періоду зафіксовано.")
+            except IntegrityError:
+                messages.warning(request, "Період уже закрито в іншій сесії. Наявний знімок не змінено.")
+        return redirect(f"{request.path}?from={date_from.isoformat()}&to={date_to.isoformat()}")
+
     if request.GET.get("export") == "csv":
         import csv
         response = HttpResponse(content_type="text/csv; charset=utf-8")
@@ -554,4 +622,6 @@ def finance_controls(request):
         "bank_period_in": bank_period_in, "bank_period_out": bank_period_out,
         "period_bank_net": period_bank_net,
         "period_net_movement": period_cash_net + period_bank_net,
+        "period_close": period_close,
+        "period_snapshot_checksum": snapshot_checksum,
     })
