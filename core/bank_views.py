@@ -17,11 +17,14 @@ from .views import tenant_staff_only
 class BankAccountForm(forms.ModelForm):
     class Meta:
         model = BankAccount
-        fields = ["bank_name", "iban", "mfo", "holder", "currency", "note", "is_default"]
+        fields = ["bank_name", "iban", "mfo", "holder", "currency", "opening_balance", "opening_balance_date", "note", "is_default"]
+        widgets = {"opening_balance_date": forms.DateInput(attrs={"type": "date"})}
 
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.company = company
+        if not self.instance.pk and not self.initial.get("opening_balance_date"):
+            self.initial["opening_balance_date"] = timezone.localdate()
 
     def clean_iban(self):
         iban = self.cleaned_data["iban"].replace(" ", "").upper()
@@ -108,10 +111,31 @@ def bank_ledger(request):
     expense = totals.get(BankTransaction.EXPENSE, Decimal("0.00"))
     balances = []
     for account in accounts:
-        rows = BankTransaction.objects.filter(company=request.company, account=account, is_void=False)
+        rows = BankTransaction.objects.filter(
+            company=request.company, account=account, is_void=False,
+            transaction_date__gte=account.opening_balance_date,
+        )
         incoming = rows.filter(direction=BankTransaction.INCOME).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
         outgoing = rows.filter(direction=BankTransaction.EXPENSE).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
-        balances.append({"account": account, "income": incoming, "expense": outgoing, "balance": incoming - outgoing})
+        period_rows = rows.filter(transaction_date__gte=date_from, transaction_date__lte=date_to)
+        period_income = period_rows.filter(direction=BankTransaction.INCOME).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
+        period_expense = period_rows.filter(direction=BankTransaction.EXPENSE).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
+        if date_from >= account.opening_balance_date:
+            before_period = rows.filter(transaction_date__lt=date_from)
+            before_income = before_period.filter(direction=BankTransaction.INCOME).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
+            before_expense = before_period.filter(direction=BankTransaction.EXPENSE).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
+            opening_at_period = account.opening_balance + before_income - before_expense
+        else:
+            opening_at_period = None
+        if date_to >= account.opening_balance_date:
+            closing_at_period = account.opening_balance + incoming - outgoing
+        else:
+            closing_at_period = None
+        balances.append({
+            "account": account, "income": incoming, "expense": outgoing, "balance": incoming - outgoing,
+            "period_income": period_income, "period_expense": period_expense,
+            "opening_at_period": opening_at_period, "closing_at_period": closing_at_period,
+        })
     active_reconciliations = BankReconciliation.objects.filter(company=request.company, is_void=False).select_related("settlement_payment", "settlement_payment__sale", "settlement_payment__purchase", "account_advance__customer", "account_advance__supplier", "matched_by")
     reconciliation_by_transaction = {r.bank_transaction_id: r for r in active_reconciliations}
     eligible_payments = SettlementPayment.objects.filter(company=request.company, payment_method="bank", is_void=False).exclude(
