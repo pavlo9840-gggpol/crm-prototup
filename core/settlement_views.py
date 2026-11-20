@@ -424,10 +424,11 @@ def supplier_account(request, pk):
         response.write("\ufeff")
         writer = csv.writer(response, delimiter=";")
         writer.writerow(["Дата", "Операція", "Документ", "Опис", "Сума", "Вплив на борг", "Залишок боргу", "Скасовано"])
+        safe_text = lambda value: ("'" + str(value)) if str(value).startswith(("=", "+", "-", "@", "\t", "\r")) else str(value)
         for event in reversed(events):
             writer.writerow([
-                timezone.localtime(event["date"]).strftime("%Y-%m-%d %H:%M"), event["kind"], event["document"],
-                event["description"], str(event["amount"]), str(event["effect"]),
+                timezone.localtime(event["date"]).strftime("%Y-%m-%d %H:%M"), safe_text(event["kind"]), safe_text(event["document"]),
+                safe_text(event["description"]), str(event["amount"]), str(event["effect"]),
                 str(event["running_balance"]), "Так" if event["is_void"] else "Ні",
             ])
         return response
@@ -467,21 +468,19 @@ def supplier_balances_report(request):
     totals = {"debt": D0, "credit": D0, "advance": D0, "purchases_period": D0,
               "payments_period": D0, "compensations_period": D0}
     for supplier in suppliers:
-        purchases = Purchase.objects.filter(company=request.company, supplier=supplier)
+        purchases = Purchase.objects.filter(company=request.company, supplier=supplier).prefetch_related(
+            "settlement_payments", "supplier_compensations", "credit_applications_in", "credit_applications_out"
+        )
         debt = credit = purchase_sum = paid_sum = compensation_sum = D0
         for purchase in purchases:
             paid = _paid_for(purchase)
             compensated = _supplier_compensated_for(purchase)
-            credit_in = SupplierCreditApplication.objects.filter(
-                company=request.company, target_purchase=purchase, is_void=False
-            ).aggregate(total=Sum("amount"))["total"] or D0
-            credit_out = SupplierCreditApplication.objects.filter(
-                company=request.company, source_purchase=purchase, is_void=False
-            ).aggregate(total=Sum("amount"))["total"] or D0
+            credit_in = sum((item.amount for item in purchase.credit_applications_in.all() if not item.is_void), D0)
+            credit_out = sum((item.amount for item in purchase.credit_applications_out.all() if not item.is_void), D0)
             net = purchase.total - paid - compensated - credit_in + credit_out
             debt += max(D0, net)
             credit += max(D0, -net)
-            if (not date_from or purchase.created_at.date() >= date_from) and (not date_to or purchase.created_at.date() <= date_to):
+            if (not date_from or timezone.localtime(purchase.created_at).date() >= date_from) and (not date_to or timezone.localtime(purchase.created_at).date() <= date_to):
                 purchase_sum += purchase.total
         payment_qs = SettlementPayment.objects.filter(company=request.company, purchase__supplier=supplier, is_void=False)
         compensation_qs = SupplierCompensation.objects.filter(company=request.company, supplier=supplier, is_void=False)
@@ -509,10 +508,11 @@ def supplier_balances_report(request):
         response["Content-Disposition"] = 'attachment; filename="supplier-balances.csv"'
         response.write("\ufeff")
         writer = csv.writer(response, delimiter=";")
+        safe_text = lambda value: ("'" + str(value)) if str(value).startswith(("=", "+", "-", "@", "\t", "\r")) else str(value)
         writer.writerow(["Постачальник", "Борг", "Переплата", "Невикористаний аванс",
                          "Закупівлі за період", "Оплати за період", "Компенсації за період"])
         for row in rows:
-            writer.writerow([row["supplier"].name, str(row["debt"]), str(row["credit"]), str(row["advance"]),
+            writer.writerow([safe_text(row["supplier"].name), str(row["debt"]), str(row["credit"]), str(row["advance"]),
                              str(row["purchases_period"]), str(row["payments_period"]), str(row["compensations_period"])])
         writer.writerow(["РАЗОМ", str(totals["debt"]), str(totals["credit"]), str(totals["advance"]),
                          str(totals["purchases_period"]), str(totals["payments_period"]), str(totals["compensations_period"])])
