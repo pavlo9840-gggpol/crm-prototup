@@ -313,7 +313,7 @@ def finance_controls(request):
     """One-screen control report for receivables, advances, bank matching and reversals."""
     from .models import (
         AccountAdvance, BankReconciliation, Customer, Purchase, Sale,
-        SettlementPayment, Supplier,
+        SettlementPayment, Supplier, SupplierCompensation,
     )
     from .settlement_views import _balance_for, _supplier_net_balance_for
 
@@ -330,7 +330,11 @@ def finance_controls(request):
     bank_rows = BankTransaction.objects.filter(
         company=request.company, is_void=False,
         transaction_date__gte=date_from, transaction_date__lte=date_to,
-    ).exclude(reconciliations__is_void=False).select_related("account").order_by("-transaction_date", "-pk")
+    ).exclude(reconciliations__is_void=False).exclude(
+        supplier_compensation__isnull=False,
+    ).exclude(
+        supplier_compensation_reversal__isnull=False,
+    ).select_related("account").order_by("-transaction_date", "-pk")
     bank_unmatched_in = bank_rows.filter(direction=BankTransaction.INCOME).aggregate(v=Sum("amount"))["v"] or zero
     bank_unmatched_out = bank_rows.filter(direction=BankTransaction.EXPENSE).aggregate(v=Sum("amount"))["v"] or zero
 
@@ -401,6 +405,15 @@ def finance_controls(request):
         reversal_operation__isnull=True,
     ).select_related("sale", "purchase", "voided_by").order_by("-voided_at")[:100]
 
+    compensation_reversal_gaps = list(SupplierCompensation.objects.filter(
+        company=request.company, is_void=True,
+        cash_operation__isnull=False, reversal_cash_operation__isnull=True,
+    ).select_related("supplier", "voided_by")[:100])
+    compensation_reversal_gaps += list(SupplierCompensation.objects.filter(
+        company=request.company, is_void=True,
+        bank_transaction__isnull=False, reversal_bank_transaction__isnull=True,
+    ).select_related("supplier", "voided_by")[:100])
+
     active_matches = BankReconciliation.objects.filter(
         company=request.company, is_void=False,
         bank_transaction__transaction_date__gte=date_from,
@@ -420,5 +433,7 @@ def finance_controls(request):
         "customer_credit_total": customer_credit_total,
         "supplier_credits": sorted(supplier_credits, key=lambda row: row["balance"], reverse=True)[:100],
         "supplier_credit_total": supplier_credit_total,
-        "reversal_gaps": reversal_gaps, "active_matches": active_matches,
+        "reversal_gaps": reversal_gaps,
+        "compensation_reversal_gaps": compensation_reversal_gaps,
+        "active_matches": active_matches,
     })
