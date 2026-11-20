@@ -1525,6 +1525,43 @@ class LicenseWorkstationSession(models.Model):
         return f"{self.user} · {self.last_seen:%d.%m.%Y %H:%M}"
 
 
+class FinancePeriodClose(models.Model):
+    """Immutable, checksum-protected snapshot of a company's finance control report."""
+
+    company = models.ForeignKey("Company", on_delete=models.PROTECT, related_name="finance_period_closes")
+    date_from = models.DateField("Початок періоду")
+    date_to = models.DateField("Кінець періоду")
+    snapshot = models.JSONField("Знімок показників", default=dict)
+    checksum = models.CharField("SHA-256 знімка", max_length=64)
+    closed_by = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="finance_period_closes")
+    closed_at = models.DateTimeField("Дата закриття", auto_now_add=True)
+
+    class Meta:
+        ordering = ["-closed_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "date_from", "date_to"],
+                name="uniq_finance_period_close_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(date_to__gte=models.F("date_from")),
+                name="finance_period_close_valid_range",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        from django.core.exceptions import ValidationError
+        if self.pk:
+            raise ValidationError("Знімок закритого фінансового періоду незмінний.")
+        if self.date_to < self.date_from:
+            raise ValidationError("Кінець періоду не може бути раніше початку.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        from django.core.exceptions import ValidationError
+        raise ValidationError("Знімок закритого фінансового періоду не можна видалити.")
+
+
 class FinanceEntry(models.Model):
     """Ручний облік операційних доходів і витрат магазину.
 
