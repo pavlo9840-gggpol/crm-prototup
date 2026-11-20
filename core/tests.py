@@ -818,10 +818,25 @@ class FinanceControlsReportTest(TestCase):
         self.assertEqual(response.context["shift_discrepancy_total"], Decimal("-100.00"))
 
 
+    def test_controls_report_csv_export_neutralizes_formula_injection(self):
+        from decimal import Decimal
+        from core.models import Customer, Sale, Supplier, Purchase
+        customer = Customer.objects.create(company=self.company, name="=1+1", phone="+380501234570")
+        supplier = Supplier.objects.create(company=self.company, name="@SUM(A1:A2)")
+        Sale.objects.create(company=self.company, cashier=self.user, customer=customer,
+                            total=Decimal("100.00"), status=Sale.DONE)
+        Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
+                                 total=Decimal("80.00"))
+        response = self.client.get("/reports/finance/controls/?export=csv")
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8-sig")
+        self.assertIn("'=1+1", content)
+        self.assertIn("'@SUM(A1:A2)", content)
+
     def test_controls_report_csv_export_contains_period_summary(self):
         response = self.client.get("/reports/finance/controls/?export=csv")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/csv", response["Content-Type"])
-        self.assertTrue(response.content.startswith(b"\\xef\\xbb\\xbf"))
+        self.assertTrue(response.content.startswith(b"\xef\xbb\xbf"))
         self.assertIn("Борг клієнтів".encode("utf-8"), response.content)
         self.assertIn("Сумарний рух коштів".encode("utf-8"), response.content)
