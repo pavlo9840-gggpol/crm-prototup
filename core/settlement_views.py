@@ -646,8 +646,13 @@ def supplier_credit_apply(request, target_pk):
         return redirect("purchase_detail", pk=target_pk)
 
     with transaction.atomic():
-        target = get_object_or_404(Purchase.objects.select_for_update().filter(company=request.company), pk=target_pk)
-        source = get_object_or_404(Purchase.objects.select_for_update().filter(company=request.company), pk=source_pk)
+        purchase_ids = sorted([int(target_pk), int(source_pk)])
+        locked = list(Purchase.objects.select_for_update().filter(company=request.company, pk__in=purchase_ids).order_by("pk"))
+        if len(locked) != 2:
+            messages.error(request, "Не знайдено обидві закупівлі в цьому магазині.")
+            return redirect("purchase_detail", pk=target_pk)
+        source = next((item for item in locked if item.pk == int(source_pk)), None)
+        target = next((item for item in locked if item.pk == int(target_pk)), None)
         if source.pk == target.pk or source.supplier_id != target.supplier_id:
             messages.error(request, "Оберіть іншу закупівлю того самого постачальника.")
             return redirect("purchase_detail", pk=target.pk)
@@ -688,6 +693,10 @@ def supplier_credit_application_void(request, pk):
         messages.error(request, "Вкажіть причину скасування заліку.")
         return redirect("settlements_home")
     with transaction.atomic():
+        initial = get_object_or_404(SupplierCreditApplication.objects.filter(company=request.company), pk=pk)
+        list(Purchase.objects.select_for_update().filter(
+            company=request.company, pk__in=sorted([initial.source_purchase_id, initial.target_purchase_id])
+        ).order_by("pk"))
         application = get_object_or_404(
             SupplierCreditApplication.objects.select_for_update().filter(company=request.company, is_void=False),
             pk=pk,
