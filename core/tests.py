@@ -582,7 +582,7 @@ class FinanceOverviewReportTest(TestCase):
             Sale, SaleItem, SettlementPayment, Supplier,
         )
 
-        customer = Customer.objects.create(company=self.company, name="Finance customer")
+        customer = Customer.objects.create(company=self.company, name="Finance customer", phone="+380501111111")
         supplier = Supplier.objects.create(company=self.company, name="Finance supplier")
         product = Product.objects.create(company=self.company, name="Paid item", sku="FIN-PAID",
                                          price=100, cost_price=40)
