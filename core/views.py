@@ -22,7 +22,7 @@ from django.views.decorators.http import require_POST
 from . import cash as cashlib, pricing, services
 from .forms import AdjustForm, BusinessProfileForm, CategoryForm, CompanyForm, CustomerForm, ProductForm, SupplierForm
 from .models import (BankAccount, CashOperation, CompanySettings, Category, Customer, CustomerCar, MarkupTier, PriceHistory, Product,
-                     Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment, SupplierClaim, SupplierReturn, SupplierCompensation)
+                     Purchase, PurchaseItem, PurchaseOrder, PurchaseOrderItem, Sale, SaleItem, SaleReturn, Shift, StockMovement, Supplier, SupplierItem, PriceRule, PayPlan, ProductBarcode, StockBatch, StockSerialUnit, InventoryCount, InventoryCountItem, SettlementPayment, SupplierClaim, SupplierReturn, SupplierCompensation, SupplierReplacementReceipt)
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
@@ -2299,3 +2299,85 @@ def company_settings(request):
         messages.success(request, "Налаштування збережено")
         return redirect("company_settings")
     return render(request, "core/company_settings.html", {"form": form, "fs": fs})
+
+
+@login_required
+@company_required
+@tenant_staff_only
+@require_POST
+def supplier_replacement_receive(request, return_pk):
+    """Receive replacement goods against a return; inventory increases, payable stays zero."""
+    try:
+        with transaction.atomic():
+            returned = get_object_or_404(
+                SupplierReturn.objects.select_for_update().select_related(
+                    "supplier", "purchase_item__product", "purchase_item__purchase"
+                ).filter(company=request.company),
+                pk=return_pk,
+            )
+            if returned.compensation_type != "replacement":
+                raise StockError("Для цього повернення не була обрана заміна товару.")
+            already_received = returned.replacement_receipts.aggregate(total=Sum("quantity"))["total"] or D0
+            remaining = max(D0, returned.quantity - already_received)
+            qty = dec(request.POST.get("quantity"))
+            if qty is None or qty <= 0 or qty > remaining:
+                raise StockError(f"Кількість заміни має бути більшою за нуль і не перевищувати {remaining.normalize():f}.")
+            product = Product.objects.select_for_update().get(pk=returned.purchase_item.product_id, company=request.company)
+            batch_number = (request.POST.get("batch_number") or "").strip()[:80]
+            expiry_raw = (request.POST.get("expiry_date") or "").strip()
+            expiry_date = None
+            if expiry_raw:
+                try:
+                    expiry_date = date.fromisoformat(expiry_raw)
+                except ValueError:
+                    raise StockError("Некоректна дата терміну придатності.")
+            if product.tracking_mode == "expiry" and not expiry_date:
+                raise StockError("Для цього товару потрібно вказати термін придатності.")
+            if product.tracking_mode not in {"batch", "expiry"} and (batch_number or expiry_date):
+                raise StockError("Партію та термін придатності можна вказувати лише для відповідного режиму обліку.")
+            serials = [line.strip() for line in (request.POST.get("serial_numbers") or "").splitlines() if line.strip()]
+            normalized = ["".join(ch for ch in value if ch.isalnum()).upper() for value in serials]
+            if product.tracking_mode == "serial":
+                if qty != qty.to_integral_value() or len(serials) != int(qty):
+                    raise StockError("Кількість має дорівнювати числу введених серійних номерів.")
+                if len(set(normalized)) != len(normalized) or any(not value or len(value) > 100 for value in normalized):
+                    raise StockError("Серійні номери порожні, задубльовані або задовгі.")
+                if StockSerialUnit.objects.filter(company=request.company, normalized_serial__in=normalized).exists():
+                    raise StockError("Один із серійних номерів уже зареєстрований у цьому магазині.")
+            elif serials:
+                raise StockError("Серійні номери вводяться лише для товару із серійним обліком.")
+
+            purchase = Purchase.objects.create(
+                company=request.company, supplier=returned.supplier, user=request.user,
+                total=D0, status="Заміна постачальника",
+            )
+            purchase.number = f"NZ-{purchase.pk:06d}"
+            purchase.save(update_fields=["number"])
+            item = PurchaseItem.objects.create(
+                company=request.company, purchase=purchase, product=product,
+                quantity=qty, cost_price=returned.unit_cost,
+            )
+            services.add_movement(
+                product, qty, "supplier_replacement", purchase.number, request.user,
+                note=f"Заміна за поверненням {returned.number}"[:200],
+            )
+            if product.tracking_mode in {"batch", "expiry"}:
+                StockBatch.objects.create(
+                    company=request.company, product=product, purchase_item=item,
+                    batch_number=batch_number, expiry_date=expiry_date,
+                    received_quantity=qty, remaining_quantity=qty, cost_price=returned.unit_cost,
+                )
+            elif product.tracking_mode == "serial":
+                for serial in serials:
+                    StockSerialUnit.objects.create(
+                        company=request.company, product=product, purchase_item=item, serial_number=serial,
+                    )
+            SupplierReplacementReceipt.objects.create(
+                company=request.company, supplier_return=returned, purchase=purchase,
+                purchase_item=item, quantity=qty, unit_cost=returned.unit_cost,
+                note=(request.POST.get("note") or "").strip()[:250], created_by=request.user,
+            )
+        messages.success(request, f"Заміна оприбуткована: {qty.normalize():f} од. за документом {purchase.number}. Борг постачальнику не збільшено.")
+    except (StockError, ValueError) as exc:
+        messages.error(request, str(exc) or "Не вдалося оприбуткувати заміну.")
+    return redirect("purchase_detail", pk=returned.purchase_item.purchase_id)
