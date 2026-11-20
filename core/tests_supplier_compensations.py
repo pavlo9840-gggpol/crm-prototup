@@ -244,6 +244,31 @@ class SupplierCompensationTests(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertFalse(SupplierCompensation.objects.filter(supplier_return=foreign_return).exists())
 
+    def test_supplier_account_renders_unified_ledger_and_running_balance(self):
+        from core.models import SettlementPayment
+        SettlementPayment.objects.create(
+            company=self.company, purchase=self.purchase, amount=Decimal("75.00"),
+            payment_method="bank", created_by=self.owner, document_ref="PAY-75",
+        )
+        self.post_compensation({"kind": "credit", "amount": "25.00"})
+        response = self.client.get(reverse("supplier_account", args=[self.supplier.pk]))
+        self.assertEqual(response.status_code, 200)
+        events = response.context["account_events"]
+        self.assertEqual({event["kind"] for event in events}, {"Закупівля", "Оплата", "Компенсація"})
+        self.assertEqual(events[-1]["running_balance"], Decimal("100.00"))
+        self.assertContains(response, "Єдиний журнал взаєморозрахунків")
+        self.assertContains(response, "PAY-75")
+
+    def test_supplier_account_exports_utf8_bom_csv_with_ledger_rows(self):
+        self.post_compensation({"kind": "credit", "amount": "40.00"})
+        response = self.client.get(reverse("supplier_account", args=[self.supplier.pk]), {"export": "csv"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn(f"supplier-account-{self.supplier.pk}.csv", response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(bytes((239, 187, 191))))
+        self.assertIn("Закупівля".encode("utf-8"), response.content)
+        self.assertIn("Компенсація".encode("utf-8"), response.content)
+
     def test_supplier_account_shows_credit_after_compensation_exceeds_remaining_debt(self):
         # An earlier payment means a full supplier refund can create a credit balance.
         from core.models import SettlementPayment
