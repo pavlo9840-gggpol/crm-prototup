@@ -79,6 +79,16 @@ class BankAdvanceReconciliationTest(TestCase):
         self.client.post(f"/bank/{third.pk}/reconcile/", {"match_ref": f"advance:{foreign.pk}"})
         self.assertFalse(BankReconciliation.objects.filter(bank_transaction=third, is_void=False).exists())
 
+    def test_bank_csv_exports_advance_reconciliation_without_crashing(self):
+        advance = self._advance(AccountAdvance.CUSTOMER)
+        entry = self._entry(BankTransaction.INCOME)
+        self.client.post(f"/bank/{entry.pk}/reconcile/", {"match_ref": f"advance:{advance.pk}"})
+        response = self.client.get("/bank/export.csv")
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8-sig")
+        self.assertIn("Аванс клієнта", content)
+        self.assertIn(str(advance.amount), content)
+
     def test_model_rejects_cash_advance_and_wrong_amount(self):
         cash_advance = self._advance(AccountAdvance.CUSTOMER, payment_method="cash")
         entry = self._entry(BankTransaction.INCOME)
