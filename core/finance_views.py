@@ -5,12 +5,13 @@ from decimal import Decimal
 from django import forms
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Count, F, Sum, ExpressionWrapper, DecimalField
+from django.db.models import Count, F, Sum, ExpressionWrapper, DecimalField, Q
 from django.shortcuts import redirect, render
 from django.http import HttpResponse
 from django.utils import timezone
 
 from .models import BankTransaction, CashOperation, FinanceEntry, Sale, SaleItem, SaleReturnItem
+from . import cash as cashlib
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -313,7 +314,7 @@ def finance_controls(request):
     """One-screen control report for receivables, advances, bank matching and reversals."""
     from .models import (
         AccountAdvance, BankReconciliation, Customer, Purchase, Sale,
-        SettlementPayment, Supplier, SupplierCompensation,
+        SettlementPayment, Supplier, SupplierCompensation, Shift,
     )
     from .settlement_views import _balance_for, _supplier_net_balance_for
 
@@ -414,6 +415,56 @@ def finance_controls(request):
         bank_transaction__isnull=False, reversal_bank_transaction__isnull=True,
     ).select_related("supplier", "voided_by")[:100])
 
+    # Period closing controls: a cash drawer has a real opening and counted
+    # closing only per shift. Bank accounts have no opening-balance field yet,
+    # so show period movement rather than inventing an absolute bank balance.
+    shifts = Shift.objects.filter(
+        company=request.company, opened_at__date__lte=date_to,
+    ).filter(
+        Q(closed_at__isnull=True) | Q(closed_at__date__gte=date_from)
+    ).select_related("cashier").order_by("-opened_at")
+    shift_rows = []
+    shift_opening_total = zero
+    shift_expected_total = zero
+    shift_counted_total = zero
+    shift_discrepancy_total = zero
+    closed_shift_count = 0
+    open_shift_count = 0
+    for shift in shifts[:250]:
+        opening = shift.opening_cash or zero
+        expected = Decimal(cashlib.to_dec(cashlib.total(cashlib.clean(shift.drawer))))
+        counted = None
+        if shift.closed_at and shift.closing_counted is not None:
+            counted = Decimal(cashlib.to_dec(cashlib.total(cashlib.clean(shift.closing_counted))))
+        shift_opening_total += opening
+        shift_expected_total += expected
+        if counted is not None:
+            shift_counted_total += counted
+            shift_discrepancy_total += shift.discrepancy or zero
+            closed_shift_count += 1
+        else:
+            open_shift_count += 1
+        shift_rows.append({
+            "shift": shift, "opening": opening, "expected": expected,
+            "counted": counted, "discrepancy": shift.discrepancy if counted is not None else None,
+        })
+
+    cash_period_ops = CashOperation.objects.filter(
+        company=request.company, created_at__date__gte=date_from,
+        created_at__date__lte=date_to,
+    )
+    cash_period_in = cash_period_ops.filter(kind="in").aggregate(v=Sum("amount"))["v"] or zero
+    cash_period_out = -(cash_period_ops.filter(kind="out").aggregate(v=Sum("amount"))["v"] or zero)
+    cash_adjustments = cash_period_ops.filter(kind="adjust").aggregate(v=Sum("amount"))["v"] or zero
+    bank_period_ops = BankTransaction.objects.filter(
+        company=request.company, transaction_date__gte=date_from,
+        transaction_date__lte=date_to, is_void=False,
+    )
+    bank_period_in = bank_period_ops.filter(direction=BankTransaction.INCOME).aggregate(v=Sum("amount"))["v"] or zero
+    bank_period_out = bank_period_ops.filter(direction=BankTransaction.EXPENSE).aggregate(v=Sum("amount"))["v"] or zero
+    period_cash_net = cash_period_in - cash_period_out + cash_adjustments
+    period_bank_net = bank_period_in - bank_period_out
+
     active_matches = BankReconciliation.objects.filter(
         company=request.company, is_void=False,
         bank_transaction__transaction_date__gte=date_from,
@@ -436,4 +487,15 @@ def finance_controls(request):
         "reversal_gaps": reversal_gaps,
         "compensation_reversal_gaps": compensation_reversal_gaps,
         "active_matches": active_matches,
+        "shift_rows": shift_rows, "closed_shift_count": closed_shift_count,
+        "open_shift_count": open_shift_count,
+        "shift_opening_total": shift_opening_total,
+        "shift_expected_total": shift_expected_total,
+        "shift_counted_total": shift_counted_total,
+        "shift_discrepancy_total": shift_discrepancy_total,
+        "cash_period_in": cash_period_in, "cash_period_out": cash_period_out,
+        "cash_adjustments": cash_adjustments, "period_cash_net": period_cash_net,
+        "bank_period_in": bank_period_in, "bank_period_out": bank_period_out,
+        "period_bank_net": period_bank_net,
+        "period_net_movement": period_cash_net + period_bank_net,
     })
