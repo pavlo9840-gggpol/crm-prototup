@@ -486,6 +486,8 @@ def finance_controls(request):
     # substitute for statutory accounting statements.
     period_snapshot = {
         "schema_version": 1,
+        "created_at": timezone.now().isoformat(),
+        "balance_basis": "current_at_close",
         "period": {"from": date_from.isoformat(), "to": date_to.isoformat()},
         "metrics": {
             "customer_debt": str(customer_debt_total),
