@@ -44,6 +44,7 @@ urlpatterns = [
     path("categories/", v.category_list, name="category_list"),
     path("categories/new/", v.category_edit, name="category_new"),
     path("categories/<int:pk>/edit/", v.category_edit, name="category_edit"),
+    path("suppliers/balances/", sv.supplier_balances_report, name="supplier_balances_report"),
     path("suppliers/", v.supplier_list, name="supplier_list"),
     path("suppliers/new/", v.supplier_edit, name="supplier_new"),
     path("suppliers/<int:pk>/edit/", v.supplier_edit, name="supplier_edit"),
