@@ -97,6 +97,38 @@
 {% for row in reversal_gaps %}
 <tr><td>{{ row.voided_at|date:"d.m.Y H:i" }}</td><td>Платіж №{{ row.pk }}</td><td>{{ row.void_reason }}</td><td>{{ row.voided_by }}</td></tr>
 {% empty %}<tr><td colspan="4">Не виявлено скасованих готівкових платежів без компенсуючої операції.</td></tr>{% endfor %}</table>
+<h3>Підсумок руху коштів за період</h3>
+<div class="kpi">
+  <div class="card">Каса: надходження<b>{{ cash_period_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Каса: вилучення<b>{{ cash_period_out|floatformat:2 }} ₴</b></div>
+  <div class="card">Каса: корекції<b>{{ cash_adjustments|floatformat:2 }} ₴</b></div>
+  <div class="card">Чистий рух каси<b>{{ period_cash_net|floatformat:2 }} ₴</b></div>
+  <div class="card">Банк: надходження<b>{{ bank_period_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Банк: списання<b>{{ bank_period_out|floatformat:2 }} ₴</b></div>
+  <div class="card">Чистий рух банку<b>{{ period_bank_net|floatformat:2 }} ₴</b></div>
+  <div class="card">Сумарний рух коштів<b>{{ period_net_movement|floatformat:2 }} ₴</b></div>
+</div>
+<p class="muted">Це рух коштів за випискою та касовими операціями, а не прибуток. Абсолютний залишок банку не розраховується, оскільки початковий залишок рахунку ще не ведеться в обліковій моделі.</p>
+<h3>Закриття касових змін</h3>
+<div class="kpi">
+  <div class="card">Закрито змін<b>{{ closed_shift_count }}</b></div>
+  <div class="card">Відкриті зміни<b>{{ open_shift_count }}</b></div>
+  <div class="card">Початкова готівка змін<b>{{ shift_opening_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Очікувано в касах зараз / при закритті<b>{{ shift_expected_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Фактично перераховано при закритті<b>{{ shift_counted_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Сумарна розбіжність закритих змін<b>{{ shift_discrepancy_total|floatformat:2 }} ₴</b></div>
+</div>
+<table><tr><th>Касир</th><th>Відкриття</th><th>Закриття</th><th>Стартова сума</th><th>Очікувано</th><th>Перераховано</th><th>Різниця</th></tr>
+{% for row in shift_rows %}
+<tr>
+<td>{{ row.shift.cashier }}</td>
+<td>{{ row.shift.opened_at|date:"d.m.Y H:i" }}</td>
+<td>{% if row.shift.closed_at %}{{ row.shift.closed_at|date:"d.m.Y H:i" }}{% else %}<strong>Зміна відкрита</strong>{% endif %}</td>
+<td>{{ row.opening|floatformat:2 }} ₴</td><td>{{ row.expected|floatformat:2 }} ₴</td>
+<td>{% if row.counted != None %}{{ row.counted|floatformat:2 }} ₴{% else %}—{% endif %}</td>
+<td>{% if row.discrepancy != None %}{{ row.discrepancy|floatformat:2 }} ₴{% else %}—{% endif %}</td>
+</tr>
+{% empty %}<tr><td colspan="7">Касових змін за цей період немає.</td></tr>{% endfor %}</table>
 <h3>Сторнування компенсацій постачальників без зворотної операції</h3>
 <table><tr><th>Дата скасування</th><th>Постачальник</th><th>Компенсація</th><th>Причина</th></tr>
 {% for row in compensation_reversal_gaps %}
