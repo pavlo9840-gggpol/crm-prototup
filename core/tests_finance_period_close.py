@@ -56,6 +56,15 @@ class FinancePeriodCloseTests(TestCase):
         self.assertEqual(close.snapshot, original_snapshot)
         self.assertEqual(FinancePeriodClose.objects.filter(company=self.company).count(), 1)
 
+    def test_period_close_page_detects_checksum_mismatch(self):
+        self._close()
+        close = FinancePeriodClose.objects.get(company=self.company)
+        FinancePeriodClose.objects.filter(pk=close.pk).update(snapshot={"tampered": True})
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["period_close_integrity"])
+        self.assertContains(response, "контрольна сума не збігається")
+
     def test_period_close_model_rejects_mutation_and_deletion(self):
         self._close()
         close = FinancePeriodClose.objects.get(company=self.company)
