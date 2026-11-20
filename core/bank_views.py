@@ -334,6 +334,15 @@ def bank_import(request):
 
 @tenant_staff_only
 @company_required
+def _bank_csv_cell(value):
+    text = str(value or "")
+    if text[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text
+    return text
+
+
+@tenant_staff_only
+@company_required
 def bank_export_csv(request):
     """Export company-scoped bank journal for the selected period."""
     today = timezone.localdate()
@@ -342,28 +351,52 @@ def bank_export_csv(request):
     date_to = _date(request.GET.get("to"), today)
     if date_to < date_from:
         date_from, date_to = start, today
-    entries = BankTransaction.objects.filter(company=request.company, transaction_date__gte=date_from, transaction_date__lte=date_to).select_related("account").order_by("transaction_date", "id")
+    entries = BankTransaction.objects.filter(
+        company=request.company, transaction_date__gte=date_from, transaction_date__lte=date_to
+    ).select_related("account").order_by("transaction_date", "id")
     from django.http import HttpResponse
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = 'attachment; filename="bank-journal-%s-%s.csv"' % (date_from.isoformat(), date_to.isoformat())
-    response.write("\ufeff")
+    response.write("\\ufeff")
     writer = csv.writer(response, delimiter=";")
-    writer.writerow(["Дата", "Банк", "IBAN", "Валюта", "Напрямок", "Категорія", "Сума", "Контрагент", "Документ/призначення", "Примітка", "Статус", "Причина скасування", "Звірка", "Документ звірки", "Звірено користувачем", "Дата звірки", "Причина скасування звірки"])
+    writer.writerow([
+        "Дата", "Банк", "IBAN", "Валюта", "Початковий залишок", "Дата початкового залишку",
+        "Напрямок", "Категорія", "Сума", "Контрагент", "Документ/призначення", "Примітка",
+        "Статус", "Причина скасування", "Звірка", "Документ звірки", "Звірено користувачем",
+        "Дата звірки", "Причина скасування звірки",
+    ])
     for entry in entries:
-        reconciliation = BankReconciliation.objects.filter(company=request.company, bank_transaction=entry, is_void=False).select_related(
-            "settlement_payment", "settlement_payment__sale", "settlement_payment__purchase", "matched_by"
+        reconciliation = BankReconciliation.objects.filter(
+            company=request.company, bank_transaction=entry, is_void=False
+        ).select_related(
+            "settlement_payment", "settlement_payment__sale", "settlement_payment__purchase",
+            "account_advance__customer", "account_advance__supplier", "matched_by",
         ).first()
         if reconciliation:
-            payment = reconciliation.settlement_payment
-            document = payment.sale or payment.purchase
+            if reconciliation.settlement_payment_id:
+                payment = reconciliation.settlement_payment
+                document = payment.sale or payment.purchase
+                match_document = f"{'Продаж' if payment.sale_id else 'Закупівля'} №{document.number or document.pk}"
+            else:
+                advance = reconciliation.account_advance
+                party = advance.customer if advance.party_type == AccountAdvance.CUSTOMER else advance.supplier
+                match_document = f"{'Аванс клієнта' if advance.party_type == AccountAdvance.CUSTOMER else 'Аванс постачальнику'} · {party}"
             match_status = "Звірено"
-            match_document = f"{'Продаж' if payment.sale_id else 'Закупівля'} №{document.number or document.pk}"
             match_user = reconciliation.matched_by.get_username()
             match_date = reconciliation.matched_at.isoformat()
             match_void_reason = ""
         else:
             match_status, match_document, match_user, match_date, match_void_reason = "Не звірено", "", "", "", ""
-        writer.writerow([entry.transaction_date.isoformat(), entry.account.bank_name, entry.account.iban, entry.account.currency, entry.get_direction_display(), entry.category, str(entry.amount), entry.counterparty, entry.document_ref, entry.note, "Скасовано" if entry.is_void else "Активна", entry.void_reason, match_status, match_document, match_user, match_date, match_void_reason])
+        writer.writerow([
+            entry.transaction_date.isoformat(), _bank_csv_cell(entry.account.bank_name),
+            _bank_csv_cell(entry.account.iban), _bank_csv_cell(entry.account.currency),
+            str(entry.account.opening_balance), entry.account.opening_balance_date.isoformat(),
+            _bank_csv_cell(entry.get_direction_display()), _bank_csv_cell(entry.category), str(entry.amount),
+            _bank_csv_cell(entry.counterparty), _bank_csv_cell(entry.document_ref), _bank_csv_cell(entry.note),
+            "Скасовано" if entry.is_void else "Активна", _bank_csv_cell(entry.void_reason),
+            match_status, _bank_csv_cell(match_document), _bank_csv_cell(match_user), match_date,
+            _bank_csv_cell(match_void_reason),
+        ])
     return response
 
 @tenant_staff_only
