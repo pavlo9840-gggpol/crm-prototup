@@ -255,7 +255,7 @@ class SupplierCompensationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         events = response.context["account_events"]
         self.assertEqual({event["kind"] for event in events}, {"Закупівля", "Оплата", "Компенсація"})
-        self.assertEqual(events[-1]["running_balance"], Decimal("100.00"))
+        self.assertEqual(events[0]["running_balance"], Decimal("100.00"))
         self.assertContains(response, "Єдиний журнал взаєморозрахунків")
         self.assertContains(response, "PAY-75")
 
