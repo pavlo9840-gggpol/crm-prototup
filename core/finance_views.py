@@ -305,3 +305,96 @@ def finance_overview(request):
         "cash_in": cash_in, "cash_out": cash_out,
         "bank_in": bank_in, "bank_out": bank_out,
     })
+
+
+@tenant_staff_only
+@company_required
+def finance_controls(request):
+    """One-screen control report for receivables, advances, bank matching and reversals."""
+    from .models import (
+        AccountAdvance, BankReconciliation, Customer, Purchase, Sale,
+        SettlementPayment, Supplier,
+    )
+    from .settlement_views import _balance_for
+
+    today = timezone.localdate()
+    first = today.replace(day=1)
+    date_from = _date_param(request.GET.get("from"), first)
+    date_to = _date_param(request.GET.get("to"), today)
+    if date_to < date_from:
+        date_from, date_to = first, today
+    zero = Decimal("0.00")
+
+    # Bank matching is deliberately one-to-one and exact-amount. The report
+    # exposes unmatched records; it never silently creates or changes matches.
+    bank_rows = BankTransaction.objects.filter(
+        company=request.company, is_void=False,
+        transaction_date__gte=date_from, transaction_date__lte=date_to,
+    ).exclude(reconciliations__is_void=False).select_related("account").order_by("-transaction_date", "-pk")
+    bank_unmatched_in = bank_rows.filter(direction=BankTransaction.INCOME).aggregate(v=Sum("amount"))["v"] or zero
+    bank_unmatched_out = bank_rows.filter(direction=BankTransaction.EXPENSE).aggregate(v=Sum("amount"))["v"] or zero
+
+    payment_rows = SettlementPayment.objects.filter(
+        company=request.company, payment_method="bank", is_void=False,
+        created_at__date__gte=date_from, created_at__date__lte=date_to,
+    ).exclude(bank_reconciliations__is_void=False).select_related(
+        "sale__customer", "purchase__supplier", "created_by",
+    ).order_by("-created_at", "-pk")
+    payment_unmatched_in = payment_rows.filter(sale__isnull=False).aggregate(v=Sum("amount"))["v"] or zero
+    payment_unmatched_out = payment_rows.filter(purchase__isnull=False).aggregate(v=Sum("amount"))["v"] or zero
+
+    advances = AccountAdvance.objects.filter(
+        company=request.company, is_void=False, remaining__gt=0,
+    ).select_related("customer", "supplier").order_by("-remaining", "-created_at")
+    customer_advances = advances.filter(party_type=AccountAdvance.CUSTOMER)
+    supplier_advances = advances.filter(party_type=AccountAdvance.SUPPLIER)
+    customer_advance_total = customer_advances.aggregate(v=Sum("remaining"))["v"] or zero
+    supplier_advance_total = supplier_advances.aggregate(v=Sum("remaining"))["v"] or zero
+
+    # Reuse the exact same balance calculation as the account settlement screens.
+    # This keeps supplier credit transfers, compensations and customer returns consistent.
+    customer_debts = []
+    customer_debt_total = zero
+    sales = Sale.objects.filter(
+        company=request.company, status=Sale.DONE, customer__isnull=False,
+    ).select_related("customer").prefetch_related("settlement_payments", "returns")
+    for sale in sales:
+        balance = _balance_for(sale)
+        if balance > 0:
+            customer_debt_total += balance
+            customer_debts.append({"document": sale, "party": sale.customer, "balance": balance})
+
+    supplier_debts = []
+    supplier_debt_total = zero
+    purchases = Purchase.objects.filter(company=request.company).select_related("supplier").prefetch_related(
+        "settlement_payments", "supplier_compensations", "credit_applications_in", "credit_applications_out",
+    )
+    for purchase in purchases:
+        balance = _balance_for(purchase)
+        if balance > 0:
+            supplier_debt_total += balance
+            supplier_debts.append({"document": purchase, "party": purchase.supplier, "balance": balance})
+
+    # A voided cash settlement must have its compensating movement recorded.
+    reversal_gaps = SettlementPayment.objects.filter(
+        company=request.company, is_void=True, cash_operation__isnull=False,
+        reversal_operation__isnull=True,
+    ).select_related("sale", "purchase", "voided_by").order_by("-voided_at")[:100]
+
+    active_matches = BankReconciliation.objects.filter(
+        company=request.company, is_void=False,
+        bank_transaction__transaction_date__gte=date_from,
+        bank_transaction__transaction_date__lte=date_to,
+    ).count()
+    return render(request, "core/finance_controls.html", {
+        "date_from": date_from, "date_to": date_to,
+        "bank_rows": bank_rows[:100], "payment_rows": payment_rows[:100],
+        "bank_unmatched_in": bank_unmatched_in, "bank_unmatched_out": bank_unmatched_out,
+        "payment_unmatched_in": payment_unmatched_in, "payment_unmatched_out": payment_unmatched_out,
+        "customer_advances": customer_advances[:100], "supplier_advances": supplier_advances[:100],
+        "customer_advance_total": customer_advance_total, "supplier_advance_total": supplier_advance_total,
+        "customer_debts": sorted(customer_debts, key=lambda row: row["balance"], reverse=True)[:100],
+        "supplier_debts": sorted(supplier_debts, key=lambda row: row["balance"], reverse=True)[:100],
+        "customer_debt_total": customer_debt_total, "supplier_debt_total": supplier_debt_total,
+        "reversal_gaps": reversal_gaps, "active_matches": active_matches,
+    })
