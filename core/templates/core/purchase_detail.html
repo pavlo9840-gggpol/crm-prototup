@@ -87,6 +87,34 @@
 <div class="card">
   <h3>Взаєморозрахунок із постачальником</h3>
   <p>Сплачено: <b>{{ settlement_paid|floatformat:2 }} ₴</b> · Компенсації: <b>{{ settlement_compensated|floatformat:2 }} ₴</b> · Залишок боргу: <b>{{ settlement_balance|floatformat:2 }} ₴</b>{% if supplier_credit > 0 %} · Переплата / кредит постачальника: <b>{{ supplier_credit|floatformat:2 }} ₴</b>{% endif %}</p>
+  {% if supplier_credit_sources and settlement_balance > 0 %}
+  <div class="card" style="margin-top:12px">
+    <h4>Залік кредиту з іншої накладної</h4>
+    <p class="muted">Переносимо лише надлишковий кредит із повністю закритої або переплаченої закупівлі цього постачальника. Каса, банк і склад не змінюються.</p>
+    <form method="post" action="{% url 'supplier_credit_apply' p.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+      {% csrf_token %}
+      <label>Джерело кредиту
+        <select name="source_purchase" required>
+          {% for source in supplier_credit_sources %}
+          <option value="{{ source.pk }}">№{{ source.number }} · доступно {{ source.available_supplier_credit|floatformat:2 }} ₴</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Сума, ₴<input type="number" name="amount" min="0.01" max="{{ settlement_balance }}" step="0.01" required></label>
+      <label>Примітка<input name="note" maxlength="250"></label>
+      <button class="btn green">Застосувати кредит</button>
+    </form>
+  </div>
+  {% endif %}
+  {% if supplier_credit_applications %}
+  <h4>Заліки кредиту в цю накладну</h4>
+  {% for application in supplier_credit_applications %}
+  <p>{{ application.created_at|date:"d.m.Y H:i" }} · джерело №{{ application.source_purchase.number }} · {{ application.amount|floatformat:2 }} ₴ · {{ application.created_by }}{% if application.is_void %} · Скасовано: {{ application.void_reason }}{% else %}
+    <form method="post" action="{% url 'supplier_credit_application_void' application.pk %}" style="display:inline-flex;gap:6px;align-items:center">
+      {% csrf_token %}<input name="reason" maxlength="250" required placeholder="Причина скасування"><button class="btn red sm">Скасувати залік</button>
+    </form>{% endif %}</p>
+  {% endfor %}
+  {% endif %}
   {% if settlement_balance > 0 %}
   <form method="post" action="{% url 'settlement_payment_new' 'purchase' p.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
     {% csrf_token %}
