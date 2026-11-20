@@ -332,8 +332,6 @@ def bank_import(request):
     })
 
 
-@tenant_staff_only
-@company_required
 def _bank_csv_cell(value):
     text = str(value or "")
     if text[:1] in ("=", "+", "-", "@", "\t", "\r"):
