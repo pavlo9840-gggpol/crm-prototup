@@ -105,6 +105,7 @@ urlpatterns = [
     path("settlements/advance/new/<str:party_type>/<int:pk>/", sv.advance_new, name="advance_new"),
     path("settlements/advance/<int:pk>/void/", sv.advance_void, name="advance_void"),
     path("supplier-returns/<int:pk>/compensate/", sv.supplier_return_compensate, name="supplier_return_compensate"),
+    path("supplier-returns/<int:return_pk>/replacement-receive/", v.supplier_replacement_receive, name="supplier_replacement_receive"),
     path("supplier-compensations/<int:pk>/void/", sv.supplier_compensation_void, name="supplier_compensation_void"),
     path("supplier-credit/apply/<int:target_pk>/", sv.supplier_credit_apply, name="supplier_credit_apply"),
     path("supplier-credit/applications/<int:pk>/void/", sv.supplier_credit_application_void, name="supplier_credit_application_void"),
