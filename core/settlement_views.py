@@ -79,8 +79,25 @@ def _supplier_compensated_for(document):
     )["total"] or D0
 
 
+def _supplier_credit_transfer_for(document, relation_name):
+    cached = getattr(document, "_prefetched_objects_cache", {}).get(relation_name)
+    if cached is not None:
+        return sum((entry.amount for entry in cached if not entry.is_void), D0)
+    return getattr(document, relation_name).filter(
+        company=document.company, is_void=False
+    ).aggregate(total=Sum("amount"))["total"] or D0
+
+
 def _supplier_net_balance_for(document):
-    return document.total - _paid_for(document) - _supplier_compensated_for(document)
+    # A credit application moves an existing supplier credit between two
+    # purchase documents. It reduces the target debt and consumes credit on
+    # the source document; it is not a payment or a new cash movement.
+    credit_in = _supplier_credit_transfer_for(document, "credit_applications_in")
+    credit_out = _supplier_credit_transfer_for(document, "credit_applications_out")
+    return (
+        document.total - _paid_for(document) - _supplier_compensated_for(document)
+        - credit_in + credit_out
+    )
 
 
 def _balance_for(document):
@@ -128,7 +145,7 @@ def _reverse_settlement_cash(payment, shift):
 @company_required
 def settlements_home(request):
     purchase_docs = Purchase.objects.filter(company=request.company).select_related("supplier").prefetch_related(
-        "settlement_payments", "supplier_compensations"
+        "settlement_payments", "supplier_compensations", "credit_applications_in", "credit_applications_out"
     )
     sale_docs = Sale.objects.filter(company=request.company, status=Sale.DONE, customer__isnull=False).select_related("customer").prefetch_related("settlement_payments", "returns")
     supplier_rows, customer_rows = [], []
