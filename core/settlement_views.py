@@ -328,19 +328,15 @@ def supplier_account(request, pk):
     supplier = get_object_or_404(Supplier.objects.filter(company=request.company), pk=pk)
     purchases = supplier.purchase_set.filter(company=request.company).select_related(
         "user"
-    ).prefetch_related("items__product", "settlement_payments", "supplier_compensations")
+    ).prefetch_related("items__product", "settlement_payments", "supplier_compensations", "credit_applications_in", "credit_applications_out")
     rows = []
     totals = {"purchases": D0, "paid": D0, "compensated": D0, "debt": D0, "supplier_credit": D0}
     events = []
     for purchase in purchases:
         paid = _paid_for(purchase)
         compensated = _supplier_compensated_for(purchase)
-        credit_in = SupplierCreditApplication.objects.filter(
-            company=request.company, target_purchase=purchase, is_void=False
-        ).aggregate(total=Sum("amount"))["total"] or D0
-        credit_out = SupplierCreditApplication.objects.filter(
-            company=request.company, source_purchase=purchase, is_void=False
-        ).aggregate(total=Sum("amount"))["total"] or D0
+        credit_in = sum((item.amount for item in purchase.credit_applications_in.all() if not item.is_void), D0)
+        credit_out = sum((item.amount for item in purchase.credit_applications_out.all() if not item.is_void), D0)
         net_balance = purchase.total - paid - compensated - credit_in + credit_out
         balance = max(D0, net_balance)
         supplier_credit = max(D0, -net_balance)
