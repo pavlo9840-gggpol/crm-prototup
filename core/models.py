@@ -1750,7 +1750,7 @@ class BankReconciliation(models.Model):
         ordering = ["-matched_at", "-id"]
         constraints = [
             models.UniqueConstraint(fields=["bank_transaction"], condition=Q(is_void=False), name="uniq_active_bank_reconciliation"),
-            models.UniqueConstraint(fields=["settlement_payment"], condition=Q(is_void=False, settlement_payment__isnull=False), name="uniq_active_payment_reconciliation"),
+            models.UniqueConstraint(fields=["settlement_payment"], condition=Q(is_void=False), name="uniq_active_payment_reconciliation"),
             models.UniqueConstraint(fields=["account_advance"], condition=Q(is_void=False, account_advance__isnull=False), name="uniq_active_advance_reconciliation"),
             models.CheckConstraint(
                 condition=(Q(settlement_payment__isnull=False, account_advance__isnull=True) |
