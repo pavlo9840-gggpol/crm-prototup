@@ -47,7 +47,7 @@ class BankAdvanceReconciliationTest(TestCase):
         match = BankReconciliation.objects.get(bank_transaction=entry, is_void=False)
         self.assertEqual(match.account_advance_id, advance.pk)
         self.assertIsNone(match.settlement_payment_id)
-        response = self.client.post(f"/bank/reconciliations/{match.pk}/void/", {"reason": "Помилкова звірка"})
+        response = self.client.post(f"/bank/reconciliation/{match.pk}/void/", {"reason": "Помилкова звірка"})
         self.assertEqual(response.status_code, 302)
         match.refresh_from_db()
         self.assertTrue(match.is_void)
