@@ -1148,7 +1148,7 @@ def purchase_detail(request, pk):
     payments = purchase.settlement_payments.filter(company=request.company, is_void=False)
     paid = payments.aggregate(total=Sum("amount"))["total"] or D0
     compensated = SupplierCompensation.objects.filter(
-        company=request.company, purchase=purchase, is_void=False
+        company=request.company, purchase=purchase, kind=SupplierCompensation.CREDIT, is_void=False
     ).aggregate(total=Sum("amount"))["total"] or D0
     from .models import AccountAdvance, SupplierCreditApplication
     credit_in = SupplierCreditApplication.objects.filter(company=request.company, target_purchase=purchase, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
@@ -1157,7 +1157,7 @@ def purchase_detail(request, pk):
     credit_sources = []
     for source in Purchase.objects.filter(company=request.company, supplier_id=purchase.supplier_id).exclude(pk=purchase.pk).order_by("-created_at")[:100]:
         source_paid = source.settlement_payments.filter(company=request.company, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
-        source_comp = SupplierCompensation.objects.filter(company=request.company, purchase=source, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
+        source_comp = SupplierCompensation.objects.filter(company=request.company, purchase=source, kind=SupplierCompensation.CREDIT, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
         source_used = SupplierCreditApplication.objects.filter(company=request.company, source_purchase=source, is_void=False).aggregate(total=Sum("amount"))["total"] or D0
         source_credit = max(D0, source_paid + source_comp - source.total - source_used)
         if source_credit > 0:
