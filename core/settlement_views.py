@@ -635,6 +635,8 @@ def supplier_credit_apply(request, target_pk):
         return redirect("purchase_detail", pk=target_pk)
     try:
         amount = Decimal(str(request.POST.get("amount", "")).replace(",", "."))
+        if not amount.is_finite():
+            amount = D0
     except Exception:
         amount = D0
     source_pk = request.POST.get("source_purchase")
@@ -652,7 +654,7 @@ def supplier_credit_apply(request, target_pk):
 
         def document_credit(purchase):
             paid = SettlementPayment.objects.filter(company=request.company, purchase=purchase, is_void=False).aggregate(v=Sum("amount"))["v"] or D0
-            compensated = SupplierCompensation.objects.filter(company=request.company, purchase=purchase, is_void=False).aggregate(v=Sum("amount"))["v"] or D0
+            compensated = SupplierCompensation.objects.filter(company=request.company, purchase=purchase, kind=SupplierCompensation.CREDIT, is_void=False).aggregate(v=Sum("amount"))["v"] or D0
             outgoing = SupplierCreditApplication.objects.filter(company=request.company, source_purchase=purchase, is_void=False).aggregate(v=Sum("amount"))["v"] or D0
             incoming = SupplierCreditApplication.objects.filter(company=request.company, target_purchase=purchase, is_void=False).aggregate(v=Sum("amount"))["v"] or D0
             return paid, compensated, outgoing, incoming
