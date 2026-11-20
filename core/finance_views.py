@@ -308,6 +308,14 @@ def finance_overview(request):
     })
 
 
+def _csv_safe(value):
+    """Prevent spreadsheet formula execution in user-controlled CSV cells."""
+    text = str(value or "")
+    if text[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text
+    return text
+
+
 @tenant_staff_only
 @company_required
 def finance_controls(request):
@@ -511,11 +519,11 @@ def finance_controls(request):
         writer.writerow([])
         writer.writerow(["Борг клієнта", "Документ", "Сума"])
         for row in sorted(customer_debts, key=lambda item: item["balance"], reverse=True):
-            writer.writerow([str(row["party"]), row["document"].number or row["document"].pk, str(row["balance"])])
+            writer.writerow([_csv_safe(row["party"]), _csv_safe(row["document"].number or row["document"].pk), str(row["balance"])])
         writer.writerow([])
         writer.writerow(["Борг постачальнику", "Документ", "Сума"])
         for row in sorted(supplier_debts, key=lambda item: item["balance"], reverse=True):
-            writer.writerow([str(row["party"]), row["document"].number or row["document"].pk, str(row["balance"])])
+            writer.writerow([_csv_safe(row["party"]), _csv_safe(row["document"].number or row["document"].pk), str(row["balance"])])
         return response
 
     return render(request, "core/finance_controls.html", {
