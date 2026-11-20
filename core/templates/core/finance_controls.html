@@ -1,0 +1,80 @@
+{% extends "core/base.html" %}
+{% block content %}
+{% include "core/report_nav.html" %}
+<h2>Фінансовий контроль</h2>
+<p class="muted">Контрольний екран не змінює платежі автоматично. Звірка банку виконується у журналі банку; сторнування — у відповідному документі.</p>
+<form class="filter">
+  <label>З дати <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
+  <label>По дату <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
+  <button class="btn">Показати період</button>
+</form>
+<h3>Поточні залишки взаєморозрахунків</h3>
+<div class="kpi">
+  <div class="card">Борг клієнтів<b>{{ customer_debt_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Борг постачальникам<b>{{ supplier_debt_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Невикористані аванси клієнтів<b>{{ customer_advance_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Аванси постачальникам<b>{{ supplier_advance_total|floatformat:2 }} ₴</b></div>
+</div>
+<h3>Банківська звірка за період</h3>
+<div class="kpi">
+  <div class="card">Незвірені надходження виписки<b>{{ bank_unmatched_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Незвірені списання виписки<b>{{ bank_unmatched_out|floatformat:2 }} ₴</b></div>
+  <div class="card">Платежі клієнтів без звірки<b>{{ payment_unmatched_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Платежі постачальникам без звірки<b>{{ payment_unmatched_out|floatformat:2 }} ₴</b></div>
+  <div class="card">Активних звірок у періоді<b>{{ active_matches }}</b></div>
+</div>
+<p><a class="btn" href="{% url 'bank_ledger' %}">Відкрити журнал банку та виконати звірку</a></p>
+<div class="grid">
+  <section>
+    <h3>Банківські операції без звірки</h3>
+    <table><tr><th>Дата</th><th>Рахунок</th><th>Напрямок</th><th>Сума</th><th>Призначення</th></tr>
+    {% for row in bank_rows %}
+    <tr><td>{{ row.transaction_date|date:"d.m.Y" }}</td><td>{{ row.account.iban }}</td><td>{{ row.get_direction_display }}</td><td>{{ row.amount|floatformat:2 }} ₴</td><td>{{ row.document_ref|default:row.category }}</td></tr>
+    {% empty %}<tr><td colspan="5">Незвірених банківських операцій немає.</td></tr>{% endfor %}</table>
+  </section>
+  <section>
+    <h3>Платежі банком без звірки</h3>
+    <table><tr><th>Дата</th><th>Документ</th><th>Контрагент</th><th>Сума</th></tr>
+    {% for row in payment_rows %}
+    <tr><td>{{ row.created_at|date:"d.m.Y" }}</td><td>{% if row.sale_id %}Продаж №{{ row.sale.number|default:row.sale_id }}{% else %}Закупівля №{{ row.purchase.number|default:row.purchase_id }}{% endif %}</td><td>{% if row.sale_id %}{{ row.sale.customer }}{% else %}{{ row.purchase.supplier }}{% endif %}</td><td>{{ row.amount|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="4">Незвірених платежів немає.</td></tr>{% endfor %}</table>
+  </section>
+</div>
+<div class="grid">
+  <section>
+    <h3>Борги клієнтів</h3>
+    <table><tr><th>Клієнт</th><th>Продаж</th><th>Борг</th></tr>
+    {% for row in customer_debts %}
+    <tr><td>{{ row.party }}</td><td>{{ row.document.number|default:row.document.pk }}</td><td>{{ row.balance|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="3">Боргів клієнтів немає.</td></tr>{% endfor %}</table>
+  </section>
+  <section>
+    <h3>Борги постачальникам</h3>
+    <table><tr><th>Постачальник</th><th>Закупівля</th><th>Борг</th></tr>
+    {% for row in supplier_debts %}
+    <tr><td>{{ row.party }}</td><td>{{ row.document.number|default:row.document.pk }}</td><td>{{ row.balance|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="3">Боргів постачальникам немає.</td></tr>{% endfor %}</table>
+  </section>
+</div>
+<div class="grid">
+  <section>
+    <h3>Невикористані аванси клієнтів</h3>
+    <table><tr><th>Клієнт</th><th>Дата</th><th>Документ</th><th>Залишок</th></tr>
+    {% for row in customer_advances %}
+    <tr><td>{{ row.customer }}</td><td>{{ row.created_at|date:"d.m.Y" }}</td><td>{{ row.document_ref|default:"—" }}</td><td>{{ row.remaining|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="4">Невикористаних авансів клієнтів немає.</td></tr>{% endfor %}</table>
+  </section>
+  <section>
+    <h3>Невикористані аванси постачальникам</h3>
+    <table><tr><th>Постачальник</th><th>Дата</th><th>Документ</th><th>Залишок</th></tr>
+    {% for row in supplier_advances %}
+    <tr><td>{{ row.supplier }}</td><td>{{ row.created_at|date:"d.m.Y" }}</td><td>{{ row.document_ref|default:"—" }}</td><td>{{ row.remaining|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="4">Невикористаних авансів постачальникам немає.</td></tr>{% endfor %}</table>
+  </section>
+</div>
+<h3>Перевірка сторнувань</h3>
+<table><tr><th>Дата скасування</th><th>Документ</th><th>Причина</th><th>Користувач</th></tr>
+{% for row in reversal_gaps %}
+<tr><td>{{ row.voided_at|date:"d.m.Y H:i" }}</td><td>Платіж №{{ row.pk }}</td><td>{{ row.void_reason }}</td><td>{{ row.voided_by }}</td></tr>
+{% empty %}<tr><td colspan="4">Не виявлено скасованих готівкових платежів без компенсуючої операції.</td></tr>{% endfor %}</table>
+{% endblock %}
