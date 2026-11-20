@@ -470,6 +470,54 @@ def finance_controls(request):
         bank_transaction__transaction_date__gte=date_from,
         bank_transaction__transaction_date__lte=date_to,
     ).count()
+    if request.GET.get("export") == "csv":
+        import csv
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = (
+            f'attachment; filename="finance-controls-{date_from.isoformat()}-{date_to.isoformat()}.csv"'
+        )
+        response.write("\\ufeff")
+        writer = csv.writer(response, delimiter=";")
+        writer.writerow(["Фінансовий контроль", f"{date_from.isoformat()} — {date_to.isoformat()}"])
+        writer.writerow(["Показник", "Сума / значення"])
+        summary_rows = [
+            ("Борг клієнтів", customer_debt_total),
+            ("Борг постачальникам", supplier_debt_total),
+            ("Переплати клієнтів / до повернення", customer_credit_total),
+            ("Кредит постачальників", supplier_credit_total),
+            ("Невикористані аванси клієнтів", customer_advance_total),
+            ("Невикористані аванси постачальникам", supplier_advance_total),
+            ("Незвірені надходження банку", bank_unmatched_in),
+            ("Незвірені списання банку", bank_unmatched_out),
+            ("Незвірені платежі клієнтів", payment_unmatched_in),
+            ("Незвірені платежі постачальникам", payment_unmatched_out),
+            ("Каса: надходження", cash_period_in),
+            ("Каса: вилучення", cash_period_out),
+            ("Каса: корекції", cash_adjustments),
+            ("Чистий рух каси", period_cash_net),
+            ("Банк: надходження", bank_period_in),
+            ("Банк: списання", bank_period_out),
+            ("Чистий рух банку", period_bank_net),
+            ("Сумарний рух коштів", period_cash_net + period_bank_net),
+            ("Закрито касових змін", closed_shift_count),
+            ("Відкрито касових змін", open_shift_count),
+            ("Розбіжність закритих касових змін", shift_discrepancy_total),
+            ("Активні банківські звірки", active_matches),
+            ("Сторнування платежів без компенсації", reversal_gaps.count()),
+            ("Сторнування компенсацій без зворотної операції", len(compensation_reversal_gaps)),
+        ]
+        for label, value in summary_rows:
+            writer.writerow([label, str(value)])
+        writer.writerow([])
+        writer.writerow(["Борг клієнта", "Документ", "Сума"])
+        for row in sorted(customer_debts, key=lambda item: item["balance"], reverse=True):
+            writer.writerow([str(row["party"]), row["document"].number or row["document"].pk, str(row["balance"])])
+        writer.writerow([])
+        writer.writerow(["Борг постачальнику", "Документ", "Сума"])
+        for row in sorted(supplier_debts, key=lambda item: item["balance"], reverse=True):
+            writer.writerow([str(row["party"]), row["document"].number or row["document"].pk, str(row["balance"])])
+        return response
+
     return render(request, "core/finance_controls.html", {
         "date_from": date_from, "date_to": date_to,
         "bank_rows": bank_rows[:100], "payment_rows": payment_rows[:100],
