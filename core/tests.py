@@ -816,3 +816,12 @@ class FinanceControlsReportTest(TestCase):
         self.assertEqual(response.context["shift_expected_total"], Decimal("200.00"))
         self.assertEqual(response.context["shift_counted_total"], Decimal("100.00"))
         self.assertEqual(response.context["shift_discrepancy_total"], Decimal("-100.00"))
+
+
+    def test_controls_report_csv_export_contains_period_summary(self):
+        response = self.client.get("/reports/finance/controls/?export=csv")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertTrue(response.content.startswith(b"\\xef\\xbb\\xbf"))
+        self.assertIn("Борг клієнтів".encode("utf-8"), response.content)
+        self.assertIn("Сумарний рух коштів".encode("utf-8"), response.content)
