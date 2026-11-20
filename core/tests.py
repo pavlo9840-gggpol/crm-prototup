@@ -523,3 +523,45 @@ class BackupTest(TransactionTestCase):
                 self.assertEqual(self.adm.get("/backup/download/evil.zip/").status_code, 404)
         self.assertEqual(self.cs.get("/backup/").status_code, 403)
 
+
+
+class FinanceOverviewReportTest(TestCase):
+    def setUp(self):
+        from core.models import FinanceEntry
+        U = get_user_model()
+        self.user = U.objects.create_superuser("finadmin", "", "x")
+        self.company = Company.objects.create(name="Finance test", slug="finance-test", owner=self.user)
+        StaffMembership.objects.create(company=self.company, user=self.user, role="owner")
+        self.client.login(username="finadmin", password="x")
+        self.FinanceEntry = FinanceEntry
+
+    def test_report_is_available_and_tenant_scoped(self):
+        from datetime import date
+        from core.models import Product, Sale, SaleItem
+        from django.utils import timezone
+        from decimal import Decimal
+        product = Product.objects.create(company=self.company, name="Test item", sku="FIN-1", price=150, cost_price=90)
+        sale = Sale.objects.create(company=self.company, cashier=self.user, total=Decimal("300.00"), status=Sale.DONE)
+        SaleItem.objects.create(company=self.company, sale=sale, product=product, quantity=2,
+                                original_price=150, price=150, cost_price=90)
+        self.FinanceEntry.objects.create(company=self.company, entry_type="income", category="Інше",
+                                         amount=Decimal("50.00"), created_by=self.user)
+        self.FinanceEntry.objects.create(company=self.company, entry_type="expense", category="Оренда",
+                                         amount=Decimal("30.00"), created_by=self.user)
+        response = self.client.get("/reports/finance/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["revenue"], Decimal("300.00"))
+        self.assertEqual(response.context["cost"], Decimal("180.00"))
+        self.assertEqual(response.context["gross_profit"], Decimal("120.00"))
+        self.assertEqual(response.context["other_income"], Decimal("50.00"))
+        self.assertEqual(response.context["expenses"], Decimal("30.00"))
+        self.assertEqual(response.context["operating_result"], Decimal("140.00"))
+
+    def test_report_csv_export_and_formula_safe_category(self):
+        self.FinanceEntry.objects.create(company=self.company, entry_type="expense", category="=CMD()",
+                                         amount=Decimal("10.00"), created_by=self.user)
+        response = self.client.get("/reports/finance/?export=csv")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertTrue(response.content.startswith(b"\\xef\\xbb\\xbf"))
+        self.assertIn(b"'=CMD()", response.content)
