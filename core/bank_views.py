@@ -112,7 +112,7 @@ def bank_ledger(request):
         incoming = rows.filter(direction=BankTransaction.INCOME).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
         outgoing = rows.filter(direction=BankTransaction.EXPENSE).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
         balances.append({"account": account, "income": incoming, "expense": outgoing, "balance": incoming - outgoing})
-    active_reconciliations = BankReconciliation.objects.filter(company=request.company, is_void=False).select_related("settlement_payment", "settlement_payment__sale", "settlement_payment__purchase", "matched_by")
+    active_reconciliations = BankReconciliation.objects.filter(company=request.company, is_void=False).select_related("settlement_payment", "settlement_payment__sale", "settlement_payment__purchase", "account_advance__customer", "account_advance__supplier", "matched_by")
     reconciliation_by_transaction = {r.bank_transaction_id: r for r in active_reconciliations}
     eligible_payments = SettlementPayment.objects.filter(company=request.company, payment_method="bank", is_void=False).exclude(
         bank_reconciliations__is_void=False
