@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from core.models import (
     BankAccount, BankTransaction, CashOperation, Product, Purchase, PurchaseItem,
-    Shift, Supplier, SupplierCompensation, SupplierReturn,
+    Shift, SettlementPayment, Supplier, SupplierCompensation, SupplierCreditApplication, SupplierReturn,
 )
 from core.tests_tenant_helpers import create_test_company
 
@@ -321,3 +321,56 @@ class SupplierCompensationTests(TestCase):
         self.assertEqual(response.context["account_totals"]["debt"], Decimal("0.00"))
         self.assertEqual(response.context["account_totals"]["supplier_credit"], Decimal("200.00"))
 
+    def test_supplier_credit_transfer_reduces_target_debt_and_consumes_source_credit(self):
+        from core.settlement_views import _balance_for
+
+        source = Purchase.objects.create(
+            company=self.company, supplier=self.supplier, user=self.owner,
+            total=Decimal("100.00"),
+        )
+        target = Purchase.objects.create(
+            company=self.company, supplier=self.supplier, user=self.owner,
+            total=Decimal("100.00"),
+        )
+        SettlementPayment.objects.create(
+            company=self.company, purchase=source, amount=Decimal("150.00"),
+            payment_method="bank", created_by=self.owner,
+        )
+        transfer = SupplierCreditApplication.objects.create(
+            company=self.company, source_purchase=source, target_purchase=target,
+            amount=Decimal("30.00"), created_by=self.owner,
+        )
+
+        self.assertEqual(_balance_for(source), Decimal("0.00"))
+        self.assertEqual(_balance_for(target), Decimal("70.00"))
+
+        transfer.is_void = True
+        transfer.save(update_fields=["is_void"])
+        self.assertEqual(_balance_for(source), Decimal("0.00"))
+        self.assertEqual(_balance_for(target), Decimal("100.00"))
+
+    def test_supplier_credit_transfer_is_reflected_in_settlement_totals(self):
+        source = Purchase.objects.create(
+            company=self.company, supplier=self.supplier, user=self.owner,
+            total=Decimal("100.00"),
+        )
+        target = Purchase.objects.create(
+            company=self.company, supplier=self.supplier, user=self.owner,
+            total=Decimal("100.00"),
+        )
+        SettlementPayment.objects.create(
+            company=self.company, purchase=source, amount=Decimal("150.00"),
+            payment_method="bank", created_by=self.owner,
+        )
+        SupplierCreditApplication.objects.create(
+            company=self.company, source_purchase=source, target_purchase=target,
+            amount=Decimal("30.00"), created_by=self.owner,
+        )
+
+        response = self.client.get(reverse("settlements_home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["supplier_total"], Decimal("70.00"))
+        self.assertEqual(
+            sum((row["balance"] for row in response.context["supplier_rows"]), Decimal("0.00")),
+            Decimal("70.00"),
+        )
