@@ -543,7 +543,7 @@ class FinanceOverviewReportTest(TestCase):
         product = Product.objects.create(company=self.company, name="Test item", sku="FIN-1", price=150, cost_price=90)
         sale = Sale.objects.create(company=self.company, cashier=self.user, total=Decimal("300.00"), status=Sale.DONE)
         SaleItem.objects.create(company=self.company, sale=sale, product=product, quantity=2,
-                                original_price=150, price=150, cost_price=90)
+                                original_price=150, price=150, cost_price=90, earned_at=timezone.now())
         self.FinanceEntry.objects.create(company=self.company, entry_type="income", category="Інше",
                                          amount=Decimal("50.00"), created_by=self.user)
         self.FinanceEntry.objects.create(company=self.company, entry_type="expense", category="Оренда",
