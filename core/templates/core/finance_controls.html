@@ -97,4 +97,9 @@
 {% for row in reversal_gaps %}
 <tr><td>{{ row.voided_at|date:"d.m.Y H:i" }}</td><td>Платіж №{{ row.pk }}</td><td>{{ row.void_reason }}</td><td>{{ row.voided_by }}</td></tr>
 {% empty %}<tr><td colspan="4">Не виявлено скасованих готівкових платежів без компенсуючої операції.</td></tr>{% endfor %}</table>
+<h3>Сторнування компенсацій постачальників без зворотної операції</h3>
+<table><tr><th>Дата скасування</th><th>Постачальник</th><th>Компенсація</th><th>Причина</th></tr>
+{% for row in compensation_reversal_gaps %}
+<tr><td>{{ row.voided_at|date:"d.m.Y H:i" }}</td><td>{{ row.supplier }}</td><td>№{{ row.number|default:row.pk }} · {{ row.amount|floatformat:2 }} ₴</td><td>{{ row.void_reason }}</td></tr>
+{% empty %}<tr><td colspan="4">Не виявлено скасованих компенсацій без зворотної операції.</td></tr>{% endfor %}</table>
 {% endblock %}
