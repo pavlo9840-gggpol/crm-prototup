@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from . import cash as cashlib
-from .models import AccountAdvance, BankAccount, BankReconciliation, BankTransaction, CashOperation, Customer, Purchase, Sale, SettlementPayment, Shift, Supplier, SupplierCompensation, SupplierReturn
+from .models import AccountAdvance, BankAccount, BankReconciliation, BankTransaction, CashOperation, Customer, Purchase, Sale, SettlementPayment, Shift, Supplier, SupplierCompensation, SupplierCreditApplication, SupplierReturn
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -626,3 +626,74 @@ def advance_void(request, pk):
         advance.save(update_fields=["is_void", "remaining", "voided_at", "voided_by", "void_reason"])
     messages.success(request, "Аванс скасовано; історію та касове сторнування збережено.")
     return redirect("settlements_home")
+
+
+@tenant_staff_only
+@company_required
+def supplier_credit_apply(request, target_pk):
+    if request.method != "POST":
+        return redirect("purchase_detail", pk=target_pk)
+    try:
+        amount = Decimal(str(request.POST.get("amount", "")).replace(",", "."))
+    except Exception:
+        amount = D0
+    source_pk = request.POST.get("source_purchase")
+    note = (request.POST.get("note") or "").strip()[:250]
+    if amount <= 0:
+        messages.error(request, "Сума заліку має бути більшою за нуль.")
+        return redirect("purchase_detail", pk=target_pk)
+
+    with transaction.atomic():
+        target = get_object_or_404(Purchase.objects.select_for_update().filter(company=request.company), pk=target_pk)
+        source = get_object_or_404(Purchase.objects.select_for_update().filter(company=request.company), pk=source_pk)
+        if source.pk == target.pk or source.supplier_id != target.supplier_id:
+            messages.error(request, "Оберіть іншу закупівлю того самого постачальника.")
+            return redirect("purchase_detail", pk=target.pk)
+
+        def document_credit(purchase):
+            paid = SettlementPayment.objects.filter(company=request.company, purchase=purchase, is_void=False).aggregate(v=Sum("amount"))["v"] or D0
+            compensated = SupplierCompensation.objects.filter(company=request.company, purchase=purchase, is_void=False).aggregate(v=Sum("amount"))["v"] or D0
+            outgoing = SupplierCreditApplication.objects.filter(company=request.company, source_purchase=purchase, is_void=False).aggregate(v=Sum("amount"))["v"] or D0
+            incoming = SupplierCreditApplication.objects.filter(company=request.company, target_purchase=purchase, is_void=False).aggregate(v=Sum("amount"))["v"] or D0
+            return paid, compensated, outgoing, incoming
+
+        source_paid, source_comp, source_out, source_in = document_credit(source)
+        target_paid, target_comp, target_out, target_in = document_credit(target)
+        source_available = max(D0, source_paid + source_comp - source.total - source_out)
+        target_due = max(D0, target.total - target_paid - target_comp - target_in)
+        if amount > source_available:
+            messages.error(request, f"Доступний кредит із накладної {source.number}: {source_available:.2f} ₴.")
+            return redirect("purchase_detail", pk=target.pk)
+        if amount > target_due:
+            messages.error(request, f"Залік перевищує борг цільової накладної: {target_due:.2f} ₴.")
+            return redirect("purchase_detail", pk=target.pk)
+
+        SupplierCreditApplication.objects.create(
+            company=request.company, source_purchase=source, target_purchase=target,
+            amount=amount, note=note, created_by=request.user,
+        )
+    messages.success(request, f"Залік {amount:.2f} ₴ із накладної {source.number} застосовано до {target.number}.")
+    return redirect("purchase_detail", pk=target.pk)
+
+
+@tenant_staff_only
+@company_required
+def supplier_credit_application_void(request, pk):
+    if request.method != "POST":
+        return redirect("settlements_home")
+    reason = (request.POST.get("reason") or "").strip()[:250]
+    if not reason:
+        messages.error(request, "Вкажіть причину скасування заліку.")
+        return redirect("settlements_home")
+    with transaction.atomic():
+        application = get_object_or_404(
+            SupplierCreditApplication.objects.select_for_update().filter(company=request.company, is_void=False),
+            pk=pk,
+        )
+        application.is_void = True
+        application.voided_at = timezone.now()
+        application.voided_by = request.user
+        application.void_reason = reason
+        application.save(update_fields=["is_void", "voided_at", "voided_by", "void_reason"])
+    messages.success(request, f"Залік на {application.amount:.2f} ₴ скасовано. Кредит повернуто до доступного залишку.")
+    return redirect("purchase_detail", pk=application.target_purchase_id)
