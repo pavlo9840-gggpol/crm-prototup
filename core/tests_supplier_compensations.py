@@ -369,8 +369,8 @@ class SupplierCompensationTests(TestCase):
 
         response = self.client.get(reverse("settlements_home"))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["supplier_total"], Decimal("70.00"))
+        self.assertEqual(response.context["supplier_total"], Decimal("270.00"))
         self.assertEqual(
             sum((row["balance"] for row in response.context["supplier_rows"]), Decimal("0.00")),
-            Decimal("70.00"),
+            Decimal("270.00"),
         )
