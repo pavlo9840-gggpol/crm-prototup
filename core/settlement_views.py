@@ -1,15 +1,17 @@
 """Customer and supplier document settlement register."""
+import csv
 from decimal import Decimal
 
 from django import forms
 from django.contrib import messages
 from django.db import transaction
 from django.db.models import Sum
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from . import cash as cashlib
-from .models import AccountAdvance, BankAccount, BankReconciliation, BankTransaction, CashOperation, Customer, Purchase, Sale, SettlementPayment, Shift, Supplier, SupplierCompensation, SupplierCreditApplication, SupplierReturn
+from .models import AccountAdvance, BankAccount, BankReconciliation, BankTransaction, CashOperation, Customer, Purchase, Sale, SettlementPayment, Shift, Supplier, SupplierCompensation, SupplierCreditApplication, SupplierReplacementReceipt, SupplierReturn
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -321,14 +323,13 @@ def customer_account(request, pk):
 @tenant_staff_only
 @company_required
 def supplier_account(request, pk):
-    from .models import Supplier
-
     supplier = get_object_or_404(Supplier.objects.filter(company=request.company), pk=pk)
     purchases = supplier.purchase_set.filter(company=request.company).select_related(
         "user"
     ).prefetch_related("items__product", "settlement_payments", "supplier_compensations")
     rows = []
     totals = {"purchases": D0, "paid": D0, "compensated": D0, "debt": D0, "supplier_credit": D0}
+    events = []
     for purchase in purchases:
         paid = _paid_for(purchase)
         compensated = _supplier_compensated_for(purchase)
@@ -342,17 +343,73 @@ def supplier_account(request, pk):
         totals["supplier_credit"] += supplier_credit
         rows.append({"document": purchase, "paid": paid, "compensated": compensated,
                      "balance": balance, "supplier_credit": supplier_credit})
+        events.append({"date": purchase.created_at, "kind": "Закупівля", "document": purchase.number or f"#{purchase.pk}",
+                       "description": purchase.status, "amount": purchase.total, "effect": purchase.total,
+                       "is_void": False, "url": f"/purchases/{purchase.pk}/"})
     payments = SettlementPayment.objects.filter(company=request.company, purchase__supplier=supplier).select_related(
         "purchase", "created_by", "voided_by", "advance"
-    )[:200]
+    )
+    for payment in payments:
+        effect = -payment.amount if not payment.is_void else D0
+        events.append({"date": payment.created_at, "kind": "Оплата", "document": payment.document_ref or payment.purchase.number,
+                       "description": payment.get_payment_method_display(), "amount": payment.amount, "effect": effect,
+                       "is_void": payment.is_void, "url": f"/purchases/{payment.purchase_id}/"})
     compensations = SupplierCompensation.objects.filter(
         company=request.company, supplier=supplier
-    ).select_related("purchase", "supplier_return", "created_by", "bank_account")[:200]
+    ).select_related("purchase", "supplier_return", "created_by", "bank_account")
+    for compensation in compensations:
+        effect = -compensation.amount if not compensation.is_void else D0
+        events.append({"date": compensation.created_at, "kind": "Компенсація", "document": compensation.number,
+                       "description": f"{compensation.supplier_return.number} · {compensation.get_kind_display()}",
+                       "amount": compensation.amount, "effect": effect, "is_void": compensation.is_void,
+                       "url": f"/purchases/{compensation.purchase_id}/"})
     advances = AccountAdvance.objects.filter(company=request.company, supplier=supplier).order_by("-created_at")
     totals["advance_balance"] = advances.filter(is_void=False).aggregate(total=Sum("remaining"))["total"] or D0
+    for advance in advances:
+        events.append({"date": advance.created_at, "kind": "Аванс", "document": advance.document_ref or f"AV-{advance.pk}",
+                       "description": advance.get_payment_method_display(), "amount": advance.amount, "effect": D0,
+                       "is_void": advance.is_void, "url": ""})
+    applications = SupplierCreditApplication.objects.filter(
+        company=request.company, source_purchase__supplier=supplier
+    ).select_related("source_purchase", "target_purchase", "created_by", "voided_by")
+    for application in applications:
+        events.append({"date": application.created_at, "kind": "Залік кредиту",
+                       "document": f"{application.source_purchase.number} → {application.target_purchase.number}",
+                       "description": application.note or "Перенесення переплати між закупівлями",
+                       "amount": application.amount, "effect": D0, "is_void": application.is_void,
+                       "url": f"/purchases/{application.target_purchase_id}/"})
+    replacements = SupplierReplacementReceipt.objects.filter(
+        company=request.company, supplier_return__supplier=supplier
+    ).select_related("supplier_return", "purchase", "created_by")
+    for receipt in replacements:
+        events.append({"date": receipt.created_at, "kind": "Заміна товару", "document": receipt.purchase.number,
+                       "description": f"{receipt.supplier_return.number} · {receipt.note}".strip(" ·"),
+                       "amount": receipt.quantity, "effect": D0, "is_void": False,
+                       "url": f"/purchases/{receipt.supplier_return.purchase_item.purchase_id}/"})
+    events.sort(key=lambda item: (item["date"], item["kind"], item["document"]), reverse=True)
+    running = D0
+    for event in reversed(events):
+        running += event["effect"]
+        event["running_balance"] = running
+    events.reverse()
+
+    if request.GET.get("export") == "csv":
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="supplier-account-{supplier.pk}.csv"'
+        response.write("\ufeff")
+        writer = csv.writer(response, delimiter=";")
+        writer.writerow(["Дата", "Операція", "Документ", "Опис", "Сума", "Вплив на борг", "Залишок боргу", "Скасовано"])
+        for event in reversed(events):
+            writer.writerow([
+                timezone.localtime(event["date"]).strftime("%Y-%m-%d %H:%M"), event["kind"], event["document"],
+                event["description"], str(event["amount"]), str(event["effect"]),
+                str(event["running_balance"]), "Так" if event["is_void"] else "Ні",
+            ])
+        return response
     return render(request, "core/supplier_detail.html", {
         "supplier": supplier, "purchase_rows": rows, "account_totals": totals,
-        "account_payments": payments, "account_advances": advances, "account_compensations": compensations,
+        "account_payments": payments[:200], "account_advances": advances,
+        "account_compensations": compensations[:200], "account_events": events[:500],
     })
 
 
