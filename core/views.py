@@ -1168,11 +1168,13 @@ def purchase_detail(request, pk):
         is_void=False, remaining__gt=0,
     )
     bank_accounts = BankAccount.objects.filter(company=request.company)
-    purchase_items = list(purchase.items.select_related("product").prefetch_related("supplier_returns__compensations"))
+    purchase_items = list(purchase.items.select_related("product").prefetch_related("supplier_returns__compensations", "supplier_returns__replacement_receipts"))
     for item in purchase_items:
         item.returned_quantity = sum((row.quantity for row in item.supplier_returns.all()), D0)
         item.returnable_quantity = max(D0, item.quantity - item.returned_quantity)
         for returned in item.supplier_returns.all():
+            returned.replacement_received_quantity = sum((row.quantity for row in returned.replacement_receipts.all()), D0)
+            returned.replacement_remaining_quantity = max(D0, returned.quantity - returned.replacement_received_quantity)
             returned.compensated_amount = sum((entry.amount for entry in returned.compensations.all() if not entry.is_void), D0)
             returned.compensation_remaining = max(D0, returned.total - returned.compensated_amount)
     return render(request, "core/purchase_detail.html", {
