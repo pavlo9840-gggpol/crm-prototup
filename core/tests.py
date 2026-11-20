@@ -574,6 +574,51 @@ class FinanceOverviewReportTest(TestCase):
         self.assertTrue(response.content.startswith(b"\xef\xbb\xbf"))
         self.assertIn(b"'=CMD()", response.content)
 
+    def test_settlements_and_advances_do_not_double_count_profit(self):
+        from decimal import Decimal
+        from django.utils import timezone
+        from core.models import (
+            AccountAdvance, BankAccount, BankTransaction, Customer, Product, Purchase,
+            Sale, SaleItem, SettlementPayment, Supplier,
+        )
+
+        customer = Customer.objects.create(company=self.company, name="Finance customer")
+        supplier = Supplier.objects.create(company=self.company, name="Finance supplier")
+        product = Product.objects.create(company=self.company, name="Paid item", sku="FIN-PAID",
+                                         price=100, cost_price=40)
+        sale = Sale.objects.create(company=self.company, cashier=self.user, customer=customer,
+                                   total=Decimal("100.00"), status=Sale.DONE,
+                                   cash_amount=Decimal("60.00"), card_amount=Decimal("40.00"))
+        SaleItem.objects.create(company=self.company, sale=sale, product=product, quantity=1,
+                                 original_price=100, price=100, cost_price=40, earned_at=timezone.now())
+        purchase = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
+                                            total=Decimal("50.00"))
+        SettlementPayment.objects.create(company=self.company, sale=sale, amount=Decimal("20.00"),
+                                          payment_method="bank", created_by=self.user)
+        SettlementPayment.objects.create(company=self.company, purchase=purchase, amount=Decimal("25.00"),
+                                          payment_method="bank", created_by=self.user)
+        AccountAdvance.objects.create(company=self.company, party_type="customer", customer=customer,
+                                      amount=Decimal("30.00"), remaining=Decimal("30.00"),
+                                      payment_method="bank", created_by=self.user)
+        AccountAdvance.objects.create(company=self.company, party_type="supplier", supplier=supplier,
+                                      amount=Decimal("15.00"), remaining=Decimal("15.00"),
+                                      payment_method="bank", created_by=self.user)
+        account = BankAccount.objects.create(company=self.company, bank_name="Test bank",
+                                             iban="UA123456789012345678901234567")
+        BankTransaction.objects.create(company=self.company, account=account, transaction_date=timezone.localdate(),
+                                       direction=BankTransaction.INCOME, category="Оплата клієнта",
+                                       amount=Decimal("20.00"), created_by=self.user)
+
+        response = self.client.get("/reports/finance/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["revenue"], Decimal("100.00"))
+        self.assertEqual(response.context["cost"], Decimal("40.00"))
+        self.assertEqual(response.context["gross_profit"], Decimal("60.00"))
+        self.assertEqual(response.context["other_income"], Decimal("0.00"))
+        self.assertEqual(response.context["expenses"], Decimal("0.00"))
+        self.assertEqual(response.context["operating_result"], Decimal("60.00"))
+        self.assertEqual(response.context["bank_in"], Decimal("20.00"))
+
     def test_cash_withdrawals_are_reported_as_positive_outflows(self):
         from decimal import Decimal
         from core.models import CashOperation, Shift
