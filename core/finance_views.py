@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.db import transaction
 from django.db.models import Count, F, Sum, ExpressionWrapper, DecimalField
 from django.shortcuts import redirect, render
+from django.http import HttpResponse
 from django.utils import timezone
 
 from .models import BankTransaction, CashOperation, FinanceEntry, Sale, SaleItem
