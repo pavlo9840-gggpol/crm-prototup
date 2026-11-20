@@ -9,6 +9,24 @@
   <button class="btn">Показати період</button>
 </form>
 <p><a class="btn" href="?from={{ date_from|date:'Y-m-d' }}&to={{ date_to|date:'Y-m-d' }}&export=csv">Завантажити підсумковий CSV</a></p>
+<section class="card">
+  <h3>Фіксація фінансового періоду</h3>
+  {% if period_close %}
+    <p><strong>Період зафіксовано:</strong> {{ period_close.closed_at|date:"d.m.Y H:i" }} · {{ period_close.closed_by }}</p>
+    <p>Контрольна сума SHA-256: <code>{{ period_close.checksum }}</code></p>
+    <p class="muted">Це незмінний знімок управлінських показників на момент закриття. Нові операції не перезаписують його автоматично; бухгалтерські операції не блокуються.</p>
+  {% else %}
+    <p class="muted">Зафіксуйте незмінний знімок показників за вибраний період. Перед цим перевірте незвірені банківські операції, відкриті касові зміни та сторнування. Це не блокує подальше проведення документів.</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="close_period">
+      <input type="hidden" name="from" value="{{ date_from|date:'Y-m-d' }}">
+      <input type="hidden" name="to" value="{{ date_to|date:'Y-m-d' }}">
+      <label><input type="checkbox" name="confirm_snapshot" value="1" required> Підтверджую правильність даних і фіксацію незмінного знімка.</label>
+      <button class="btn btn-primary" type="submit">Зафіксувати закриття періоду</button>
+    </form>
+  {% endif %}
+</section>
 <h3>Поточні залишки взаєморозрахунків</h3>
 <div class="kpi">
   <div class="card">Борг клієнтів<b>{{ customer_debt_total|floatformat:2 }} ₴</b></div>
