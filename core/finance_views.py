@@ -10,7 +10,7 @@ from django.shortcuts import redirect, render
 from django.http import HttpResponse
 from django.utils import timezone
 
-from .models import BankTransaction, CashOperation, FinanceEntry, Sale, SaleItem
+from .models import BankTransaction, CashOperation, FinanceEntry, Sale, SaleItem, SaleReturnItem
 from .tenant_context import company_required
 from .views import tenant_staff_only
 
@@ -191,6 +191,9 @@ def finance_overview(request):
 
     zero = Decimal("0.00")
     decimal_field = DecimalField(max_digits=18, decimal_places=2)
+    # Sales are recognized when the goods are actually handed to the customer
+    # (earned_at). Returns are recognized on the date the return is processed,
+    # not retroactively in the original sale period.
     items = SaleItem.objects.filter(
         company=request.company,
         sale__company=request.company,
@@ -198,20 +201,34 @@ def finance_overview(request):
         earned_at__date__gte=date_from,
         earned_at__date__lte=date_to,
     )
-    item_totals = items.aggregate(
-        revenue=Sum(ExpressionWrapper(
-            (F("quantity") - F("returned_qty")) * F("price"),
-            output_field=decimal_field,
-        )),
-        cost=Sum(ExpressionWrapper(
-            (F("quantity") - F("returned_qty")) * F("cost_price"),
-            output_field=decimal_field,
-        )),
-        units=Sum(F("quantity") - F("returned_qty")),
-        lines=Count("pk"),
+    sales_totals = items.aggregate(
+        revenue=Sum(ExpressionWrapper(F("quantity") * F("price"), output_field=decimal_field)),
+        cost=Sum(ExpressionWrapper(F("quantity") * F("cost_price"), output_field=decimal_field)),
+        units=Sum("quantity"),
     )
-    revenue = item_totals["revenue"] or zero
-    cost = item_totals["cost"] or zero
+    returns = SaleReturnItem.objects.filter(
+        company=request.company,
+        sale_return__company=request.company,
+        sale_return__sale__company=request.company,
+        sale_return__sale__status=Sale.DONE,
+        sale_return__created_at__date__gte=date_from,
+        sale_return__created_at__date__lte=date_to,
+        sale_item__company=request.company,
+        sale_item__earned_at__isnull=False,
+    )
+    return_totals = returns.aggregate(
+        revenue=Sum(ExpressionWrapper(F("quantity") * F("price"), output_field=decimal_field)),
+        cost=Sum(ExpressionWrapper(F("quantity") * F("sale_item__cost_price"), output_field=decimal_field)),
+        units=Sum("quantity"),
+    )
+    gross_sales = sales_totals["revenue"] or zero
+    gross_cost = sales_totals["cost"] or zero
+    returned_revenue = return_totals["revenue"] or zero
+    returned_cost = return_totals["cost"] or zero
+    returned_units = return_totals["units"] or zero
+    revenue = gross_sales - returned_revenue
+    cost = gross_cost - returned_cost
+    units = (sales_totals["units"] or zero) - returned_units
     gross_profit = revenue - cost
 
     entries = FinanceEntry.objects.filter(
@@ -253,8 +270,12 @@ def finance_overview(request):
         writer = csv.writer(response, delimiter=";")
         writer.writerow(["Показник", "Сума, грн"])
         rows = [
-            ("Виручка за переданими товарами/послугами", revenue),
-            ("Собівартість реалізованого", cost),
+            ("Продажі за переданими товарами/послугами", gross_sales),
+            ("Повернення покупців", returned_revenue),
+            ("Чиста виручка", revenue),
+            ("Собівартість продажів", gross_cost),
+            ("Повернена собівартість", returned_cost),
+            ("Собівартість після повернень", cost),
             ("Валова маржа", gross_profit),
             ("Інші доходи", other_income),
             ("Операційні витрати", expenses),
@@ -275,10 +296,12 @@ def finance_overview(request):
 
     return render(request, "core/finance_overview.html", {
         "date_from": date_from, "date_to": date_to,
-        "revenue": revenue, "cost": cost, "gross_profit": gross_profit,
+        "gross_sales": gross_sales, "returned_revenue": returned_revenue,
+        "gross_cost": gross_cost, "returned_cost": returned_cost,
+        "returned_units": returned_units, "revenue": revenue, "cost": cost, "gross_profit": gross_profit,
         "other_income": other_income, "expenses": expenses,
         "operating_result": operating_result, "expense_rows": expense_rows,
-        "units": item_totals["units"] or zero,
+        "units": units,
         "cash_in": cash_in, "cash_out": cash_out,
         "bank_in": bank_in, "bank_out": bank_out,
     })
