@@ -772,3 +772,47 @@ class FinanceControlsReportTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["customer_credit_total"], Decimal("20.00"))
         self.assertEqual(response.context["supplier_credit_total"], Decimal("30.00"))
+
+
+    def test_controls_report_period_cashflow_and_shift_closing(self):
+        from decimal import Decimal
+        from django.utils import timezone
+        from core.models import BankAccount, BankTransaction, CashOperation, Shift
+        shift = Shift.objects.create(
+            company=self.company, cashier=self.user, opening_cash=Decimal("100.00"),
+            drawer={"10000": 2}, closing_counted={"10000": 1},
+            discrepancy=Decimal("-100.00"), closed_at=timezone.now(),
+        )
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                     kind="in", amount=Decimal("50.00"))
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                     kind="out", amount=Decimal("-10.00"))
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                     kind="adjust", amount=Decimal("5.00"))
+        account = BankAccount.objects.create(company=self.company, bank_name="Period bank",
+                                             iban="UA123456789012345678901234567")
+        BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.INCOME, category="Надходження",
+            amount=Decimal("70.00"), created_by=self.user,
+        )
+        BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.EXPENSE, category="Списання",
+            amount=Decimal("20.00"), created_by=self.user,
+        )
+        response = self.client.get("/reports/finance/controls/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["cash_period_in"], Decimal("50.00"))
+        self.assertEqual(response.context["cash_period_out"], Decimal("10.00"))
+        self.assertEqual(response.context["cash_adjustments"], Decimal("5.00"))
+        self.assertEqual(response.context["period_cash_net"], Decimal("45.00"))
+        self.assertEqual(response.context["bank_period_in"], Decimal("70.00"))
+        self.assertEqual(response.context["bank_period_out"], Decimal("20.00"))
+        self.assertEqual(response.context["period_bank_net"], Decimal("50.00"))
+        self.assertEqual(response.context["period_net_movement"], Decimal("95.00"))
+        self.assertEqual(response.context["closed_shift_count"], 1)
+        self.assertEqual(response.context["shift_opening_total"], Decimal("100.00"))
+        self.assertEqual(response.context["shift_expected_total"], Decimal("200.00"))
+        self.assertEqual(response.context["shift_counted_total"], Decimal("100.00"))
+        self.assertEqual(response.context["shift_discrepancy_total"], Decimal("-100.00"))
