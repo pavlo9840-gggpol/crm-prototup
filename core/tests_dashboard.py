@@ -29,7 +29,7 @@ class UnifiedNavigationTests(TestCase):
         self.client.force_login(self.staff)
         response = self.client.get(reverse("dashboard"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Операційний центр")
+        self.assertContains(response, "Автозапчастини · огляд")
         self.assertContains(response, "Приймання товару")
         self.assertContains(response, "Контроль цін і маржі")
         self.assertContains(response, reverse("receive_home"))
