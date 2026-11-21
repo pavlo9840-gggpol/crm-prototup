@@ -48,6 +48,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "core.tenant_context.InstallationSetupMiddleware",
     "core.tenant_context.CompanyContextMiddleware",
+    "core.tenant_context.BusinessProfileMiddleware",
     "core.tenant_context.LicenseRequiredMiddleware",
     "core.tenant_context.LicenseFeatureMiddleware",
     "core.tenant_context.WorkstationLimitMiddleware",
