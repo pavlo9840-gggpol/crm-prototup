@@ -506,7 +506,9 @@ from django.test import TransactionTestCase
 class BackupTest(TransactionTestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
+        owner = U.objects.create_superuser("a", "", "x"); cashier = U.objects.create_user("c", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(owner, "Backup test store", [(cashier, "cashier")])
         self.adm, self.cs = self.client, self.client_class()
         self.adm.login(username="a", password="x"); self.cs.login(username="c", password="x")
 
@@ -515,7 +517,7 @@ class BackupTest(TransactionTestCase):
         from pathlib import Path
         from unittest import mock
         from core import admin_tools
-        Product.objects.create(name="P", sku="S1", price=1)
+        Product.objects.create(company=self.company, name="P", sku="S1", price=1)
         r = self.adm.post("/backup/", {"action": "download"}); self.assertEqual(r["Content-Type"], "application/zip")
         z = zipfile.ZipFile(io.BytesIO(r.content)); self.assertIn("db.sqlite3", z.namelist()); self.assertIn("README.txt", z.namelist())
         with tempfile.TemporaryDirectory() as td:
