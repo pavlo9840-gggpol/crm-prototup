@@ -6,6 +6,31 @@ from core.models import Company, StaffMembership
 
 
 class FirstRunSetupTests(TestCase):
+    def test_shop_name_is_trimmed_and_blank_name_is_rejected(self):
+        from core.setup_views import InstallationSetupForm
+
+        valid = InstallationSetupForm(data={
+            "business_type": "general_retail",
+            "shop_name": "  Мій магазин  ",
+            "username": "owner",
+            "email": "",
+            "password": "V3ry-Strong-Setup-Pass!",
+            "password_confirm": "V3ry-Strong-Setup-Pass!",
+        })
+        self.assertTrue(valid.is_valid(), valid.errors)
+        self.assertEqual(valid.cleaned_data["shop_name"], "Мій магазин")
+
+        blank = InstallationSetupForm(data={
+            "business_type": "general_retail",
+            "shop_name": "   ",
+            "username": "owner",
+            "email": "",
+            "password": "V3ry-Strong-Setup-Pass!",
+            "password_confirm": "V3ry-Strong-Setup-Pass!",
+        })
+        self.assertFalse(blank.is_valid())
+        self.assertIn("shop_name", blank.errors)
+
     def test_empty_installation_redirects_to_setup_and_creates_first_owner(self):
         User = get_user_model()
         self.assertFalse(User.objects.exists())
