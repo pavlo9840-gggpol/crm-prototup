@@ -1,13 +1,13 @@
 """Unified vehicle/parts catalogue UI; does not mutate stock or sale records."""
-from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.shortcuts import render
 
+from .views import tenant_cashier_only
 from .models import (CatalogPartNumber, CatalogSource, PartFitment, PartOe,
                      Product, SupplierItem, VehicleMake, VehicleModel, norm_sku)
 
 
-@login_required
+@tenant_cashier_only
 def catalogue_home(request):
     kind = (request.GET.get("kind") or "car").strip().lower()
     make_id = request.GET.get("make", "").strip()
@@ -32,7 +32,7 @@ def catalogue_home(request):
 
     searched = bool(query or selected_model)
     qn = norm_sku(query) if query else ""
-    oe_norms = set(PartOe.objects.filter(oe_norm=qn).values_list("sku_norm", flat=True)) if qn else set()
+    oe_norms = set(PartOe.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import"), oe_norm=qn).values_list("sku_norm", flat=True)) if qn else set()
     if query:
         catalog_qs = catalog_qs.filter(
             Q(sku_norm=qn) | Q(brand_norm=query.casefold()) | Q(sku_norm__in=oe_norms) |
@@ -42,11 +42,11 @@ def catalogue_home(request):
     rows_by_key = {}
     if searched:
         for number in catalog_qs.order_by("brand", "sku")[:300]:
-            product = number.product or Product.objects.filter(
-                brand__iexact=number.brand, sku_norm=number.sku_norm, is_active=True
+            product = Product.objects.filter(
+                company=request.company, brand__iexact=number.brand, sku_norm=number.sku_norm, is_active=True
             ).first()
             offer = SupplierItem.objects.filter(
-                brand__iexact=number.brand, sku_norm=number.sku_norm, available=True
+                company=request.company, brand__iexact=number.brand, sku_norm=number.sku_norm, available=True
             ).select_related("supplier").order_by("cost").first()
             evidence = PartFitment.objects.filter(part_number=number).select_related(
                 "source", "vehicle_model__make"
@@ -66,7 +66,7 @@ def catalogue_home(request):
         # separate parts-catalogue record exists. They are not shown as vehicle-
         # compatible unless a fitment record proves that relationship.
         if query and not selected_model:
-            product_qs = Product.objects.filter(is_active=True).filter(
+            product_qs = Product.objects.filter(company=request.company, is_active=True).filter(
                 Q(sku_norm=qn) | Q(brand__iexact=query) | Q(name_lc__contains=query.lower())
             ).select_related("category")[:150]
             for product in product_qs:
@@ -81,14 +81,14 @@ def catalogue_home(request):
                         "product": product, "offer": offer, "fitments": [],
                         "stock": product.current_stock, "price": product.price,
                     }
-            offers_qs = SupplierItem.objects.filter(available=True).filter(
+            offers_qs = SupplierItem.objects.filter(company=request.company, available=True).filter(
                 Q(sku_norm=qn) | Q(brand__iexact=query) | Q(name_lc__contains=query.lower())
             ).select_related("supplier", "product").order_by("cost")[:150]
             for offer in offers_qs:
                 key = ((offer.brand or "").casefold(), offer.sku_norm)
                 if key not in rows_by_key:
-                    product = offer.product or Product.objects.filter(
-                        brand__iexact=offer.brand, sku_norm=offer.sku_norm, is_active=True
+                    product = Product.objects.filter(
+                        company=request.company, brand__iexact=offer.brand, sku_norm=offer.sku_norm, is_active=True
                     ).first()
                     number = CatalogPartNumber.objects.filter(brand_norm=key[0], sku_norm=key[1]).select_related("part", "source").first()
                     rows_by_key[key] = {
