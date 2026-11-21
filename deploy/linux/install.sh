@@ -11,6 +11,30 @@ SERVICE_FILE="/etc/systemd/system/autozapaz.service"
 SERVICE_SOURCE="$APP_DIR/deploy/linux/autozapaz.service"
 SERVICE_USER="autozapaz"
 
+UNIT_INSTALLED=0
+SERVICE_STARTED=0
+INSTALL_COMPLETE=0
+
+on_exit() {
+    local exit_code="$?"
+    trap - EXIT
+    if [[ "$INSTALL_COMPLETE" -eq 1 || "$exit_code" -eq 0 ]]; then
+        exit "$exit_code"
+    fi
+    printf '\\nІнсталяція завершилася помилкою (код %s). Виконую безпечне очищення служби.\\n' "$exit_code" >&2
+    if [[ "$SERVICE_STARTED" -eq 1 ]]; then
+        systemctl stop autozapaz.service >/dev/null 2>&1 || true
+    fi
+    if [[ "$UNIT_INSTALLED" -eq 1 ]]; then
+        systemctl disable autozapaz.service >/dev/null 2>&1 || true
+        rm -f -- "$SERVICE_FILE"
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+    printf 'Каталог програми, конфігурація та дані збережені для діагностики/повторного запуску.\\n' >&2
+    exit "$exit_code"
+}
+trap on_exit EXIT
+
 fail() { printf 'Помилка: %s\n' "$*" >&2; exit 1; }
 info() { printf '\n==> %s\n' "$*"; }
 
@@ -136,11 +160,14 @@ info "Встановлення systemd-служби"
 install -o root -g root -m 0644 "$SERVICE_SOURCE" "$SERVICE_FILE"
 systemctl daemon-reload
 systemctl enable --now autozapaz.service
+UNIT_INSTALLED=1
+SERVICE_STARTED=1
 if ! health_check; then
     systemctl stop autozapaz.service || true
     fail "Служба не пройшла HTTP health-check. Перевірте журнал: journalctl -u autozapaz.service -n 100"
 fi
 systemctl --no-pager --full status autozapaz.service || true
+INSTALL_COMPLETE=1
 
 printf '\nАвтоЗапас встановлено як локальну службу. Адреса: http://127.0.0.1:8000/\n'
 printf 'Конфігурація: %s\nДані: %s\nРезервні копії: %s/backups\n' "$ENV_FILE" "$DATA_DIR" "$DATA_DIR"
