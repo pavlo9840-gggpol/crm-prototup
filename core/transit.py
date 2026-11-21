@@ -401,7 +401,7 @@ def pos_lookup(request):
     qn = norm_sku(q)
     if len(q) < 3 and len(qn) < 3:
         return JsonResponse({"analogs": [], "suppliers": []})
-    levels = analog_levels(qn) if len(qn) >= 3 else {}
+    levels = analog_levels(qn, company=request.company) if len(qn) >= 3 else {}
     an = set(levels)
     analogs = [{"id": p.pk, "n": p.name, "s": p.sku, "b": p.barcode or "", "p": float(p.price), "a": p.allow_price_change,
                 "st": float(p.current_stock), "u": p.unit, "k": float(p.cost_price), "br": p.brand,
@@ -428,7 +428,7 @@ def pos_lookup(request):
             "lv": levels.get(i.sku_norm, ""),
             "rl": pricing.rule_json(rs.for_(i.brand, i.product.category_id if i.product_id else None)),
             "stock": float(i.product.current_stock) if i.product_id else 0} for i in qs]
-    fit = _fit_checker(request.GET.get("car"), [(a["br"].upper(), norm_sku(a["s"])) for a in analogs] + [(i["brand"], norm_sku(i["sku"])) for i in sup])
+    fit = _fit_checker(request.GET.get("car"), [(a["br"].upper(), norm_sku(a["s"])) for a in analogs] + [(i["brand"], norm_sku(i["sku"])) for i in sup], request.company)
     for a in analogs:
         a["fit"] = fit(a["br"].upper(), norm_sku(a["s"]))
     for i in sup:
@@ -436,16 +436,16 @@ def pos_lookup(request):
     return JsonResponse({"analogs": analogs, "suppliers": sup})
 
 
-def _fit_checker(car_id, pairs):
+def _fit_checker(car_id, pairs, company):
     """Підказка «підходить до авто»: True/False за списком застосовності деталі; None, якщо даних немає або авто не вибрано.
     Лише підказка: назви авто в каталозі й у картці клієнта можуть бути записані по-різному."""
-    car = CustomerCar.objects.filter(company=request.company, pk=car_id).first() if car_id and str(car_id).isdigit() else None
+    car = CustomerCar.objects.filter(company=company, pk=car_id).first() if car_id and str(car_id).isdigit() else None
     toks = [x for x in re.findall(r"[0-9A-Za-zА-Яа-яІіЇїЄєҐґ]+", f"{car.make} {car.model}".lower()) if len(x) >= 2] if car else []
     if not toks:
         return lambda b, n: None
     from .models import PartInfo
     info = {(p.brand, p.sku_norm): [ln.lower() for ln in p.cars.splitlines() if ln.strip()]
-            for p in PartInfo.objects.filter(sku_norm__in=[n for _, n in pairs]).exclude(cars="")}
+            for p in PartInfo.objects.filter(Q(company=company) | Q(company__isnull=True, source="import"), sku_norm__in=[n for _, n in pairs]).exclude(cars="")}
     return lambda b, n: (None if (b, n) not in info else any(fitment.line_matches(ln, toks, car.year) for ln in info[(b, n)]))
 
 
@@ -723,7 +723,7 @@ def supplier_api(request, pk):
                                               f"з них коректних {result['valid']}. Нижче приклад того, як їх буде прочитано.")
                 elif act == "probe":
                     from . import enrich
-                    si = (SupplierItem.objects.filter(supplier=sup, available=True).exclude(ext_id="").order_by("pk").first())
+                    si = (SupplierItem.objects.filter(company=request.company, supplier=sup, available=True).exclude(ext_id="").order_by("pk").first())
                     if si is None:
                         raise apisync.SyncError("Спершу оновіть прайс так, щоб у позицій був ID постачальника (поле «ID товару»)")
                     obj = enrich.fetch_card(sup.api, si.ext_id)
