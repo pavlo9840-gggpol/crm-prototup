@@ -930,7 +930,10 @@ class CrossRef(models.Model):
     source = models.CharField(max_length=10, default="import")        # manual — підтверджено людиною
 
     class Meta:
-        unique_together = [("a", "b")]
+        constraints = [
+            models.UniqueConstraint(fields=["a", "b"], condition=models.Q(company__isnull=True), name="uniq_crossref_global"),
+            models.UniqueConstraint(fields=["company", "a", "b"], condition=models.Q(company__isnull=False), name="uniq_crossref_company"),
+        ]
 
 
 class MarkupTier(models.Model):
@@ -1013,7 +1016,10 @@ class PartOe(models.Model):
     source = models.CharField(max_length=20, default="import")        # api / import / manual
 
     class Meta:
-        unique_together = [("brand", "sku_norm", "oe_norm")]
+        constraints = [
+            models.UniqueConstraint(fields=["brand", "sku_norm", "oe_norm"], condition=models.Q(company__isnull=True), name="uniq_partoe_global"),
+            models.UniqueConstraint(fields=["company", "brand", "sku_norm", "oe_norm"], condition=models.Q(company__isnull=False), name="uniq_partoe_company"),
+        ]
         indexes = [models.Index(fields=["brand", "sku_norm"])]
 
 
@@ -1032,7 +1038,10 @@ class PartInfo(models.Model):
     cars_lc = models.TextField(blank=True, editable=False)           # застосовність малими літерами: пошук по кирилиці
 
     class Meta:
-        unique_together = [("brand", "sku_norm")]
+        constraints = [
+            models.UniqueConstraint(fields=["brand", "sku_norm"], condition=models.Q(company__isnull=True), name="uniq_partinfo_global"),
+            models.UniqueConstraint(fields=["company", "brand", "sku_norm"], condition=models.Q(company__isnull=False), name="uniq_partinfo_company"),
+        ]
 
     def save(self, *a, **k):
         lc = (self.cars or "").lower()
@@ -1061,7 +1070,10 @@ class CrossReject(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = [("a", "b")]
+        constraints = [
+            models.UniqueConstraint(fields=["a", "b"], condition=models.Q(company__isnull=True), name="uniq_crossreject_global"),
+            models.UniqueConstraint(fields=["company", "a", "b"], condition=models.Q(company__isnull=False), name="uniq_crossreject_company"),
+        ]
 
 
 class CustomerCar(models.Model):
