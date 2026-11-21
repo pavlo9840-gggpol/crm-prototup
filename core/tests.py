@@ -128,7 +128,7 @@ class DesignerTest(TestCase):
         self.PT = PrintTemplate
 
     def _purchase(self, qty="10"):
-        self.adm.post("/purchases/new/", {"supplier": self.sup.pk, "product": [self.p.pk], "qty": [qty], "cost": ["20"]})
+        self.adm.post("/purchases/new/", {"supplier": self.sup.pk, "product": [self.p.pk], "qty": [qty], "cost": ["20"], "batch_number": [""], "expiry_date": [""], "serial_numbers": [""]})
         from core.models import Purchase
         return Purchase.objects.latest("pk")
 
@@ -777,9 +777,6 @@ class FinanceControlsReportTest(TestCase):
         from core.models import SettlementPayment
         SettlementPayment.objects.create(company=self.company, purchase=source, amount=Decimal("130.00"),
                                           payment_method="bank", created_by=self.user)
-        SupplierCreditApplication.objects.create(company=self.company, source_purchase=source,
-                                                 target_purchase=target, amount=Decimal("130.00"),
-                                                 created_by=self.user)
         response = self.client.get("/reports/finance/controls/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["customer_credit_total"], Decimal("20.00"))
