@@ -297,7 +297,7 @@ class HardeningTest(DesignerTest):
         from core.models import Sale, SaleItem
         sale = Sale.objects.create(company=self.company, cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30,
                                    cash_received=50, change_given=20, number="CH-7")
-        SaleItem.objects.create(sale=sale, product=self.p, quantity=1, original_price=30, price=30)
+        SaleItem.objects.create(company=self.company, sale=sale, product=self.p, quantity=1, original_price=30, price=30)
         r = self.cs.get(f"/print/receipt/?ids={sale.pk}&fmt=txt&cols=32")
         self.assertEqual(r["Content-Type"], "text/plain; charset=utf-8")
         txt = r.content.decode(); self.assertIn("Чек № CH-7", txt); self.assertIn("Здача: 20.00", txt)
@@ -322,7 +322,7 @@ class HardeningTest(DesignerTest):
         self.cs.post("/shift/", {"action": "open"})
         from core.models import Sale, SaleItem
         sale = Sale.objects.create(company=self.company, cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30, number="CH-8")
-        SaleItem.objects.create(sale=sale, product=self.p, quantity=1, original_price=30, price=30)
+        SaleItem.objects.create(company=self.company, sale=sale, product=self.p, quantity=1, original_price=30, price=30)
         self.assertEqual(self.cs.get(f"/print/receipt/?ids={sale.pk}&template={bad.pk}").status_code, 400)
 
     def test_purchase_rejects_invalid_line_without_partial_post_or_orphan_supplier(self):
@@ -774,6 +774,9 @@ class FinanceControlsReportTest(TestCase):
                                          total=Decimal("100.00"))
         target = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
                                          total=Decimal("200.00"))
+        from core.models import SettlementPayment
+        SettlementPayment.objects.create(company=self.company, purchase=source, amount=Decimal("130.00"),
+                                          payment_method="bank", created_by=self.user)
         SupplierCreditApplication.objects.create(company=self.company, source_purchase=source,
                                                  target_purchase=target, amount=Decimal("130.00"),
                                                  created_by=self.user)
