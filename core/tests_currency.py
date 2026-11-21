@@ -176,8 +176,10 @@ class RatesPageTest(TestCase):
 
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
-        U.objects.create_user("anna", password="x")
+        admin = U.objects.create_superuser("admin", "", "x")
+        anna = U.objects.create_user("anna", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(admin, "Rates page shop", [(anna, "cashier")])
         self.adm, self.anna = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.anna.login(username="anna", password="x")
