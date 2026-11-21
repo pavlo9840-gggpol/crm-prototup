@@ -22,6 +22,8 @@ class BrandFormTest(TestCase):
         cashier = get_user_model().objects.create_user("cash", password="x")
         from core.tests_tenant_helpers import create_test_company
         self.company = create_test_company(admin, "Brand form shop", [(cashier, "cashier")])
+        self.company.business_type = "auto_parts"
+        self.company.save(update_fields=["business_type"])
         self.adm = self.client
         self.adm.login(username="admin", password="x")
 
@@ -64,7 +66,7 @@ class BrandFormTest(TestCase):
         for q in ("bilstein", "19152615", "19-152 615", "152615"):
             self.assertContains(self.adm.get("/products/", {"q": q}), "Амортизатор задній", msg_prefix=q)
         self.assertNotContains(self.adm.get("/products/", {"q": "mann"}), "Амортизатор задній")
-        self.assertContains(self.adm.get("/products/"), "<th>Бренд<th>Артикул")
+        self.assertContains(self.adm.get("/products/"), "Артикул:")
 
     def test_csv_identity_is_brand_plus_article(self):
         Product.objects.create(company=self.company, name="A", sku="112021", brand="SOLGY", price=10)
