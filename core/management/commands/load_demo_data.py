@@ -92,8 +92,10 @@ class Command(BaseCommand):
         rnd = random.Random(42)
         User = get_user_model()
         # демо-замовлення оформлює менеджер (не власник), щоб на його прикладі було видно «Мої замовлення» й комісію
-        user = (User.objects.filter(is_staff=False, is_active=True).first() or User.objects.filter(is_superuser=True).first()
-                or User.objects.create_superuser("demo", "", "demo12345"))
+        membership = company.staff_memberships.filter(is_active=True).select_related("user").order_by("pk").first()
+        user = membership.user if membership else company.owner
+        if user is None:
+            raise CommandError("У локального магазину немає власника або активного працівника для демо-замовлень.")
         if not MarkupTier.objects.filter(company=company).exists():
             MarkupTier.objects.create(company=company, name="Роздріб", percent=30, is_default=True)
             MarkupTier.objects.create(company=company, name="СТО", percent=15)
@@ -148,7 +150,7 @@ class Command(BaseCommand):
                 n_stock += 1
         # кілька змін закупівельної ціни в прайсі (для журналу на екрані «Перегляд цін»)
         for prod in list(Product.objects.filter(company=company, notes=TAG)[:10]):
-            it = SupplierItem.objects.filter(supplier=sup[0], brand=prod.brand.upper(), sku_norm=prod.sku_norm).first()
+            it = SupplierItem.objects.filter(company=company, supplier=sup[0], brand=prod.brand.upper(), sku_norm=prod.sku_norm).first()
             if it:
                 SupplierPriceChange.objects.create(company=company, item=it, old_cost=(it.cost * Decimal("0.92")).quantize(Decimal("0.01")), new_cost=it.cost)
         # кілька кросів «від постачальника» поверх OE (для довіри з кількох джерел)
@@ -164,13 +166,13 @@ class Command(BaseCommand):
         olena = Customer.objects.create(company=company, name="Олена Коваль (демо)", phone="0500000003", notes=TAG)
         car_i = CustomerCar.objects.create(company=company, customer=ivan, plate="AA 1234 BB", make="Renault", model="Trafic II", year=2008)
         CustomerCar.objects.create(company=company, customer=sto, plate="KA 5555 CE", make="Opel", model="Vivaro", year=2011)
-        CustomerCar.objects.create(customer=sto, plate="AE 7777 AA", make="Ford", model="Transit", year=2014)
+        CustomerCar.objects.create(company=company, customer=sto, plate="AE 7777 AA", make="Ford", model="Transit", year=2014)
         car_o = CustomerCar.objects.create(company=company, customer=olena, plate="BC 4321 AK", make="Fiat", model="Ducato", year=2012)
         # два замовлення «під замовлення» у Busmarket, щоб протестувати приймання накладної
         invoice = []
         orders = []
         for cust, car, ti, vi, pi in ((ivan, car_i, 0, 0, 1), (olena, car_o, 1, 4, 0)):
-            si = (SupplierItem.objects.filter(supplier=sup[0], available=True, name__startswith=TYPES[ti][0], name__contains=VEHICLES[vi][0])
+            si = (SupplierItem.objects.filter(company=company, supplier=sup[0], available=True, name__startswith=TYPES[ti][0], name__contains=VEHICLES[vi][0])
                   .order_by("pk").first())
             if si:
                 prod = services.ensure_product(si)
