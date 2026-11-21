@@ -6,11 +6,14 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
-from core.models import Customer, MarkupTier, Product, Purchase, Receipt, Sale, SaleItem, StockMovement, Supplier, SupplierItem
+from core.models import (CashOperation, Customer, FinancePeriodClose, MarkupTier, Product, Purchase, Receipt, Sale, SaleItem, SettlementPayment, Shift, StockMovement, Supplier, SupplierItem)
 from core.tests_transit import xlsx_bytes
 from core.tests_tenant_helpers import create_test_company
+
+from core.services import create_return
 
 D = Decimal
 HEAD = ["Бренд", "Артикул", "Назва", "Кількість", "Ціна"]
@@ -21,6 +24,7 @@ class ReceivingTest(TestCase):
     def setUp(self):
         U = get_user_model()
         admin_user = U.objects.create_superuser("admin", "", "x")
+        self.admin_user = admin_user
         anna_user = U.objects.create_user("anna", password="x", is_staff=True)
         petro_user = U.objects.create_user("petro", password="x", is_staff=True)
         cashier_user = U.objects.create_user("cashier", password="x", is_staff=False)
@@ -116,6 +120,102 @@ class ReceivingTest(TestCase):
         self.assertIn("→ склад", rec.note)
         # менеджер petro бачить у своїх замовленнях, що товар прибув, з відліком
         self.assertContains(self.petro.get("/orders/?st=arrived"), "залишилось 14 дн.")
+
+    def test_end_to_end_purchase_receipt_credit_sale_return_settlement_and_period_close(self):
+        # 1) Receive supplier stock through the real invoice preview/apply workflow.
+        response, _payload = self.invoice(
+            [["MEYLE", "E2E-001", "Наскрізний тестовий товар", 4, 50]],
+            number="E2E-INVOICE-001",
+        )
+        self.assertEqual(response.status_code, 200)
+        product = Product.objects.get(company=self.company, sku="E2E-001")
+        purchase = Purchase.objects.get(company=self.company)
+        self.assertEqual(product.current_stock, D("4.000"))
+        self.assertEqual(purchase.total, D("200.00"))
+        self.assertEqual(purchase.items.count(), 1)
+
+        # 2) Partially pay the supplier invoice by bank transfer.
+        payment_url = reverse("settlement_payment_new", args=["purchase", purchase.pk])
+        response = self.adm.post(payment_url, {
+            "amount": "40.00", "payment_method": "bank", "document_ref": "E2E-SUP-001",
+        })
+        self.assertEqual(response.status_code, 302)
+        supplier_payment = SettlementPayment.objects.get(company=self.company, purchase=purchase, is_void=False)
+        self.assertEqual(supplier_payment.amount, D("40.00"))
+
+        # 3) Sell two received units on credit, then accept a partial bank payment.
+        checkout = self.anna.post(
+            "/pos/checkout/",
+            json.dumps({
+                "items": [{"id": product.pk, "qty": 2}],
+                "payment": "credit",
+                "customer_id": self.c1.pk,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(checkout.status_code, 200, checkout.content)
+        self.assertTrue(checkout.json()["ok"], checkout.json())
+        sale = Sale.objects.get(company=self.company, pk=checkout.json()["id"])
+        sale_item = sale.items.get()
+        self.assertEqual(sale.total, D("130.00"))
+        self.assertEqual(product.current_stock - D("2.000"), D("2.000"))
+
+        sale_payment_url = reverse("settlement_payment_new", args=["sale", sale.pk])
+        response = self.adm.post(sale_payment_url, {
+            "amount": "50.00", "payment_method": "bank", "document_ref": "E2E-CUST-001",
+        })
+        self.assertEqual(response.status_code, 302)
+        customer_payment = SettlementPayment.objects.get(company=self.company, sale=sale, is_void=False)
+        self.assertEqual(customer_payment.amount, D("50.00"))
+
+        # 4) Return one unit without falsely recording a cash refund.
+        returned = create_return(
+            self.admin_user, sale, {sale_item.pk: D("1.000")},
+            refund_method="pending", company=self.company,
+        )
+        self.assertEqual(returned.total, D("65.00"))
+        product.refresh_from_db()
+        self.assertEqual(product.current_stock, D("3.000"))
+        self.assertEqual(returned.cash_amount, D("0.00"))
+        self.assertEqual(returned.card_amount, D("0.00"))
+
+        # 5) Verify both account balances after payment and return.
+        from core.settlement_views import _balance_for
+        purchase.refresh_from_db()
+        sale.refresh_from_db()
+        self.assertEqual(_balance_for(purchase), D("160.00"))
+        self.assertEqual(_balance_for(sale), D("15.00"))
+
+        # 6) Close the cashier shift and verify it is recorded with no discrepancy.
+        close_shift = self.anna.post("/shift/", {"action": "close"})
+        self.assertEqual(close_shift.status_code, 200)
+        shift = Shift.objects.get(company=self.company, cashier_id=sale.cashier_id)
+        self.assertIsNotNone(shift.closed_at)
+        self.assertEqual(shift.discrepancy, D("0.00"))
+        self.assertEqual(CashOperation.objects.filter(company=self.company, shift=shift).count(), 0)
+
+        # 7) Close the current finance period and validate the frozen result.
+        from django.utils import timezone
+        today = timezone.localdate()
+        first_day = today.replace(day=1)
+        controls_url = f"/reports/finance/controls/?from={first_day.isoformat()}&to={today.isoformat()}"
+        response = self.adm.post(controls_url, {
+            "action": "close_period", "from": first_day.isoformat(),
+            "to": today.isoformat(), "confirm_snapshot": "1",
+        })
+        self.assertEqual(response.status_code, 302)
+        close = FinancePeriodClose.objects.get(company=self.company, date_from=first_day, date_to=today)
+        metrics = close.snapshot["metrics"]
+        self.assertEqual(metrics["gross_revenue"], "130.00")
+        self.assertEqual(metrics["returned_revenue"], "65.00")
+        self.assertEqual(metrics["net_revenue"], "65.00")
+        self.assertEqual(metrics["gross_cost_of_goods_sold"], "100.00")
+        self.assertEqual(metrics["returned_cost_of_goods_sold"], "50.00")
+        self.assertEqual(metrics["gross_profit"], "15.00")
+        self.assertEqual(metrics["customer_debt"], "15.00")
+        self.assertEqual(metrics["supplier_debt"], "160.00")
+        self.assertEqual(metrics["counts"]["closed_shifts"], 1)
+        self.assertTrue(close.verify_checksum())
 
     def test_fifo_earlier_order_first_and_partial_split_keeps_sale_total(self):
         a = self.order(self.anna, self.bil, 3, self.c1)
