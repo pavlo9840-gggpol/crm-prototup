@@ -55,8 +55,11 @@ class CashTest(TestCase):
         from core import cash
         self.cash = cash
         U = get_user_model()
-        U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
-        self.p = Product.objects.create(name="Кола", sku="K1", barcode="123", price=Decimal("30"), cost_price=20,
+        self.owner = U.objects.create_superuser("a", "", "x")
+        self.cashier = U.objects.create_user("c", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(self.owner, "Cash test store", [(self.cashier, "cashier")])
+        self.p = Product.objects.create(company=self.company, name="Кола", sku="K1", barcode="123", price=Decimal("30"), cost_price=20,
                                         current_stock=100, is_favorite=True)
         self.adm, self.cs = self.client, self.client_class()
         self.adm.login(username="a", password="x"); self.cs.login(username="c", password="x")
