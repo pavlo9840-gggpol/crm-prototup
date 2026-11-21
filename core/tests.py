@@ -360,7 +360,9 @@ class V4Test(TestCase):
     def setUp(self):
         from core.models import PrintTemplate
         U = get_user_model()
-        self.admin = U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
+        self.admin = U.objects.create_superuser("a", "", "x"); self.cashier = U.objects.create_user("c", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(self.admin, "V4 test store", [(self.cashier, "cashier")])
         self.adm, self.cs = self.client, self.client_class()
         self.adm.login(username="a", password="x"); self.cs.login(username="c", password="x")
         self.PT = PrintTemplate
@@ -370,9 +372,9 @@ class V4Test(TestCase):
         from core.models import Product, Purchase, Supplier
         from core.services import create_purchase
 
-        supplier_a = Supplier.objects.create(name="Фільтри Захід")
-        supplier_b = Supplier.objects.create(name="АвтоСвіт")
-        product = Product.objects.create(name="Масляний фільтр", sku="OF-22", cost_price=Decimal("12.00"))
+        supplier_a = Supplier.objects.create(company=self.company, name="Фільтри Захід")
+        supplier_b = Supplier.objects.create(company=self.company, name="АвтоСвіт")
+        product = Product.objects.create(company=self.company, name="Масляний фільтр", sku="OF-22", cost_price=Decimal("12.00"))
         create_purchase(self.admin, supplier_a, [(product, Decimal("2"), Decimal("12.00"))])
         create_purchase(self.admin, supplier_b, [(product, Decimal("1"), Decimal("12.00"))])
 
@@ -462,8 +464,8 @@ class V4Test(TestCase):
 
     def test_csv_export_import(self):
         from core.models import PriceHistory, StockMovement, Category
-        cat = Category.objects.create(name="Напої")
-        p = Product.objects.create(name="Кола", sku="COLA", barcode="111", price=30, cost_price=20, category=cat, unit="пляшка")
+        cat = Category.objects.create(company=self.company, name="Напої")
+        p = Product.objects.create(company=self.company, name="Кола", sku="COLA", barcode="111", price=30, cost_price=20, category=cat, unit="пляшка")
         csv_ = self.adm.get("/products/export/").content.decode("utf-8-sig")
         self.assertIn("Код;Назва;Штрих-код", csv_); self.assertIn("COLA;Кола;111;Напої;пляшка;20.00;30.00", csv_)
         self.assertIn("COLA05", self.adm.get("/products/export/?template=1").content.decode("utf-8-sig"))
