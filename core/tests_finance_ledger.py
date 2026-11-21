@@ -535,6 +535,7 @@ class AdvanceLedgerTests(TestCase):
 
 class BankImportTests(TestCase):
     def setUp(self):
+        self.today = timezone.localdate()
         from django.core.files.uploadedfile import SimpleUploadedFile
         User = get_user_model()
         self.owner = User.objects.create_superuser(username="bank-import-owner", email="", password="secret")
