@@ -116,6 +116,28 @@ class UniversalProductFieldsTests(TestCase):
         html = response.content.decode()
         self.assertLess(html.index("Назва товару"), html.index("Внутрішній код / SKU"))
         self.assertIn("Бренд / виробник (необов’язково)", html)
+    def test_dashboard_renders_all_five_business_profiles(self):
+        expected = {
+            "auto_parts": "Автозапчастини · огляд",
+            "grocery": "Продуктовий магазин · огляд",
+            "electronics": "Електроніка та техніка · огляд",
+            "general_retail": "Роздрібна торгівля · огляд",
+            "online_store": "Інтернет-магазин · огляд",
+        }
+        for profile, title in expected.items():
+            with self.subTest(profile=profile):
+                self.company.business_type = profile
+                self.company.save(update_fields=["business_type"])
+                response = self.client.get("/")
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, title)
+
+    def test_non_automotive_product_form_prioritizes_name_and_internal_sku(self):
+        response = self.client.get("/products/new/")
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertLess(html.index("Назва товару"), html.index("Внутрішній код / SKU"))
+        self.assertIn("Бренд / виробник (необов’язково)", html)
     def test_product_form_accepts_non_automotive_item_without_brand(self):
         form = ProductForm({
             "name": "Молоко 2.5%",
