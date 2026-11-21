@@ -323,6 +323,7 @@ class BankLedgerTests(TestCase):
         self.owner = User.objects.create_superuser(username="bank-owner", email="", password="secret")
         self.cashier = User.objects.create_user(username="bank-cashier", password="secret")
         self.company = create_test_company(self.owner, "Bank ledger shop", [(self.cashier, "cashier")])
+        self.today = timezone.localdate()
         self.account = BankAccount.objects.create(
             company=self.company, bank_name="Тест Банк", iban="UA123456789012345678901234567",
             currency="UAH", is_default=True,
@@ -332,10 +333,10 @@ class BankLedgerTests(TestCase):
         self.client.force_login(self.owner)
         url = reverse("bank_ledger")
         for payload in (
-            {"form_kind": "transaction", "account": self.account.pk, "transaction_date": "2026-11-18",
+            {"form_kind": "transaction", "account": self.account.pk, "transaction_date": self.today.isoformat(),
              "direction": "income", "category": "Оплата клієнта", "amount": "1200.00",
              "counterparty": "Клієнт", "document_ref": "Виписка 1", "note": ""},
-            {"form_kind": "transaction", "account": self.account.pk, "transaction_date": "2026-11-18",
+            {"form_kind": "transaction", "account": self.account.pk, "transaction_date": self.today.isoformat(),
              "direction": "expense", "category": "Оренда", "amount": "300.00",
              "counterparty": "Орендодавець", "document_ref": "INV-2", "note": ""},
         ):
@@ -360,7 +361,7 @@ class BankLedgerTests(TestCase):
 
     def test_void_keeps_audit_record_and_removes_it_from_account_balance(self):
         entry = BankTransaction.objects.create(
-            company=self.company, account=self.account, transaction_date="2026-11-18",
+            company=self.company, account=self.account, transaction_date=self.today.isoformat(),
             direction="income", category="Повернення", amount=Decimal("500.00"),
             created_by=self.owner,
         )
@@ -384,7 +385,7 @@ class BankLedgerTests(TestCase):
         payment = SettlementPayment.objects.create(company=self.company, sale=sale, amount=Decimal("450.00"),
             payment_method="bank", created_by=self.owner)
         entry = BankTransaction.objects.create(company=self.company, account=self.account,
-            transaction_date="2026-11-18", direction="income", category="Оплата продажу",
+            transaction_date=self.today.isoformat(), direction="income", category="Оплата продажу",
             amount=Decimal("450.00"), created_by=self.owner)
         self.client.force_login(self.owner)
         self.client.post(reverse("bank_reconcile", args=[entry.pk]), {"payment_id": payment.pk})
@@ -406,7 +407,7 @@ class BankLedgerTests(TestCase):
         self.client.force_login(self.cashier)
         self.assertEqual(self.client.get(reverse("bank_ledger")).status_code, 403)
         response = self.client.post(reverse("bank_ledger"), {
-            "form_kind": "transaction", "account": self.account.pk, "transaction_date": "2026-11-18",
+            "form_kind": "transaction", "account": self.account.pk, "transaction_date": self.today.isoformat(),
             "direction": "income", "category": "Test", "amount": "10.00",
         })
         self.assertEqual(response.status_code, 403)
@@ -420,7 +421,7 @@ class BankLedgerTests(TestCase):
         )
         self.client.force_login(self.owner)
         response = self.client.post(reverse("bank_ledger"), {
-            "form_kind": "transaction", "account": other_account.pk, "transaction_date": "2026-11-18",
+            "form_kind": "transaction", "account": other_account.pk, "transaction_date": self.today.isoformat(),
             "direction": "income", "category": "Test", "amount": "10.00",
         })
         self.assertEqual(response.status_code, 200)
@@ -572,14 +573,14 @@ class BankImportTests(TestCase):
         shift = Shift.objects.create(company=self.company, cashier=self.owner, opening_cash=Decimal("100.00"))
         CashOperation.objects.create(company=self.company, shift=shift, user=self.owner, kind="in", amount=Decimal("50.00"), note="Внесення")
         CashOperation.objects.create(company=self.company, shift=shift, user=self.owner, kind="out", amount=Decimal("20.00"), note="Інкасація")
-        BankTransaction.objects.create(company=self.company, account=self.account, transaction_date="2026-11-18",
+        BankTransaction.objects.create(company=self.company, account=self.account, transaction_date=self.today.isoformat(),
             direction="income", category="Оплата", amount=Decimal("300.00"), created_by=self.owner)
-        BankTransaction.objects.create(company=self.company, account=self.account, transaction_date="2026-11-18",
+        BankTransaction.objects.create(company=self.company, account=self.account, transaction_date=self.today.isoformat(),
             direction="expense", category="Оренда", amount=Decimal("80.00"), created_by=self.owner)
-        BankTransaction.objects.create(company=self.company, account=self.account, transaction_date="2026-11-18",
+        BankTransaction.objects.create(company=self.company, account=self.account, transaction_date=self.today.isoformat(),
             direction="income", category="Canceled", amount=Decimal("999.00"), created_by=self.owner, is_void=True)
         self.client.force_login(self.owner)
-        response = self.client.get(reverse("cashflow_report"), {"from": "2026-11-18", "to": "2026-11-18"})
+        response = self.client.get(reverse("cashflow_report"), {"from": timezone.localdate().isoformat(), "to": timezone.localdate().isoformat()})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["cash_in"], Decimal("50.00"))
         self.assertEqual(response.context["cash_out"], Decimal("20.00"))
