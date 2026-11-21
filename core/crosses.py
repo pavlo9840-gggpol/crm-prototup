@@ -24,57 +24,66 @@ def pair(a, b):
     return tuple(sorted((a, b)))
 
 
+def _reference_scope(qs, company):
+    """Імпортований каталог може бути глобальним; API та ручні дані належать магазину."""
+    if company is None:
+        return qs
+    return qs.filter(Q(company=company) | Q(company__isnull=True, source="import"))
+
+
 def rejected(qn, company=None):
     out = set()
     qs = CrossReject.objects.filter(Q(a=qn) | Q(b=qn))
+    if company is not None:
+        qs = qs.filter(company=company)
     for a, b in qs.values_list("a", "b"):
         out.add(b if a == qn else a)
     return out
 
 
-def analog_levels(qn):
+def analog_levels(qn, company=None):
     """{нормалізований артикул: найкращий рівень} для аналогів артикула qn (будь-якого бренду).
     Якщо qn сам є OE-номером, повертаються всі деталі, привʼязані до нього."""
-    out, rej = {}, rejected(qn)
+    out, rej = {}, rejected(qn, company=company)
 
     def put(n, lvl):
         if n and n != qn and n not in rej and RANK[lvl] > RANK.get(out.get(n), -1):
             out[n] = lvl
 
-    own_oes = set(PartOe.objects.filter(sku_norm=qn).values_list("oe_norm", flat=True))
+    own_oes = set(_reference_scope(PartOe.objects.filter(sku_norm=qn), company).values_list("oe_norm", flat=True))
     own_oes.add(qn)                                  # менеджер міг ввести саме OE-номер
-    for n in PartOe.objects.filter(oe_norm__in=own_oes).values_list("sku_norm", flat=True):
+    for n in _reference_scope(PartOe.objects.filter(oe_norm__in=own_oes), company).values_list("sku_norm", flat=True):
         put(n, "oe")
     first = set()
-    for a, b, src in CrossRef.objects.filter(Q(a=qn) | Q(b=qn)).values_list("a", "b", "source"):
+    for a, b, src in _reference_scope(CrossRef.objects.filter(Q(a=qn) | Q(b=qn)), company).values_list("a", "b", "source"):
         other = b if a == qn else a
         first.add(other)
         put(other, "manual" if src == "manual" else "cross")
     if first:
-        for a, b in CrossRef.objects.filter(Q(a__in=first) | Q(b__in=first)).values_list("a", "b"):
+        for a, b in _reference_scope(CrossRef.objects.filter(Q(a__in=first) | Q(b__in=first)), company).values_list("a", "b"):
             put(a, "maybe")
             put(b, "maybe")
     return out
 
 
-def analog_norms(qn):
-    return set(analog_levels(qn))
+def analog_norms(qn, company=None):
+    return set(analog_levels(qn, company=company))
 
 
 # ---------------------------------------------------------------- підтвердження / відхилення людиною
-def confirm_pair(user, a_norm, b_norm):
+def confirm_pair(user, a_norm, b_norm, company=None):
     x, y = pair(a_norm, b_norm)
-    obj, created = CrossRef.objects.get_or_create(a=x, b=y, defaults={"a_raw": x, "b_raw": y, "source": "manual"})
+    obj, created = CrossRef.objects.get_or_create(company=company, a=x, b=y, defaults={"a_raw": x, "b_raw": y, "source": "manual"})
     if not created and obj.source != "manual":
         obj.source = "manual"
         obj.save(update_fields=["source"])
-    CrossReject.objects.filter(a=x, b=y).delete()
+    CrossReject.objects.filter(company=company, a=x, b=y).delete()
 
 
-def reject_pair(user, a_norm, b_norm):
+def reject_pair(user, a_norm, b_norm, company=None):
     x, y = pair(a_norm, b_norm)
-    CrossReject.objects.get_or_create(a=x, b=y, defaults={"user": user})
-    CrossRef.objects.filter(a=x, b=y, source="manual").delete()      # підтвердження, яке скасовано
+    CrossReject.objects.get_or_create(company=company, a=x, b=y, defaults={"user": user})
+    CrossRef.objects.filter(company=company, a=x, b=y, source="manual").delete()  # підтвердження, яке скасовано
 
 
 # ---------------------------------------------------------------- виведення за назвою
@@ -143,7 +152,7 @@ def _part_names(norms, company=None):
     parts = {}
     products = Product.objects.filter(sku_norm__in=norms)
     supplier_items = SupplierItem.objects.filter(sku_norm__in=norms)
-    oe_rows = PartOe.objects.filter(sku_norm__in=norms)
+    oe_rows = _reference_scope(PartOe.objects.filter(sku_norm__in=norms), company)
     if company is not None:
         products = products.filter(company=company)
         supplier_items = supplier_items.filter(company=company)
@@ -168,20 +177,20 @@ def analogs(brand, sku_norm, limit=40, with_names=False, company=None):
             return
         ev.setdefault(key, []).append((kind, weight, text))
 
-    my_oes = {o.oe_norm: o.oe_raw for o in PartOe.objects.filter(brand=brand, sku_norm=sku_norm)}
+    my_oes = {o.oe_norm: o.oe_raw for o in _reference_scope(PartOe.objects.filter(brand=brand, sku_norm=sku_norm), company)}
     shared = {}
     if my_oes:
-        for o in PartOe.objects.filter(oe_norm__in=list(my_oes)):
+        for o in _reference_scope(PartOe.objects.filter(oe_norm__in=list(my_oes)), company):
             shared.setdefault((o.brand, o.sku_norm), set()).add(my_oes[o.oe_norm])
     for key, s in shared.items():
         add(key, "oe", 70 + 10 * (min(len(s), 3) - 1), "Спільні OE: " + ", ".join(sorted(s)[:4]))
 
     direct = {}
-    for a, b, src in CrossRef.objects.filter(Q(a=sku_norm) | Q(b=sku_norm)).values_list("a", "b", "source"):
+    for a, b, src in _reference_scope(CrossRef.objects.filter(Q(a=sku_norm) | Q(b=sku_norm)), company).values_list("a", "b", "source"):
         direct.setdefault(b if a == sku_norm else a, set()).add(src)
     hop2 = set()
     if direct:
-        for a, b in CrossRef.objects.filter(Q(a__in=list(direct)) | Q(b__in=list(direct))).values_list("a", "b"):
+        for a, b in _reference_scope(CrossRef.objects.filter(Q(a__in=list(direct)) | Q(b__in=list(direct))), company).values_list("a", "b"):
             hop2.update((a, b))
     hop2 -= set(direct) | {sku_norm}
     parts = _part_names(set(direct) | hop2, company=company)
