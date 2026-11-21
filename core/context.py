@@ -100,6 +100,12 @@ def layout(request):
         )
     )
     active_company = getattr(request, "company", None)
+    tracking_modes = None
+    if active_company and can_manage_company:
+        from .models import Product
+        tracking_modes = Product.objects.filter(
+            company=active_company, is_active=True
+        ).values_list("tracking_mode", flat=True)
 
     from .license_entitlements import NAV_FEATURES, feature_is_enabled
     active_license = getattr(request, "active_license", None)
@@ -107,7 +113,9 @@ def layout(request):
     if can_manage_company:
         for title, items in STAFF_NAV:
             items = navigation_items_for_profile(
-                items, active_company.business_type if active_company else None
+                items,
+                active_company.business_type if active_company else None,
+                tracking_modes=tracking_modes,
             )
             if active_license:
                 items = [
@@ -140,7 +148,9 @@ def layout(request):
         else CASHIER_NAV if active_company and company_access and not can_manage_company else []
     )
     cashier_items = navigation_items_for_profile(
-        cashier_items, active_company.business_type if active_company else None
+        cashier_items,
+        active_company.business_type if active_company else None,
+        tracking_modes=tracking_modes,
     )
     if active_license:
         cashier_items = [
