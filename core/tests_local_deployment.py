@@ -34,6 +34,15 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('if ! health_check; then', script)
         self.assertIn('journalctl -u autozapaz.service -n 100', script)
         self.assertNotIn("rm -rf", script)
+        self.assertIn('UNIT_INSTALLED=0', script)
+        self.assertIn('SERVICE_STARTED=0', script)
+        self.assertIn('INSTALL_COMPLETE=0', script)
+        self.assertIn('on_exit() {', script)
+        self.assertIn('trap on_exit EXIT', script)
+        self.assertIn('systemctl disable autozapaz.service', script)
+        self.assertIn('rm -f -- "$SERVICE_FILE"', script)
+        self.assertIn('Каталог програми, конфігурація та дані збережені', script)
+        self.assertIn('INSTALL_COMPLETE=1', script)
 
 
     def test_updater_creates_and_verifies_backup_before_switching_release(self):
