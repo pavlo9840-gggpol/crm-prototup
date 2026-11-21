@@ -116,6 +116,40 @@ class LocalLicenseEnforcementTests(TestCase):
         self.assertContains(response, "активних облікових записів", status_code=200)
         self.assertEqual(LicenseActivation.objects.get(pk=1).plan, "start")
 
+    def test_activation_view_rejects_expired_signed_license(self):
+        client = Client()
+        client.force_login(self.user)
+        now = timezone.now()
+        claims = {
+            "version": 1,
+            "license_id": "expired-test",
+            "installation_id": str(self.installation_id),
+            "customer": "Test shop",
+            "plan": "start",
+            "issued_at": (now - timedelta(days=60)).isoformat(),
+            "expires_at": (now - timedelta(days=1)).isoformat(),
+            "max_users": 2,
+            "max_workstations": 1,
+            "features": [],
+        }
+        payload = json.dumps(claims, sort_keys=True, separators=(",", ":")).encode()
+        expired = "AZ1." + _b64(payload) + "." + _b64(self.private_key.sign(payload))
+        response = client.post("/activate/", {"license_key": expired})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Строк дії ліцензії завершився", status_code=200)
+        self.assertEqual(LicenseActivation.objects.get(pk=1).license_id, "license-enforcement-test")
+
+    def test_activation_view_rejects_tampered_signed_payload(self):
+        client = Client()
+        client.force_login(self.user)
+        token = self.make_token()
+        parts = token.split(".")
+        tampered = parts[1][:-1] + ("A" if parts[1][-1] != "A" else "B")
+        response = client.post("/activate/", {"license_key": ".".join([parts[0], tampered, parts[2]])})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Підпис ліцензії недійсний", status_code=200)
+        self.assertEqual(LicenseActivation.objects.get(pk=1).license_id, "license-enforcement-test")
+
     def test_activation_view_rejects_license_for_another_installation(self):
         client = Client()
         client.force_login(self.user)
