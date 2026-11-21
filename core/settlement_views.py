@@ -423,7 +423,8 @@ def supplier_account(request, pk):
     for event in reversed(events):
         running += event["effect"]
         event["running_balance"] = running
-    events.reverse()
+    # Keep the ledger newest-first for display. The balances are calculated
+    # oldest-to-newest above, so the first visible row is the current balance.
     if date_from:
         start = timezone.make_aware(datetime.combine(date_from, time.min))
         events = [event for event in events if event["date"] >= start]
