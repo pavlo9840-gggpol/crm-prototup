@@ -18,6 +18,12 @@ class InstallationSetupForm(forms.Form):
     password = forms.CharField(label="Пароль", widget=forms.PasswordInput)
     password_confirm = forms.CharField(label="Повторіть пароль", widget=forms.PasswordInput)
 
+    def clean_shop_name(self):
+        shop_name = self.cleaned_data["shop_name"].strip()
+        if not shop_name:
+            raise forms.ValidationError("Вкажіть назву магазину.")
+        return shop_name
+
     def clean_username(self):
         username = self.cleaned_data["username"].strip()
         User = get_user_model()
