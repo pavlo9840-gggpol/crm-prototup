@@ -11,12 +11,15 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         unit = (ROOT / "deploy/linux/autozapaz.service").read_text(encoding="utf-8")
         self.assertIn("User=autozapaz", unit)
         self.assertIn("Group=autozapaz", unit)
-        self.assertIn("--host 127.0.0.1", unit)
-        self.assertIn("--port 8000", unit)
+        self.assertIn("waitress-serve", unit)
+        self.assertIn("--listen=127.0.0.1:8000", unit)
+        self.assertIn("--threads=8", unit)
+        self.assertIn("config.wsgi:application", unit)
+        self.assertNotIn("manage.py runserver", unit)
         self.assertIn("EnvironmentFile=/etc/autozapaz/autozapaz.env", unit)
         self.assertIn("ReadWritePaths=/var/lib/autozapaz", unit)
         self.assertIn("ProtectSystem=strict", unit)
-        self.assertNotIn("--host 0.0.0.0", unit)
+        self.assertNotIn("--listen=0.0.0.0", unit)
 
     def test_installer_preserves_existing_environment_and_requires_public_key(self):
         script = (ROOT / "deploy/linux/install.sh").read_text(encoding="utf-8")
