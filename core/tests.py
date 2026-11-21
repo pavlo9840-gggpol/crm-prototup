@@ -15,7 +15,9 @@ class AcceptanceTest(TestCase):
         sup = Supplier.objects.create(company=company, name="S")
         adm, cash = self.client, self.client_class()
         adm.login(username="a", password="x"); cash.login(username="c", password="x")
-        adm.post("/purchases/new/", {"supplier": sup.pk, "product": [p.pk], "qty": ["100"], "cost": ["20"]})
+        purchase_payload = {"supplier": sup.pk, "product": [p.pk], "qty": ["100"], "cost": ["20"],
+                            "batch_number": [""], "expiry_date": [""], "serial_numbers": [""]}
+        adm.post("/purchases/new/", purchase_payload)
         p.refresh_from_db(); self.assertEqual(p.current_stock, 100)
         self.assertEqual(cash.get("/pos/").status_code, 302)
         cash.post("/shift/", {"action": "open", "cash": "0"})
@@ -27,7 +29,7 @@ class AcceptanceTest(TestCase):
         p.refresh_from_db(); self.assertEqual(p.current_stock, 97)
         r = cash.post("/pos/checkout/", json.dumps({"items": [{"id": p.pk, "qty": 999}]}), content_type="application/json")
         self.assertEqual(r.status_code, 400); print(r.json()["error"])
-        adm.post("/purchases/new/", {"supplier": sup.pk, "product": [p.pk], "qty": ["50"], "cost": ["20"]})
+        adm.post("/purchases/new/", dict(purchase_payload, qty=["50"]))
         adm.post("/inventory/adjust/", {"product": p.pk, "kind": "writeoff", "quantity": "2", "reason": "damaged"})
         p.refresh_from_db(); self.assertEqual(p.current_stock, 145)
         self.assertEqual(StockMovement.objects.filter(product=p).count(), 4)
@@ -403,7 +405,7 @@ class V4Test(TestCase):
             '<div class="c"><b>{{ company.name }}</b><br>{% if company.phone %}Тел.: {{ company.phone }}<br>{% endif %}</div><hr>'
             'Чек № <b>{{ doc.number }}</b><br>Касир: {{ doc.user }}<hr><table>{% for i in items %}<tr><td>{{ i.name }}</td>'
             '<td>{{ i.qty }}</td><td class="r">{{ i.total }}</td></tr>{% endfor %}</table><div class="tot">РАЗОМ: {{ doc.total }}</div>'))
-        DocTemplate.objects.create(kind="purchase", paper="a4", body="<h2>Накладна {{ doc.number }}</h2>{% for i in items %}{{ i.name }}{% endfor %}")
+        DocTemplate.objects.create(company=self.company, kind="purchase", paper="a4", body="<h2>Накладна {{ doc.number }}</h2>{% for i in items %}{{ i.name }}{% endfor %}")
         r = self.adm.get("/designer/"); self.assertContains(r, "Старі шаблони"); self.assertContains(r, "Перетворити на новий")
         r = self.adm.post(f"/designer/legacy/{old.pk}/convert/"); self.assertEqual(r.status_code, 302)
         t = self.PT.objects.get(name__contains="зі старої версії"); self.assertEqual(t.doc_type, "receipt")
@@ -453,7 +455,11 @@ class V4Test(TestCase):
         self.assertFalse(u.is_superuser or u.is_staff)
         self.assertTrue(u.check_password("secret1"))
         self.adm.post(f"/users/{u.pk}/edit/", {"username": "ola", "role": "cashier", "password": "newpass1"})
-        u.refresh_from_db(); self.assertFalse(u.is_active); self.assertTrue(u.check_password("newpass1")); self.assertFalse(u.is_superuser)
+        u.refresh_from_db()
+        self.assertTrue(u.is_active)  # глобальний обліковий запис зберігається; доступ визначає StaffMembership
+        self.assertFalse(StaffMembership.objects.get(company=self.company, user=u).is_active)
+        self.assertTrue(u.check_password("newpass1"))
+        self.assertFalse(u.is_superuser)
         self.assertFalse(self.client_class().login(username="ola", password="newpass1"))
         # cannot change own role / lock out last admin
         self.adm.post(f"/users/{self.admin.pk}/edit/", {"username": "a", "role": "cashier", "password": ""})
