@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import BankAccount, BankTransaction, BankReconciliation, CashOperation, FinanceEntry, SettlementPayment, Shift, Sale, Customer, Supplier
+from core.models import BankAccount, BankTransaction, BankReconciliation, CashOperation, FinanceEntry, SettlementPayment, Shift, Sale, Customer, Supplier, Purchase
 from core.tests_tenant_helpers import create_test_company
 
 
