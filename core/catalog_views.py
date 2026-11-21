@@ -73,7 +73,7 @@ def catalogue_home(request):
                 key = ((product.brand or "").casefold(), product.sku_norm)
                 if key not in rows_by_key:
                     number = CatalogPartNumber.objects.filter(brand_norm=key[0], sku_norm=key[1]).select_related("part", "source").first()
-                    offer = SupplierItem.objects.filter(brand__iexact=product.brand, sku_norm=product.sku_norm, available=True).select_related("supplier").order_by("cost").first()
+                    offer = SupplierItem.objects.filter(company=request.company, brand__iexact=product.brand, sku_norm=product.sku_norm, available=True).select_related("supplier").order_by("cost").first()
                     rows_by_key[key] = {
                         "brand": product.brand, "sku": product.sku, "name": product.name,
                         "number": number, "verified": bool(number and number.verified),
