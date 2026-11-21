@@ -67,7 +67,7 @@ class CrossEngineTest(TestCase):
         self.oe("A", "X1", "OE1")
         self.oe("B", "OEPART", "OE1")
         CrossRef.objects.create(company=self.company, a="X1", b="MAN1", source="manual")
-        CrossRef.objects.create(a="X1", b="CRS1", source="import")
+        CrossRef.objects.create(company=self.company, a="X1", b="CRS1", source="import")
         CrossRef.objects.create(a="CRS1", b="FAR1", source="import")       # через ланцюжок
         CrossRef.objects.create(a="X1", b="OEPART", source="import")       # і крос, і OE: лишається найкращий
         lv = crosses.analog_levels("X1", company=self.company)
@@ -115,7 +115,7 @@ class EnrichTest(TestCase):
         self.assertEqual(json.loads(body), {"currency": "C1", "warehouses": ["W1"]})
         a = SupplierItem.objects.get(company=self.company, sku="VM41023")
         self.assertEqual((a.brand, a.cost, a.qty_avail, a.ext_id), ("VIBRA MASTER", D("1206.96"), D("3"), "80006E98C49AE02F4CB01012B3CA9C36"))
-        self.assertEqual(SupplierItem.objects.get(sku="02.53.071").qty_avail, D("1"))   # «Київ» порожньо = 0
+        self.assertEqual(SupplierItem.objects.get(company=self.company, sku="02.53.071").qty_avail, D("1"))   # «Київ» порожньо = 0
         self.assertFalse(SupplierItem.objects.get(sku="29-16 060 0008/HD").available)    # на жодному складі немає
 
     def test_preset_fills_bm_settings_keeps_key_and_requires_real_uuids(self):
@@ -158,7 +158,7 @@ class EnrichTest(TestCase):
 
     def test_save_info_protects_manual_edits_and_manual_oe(self):
         enrich.save_info("BILSTEIN", "19-152615", {"oe": [("A1", "A1", "VAG")], "description": "з API"}, "api", company=self.company)
-        PartOe.objects.create(brand="BILSTEIN", sku_norm="19152615", oe_norm="MAN", oe_raw="MAN", source="manual")
+        PartOe.objects.create(company=self.company, brand="BILSTEIN", sku_norm="19152615", oe_norm="MAN", oe_raw="MAN", source="manual")
         pi = PartInfo.objects.get(company=self.company, brand="BILSTEIN")
         pi.description, pi.source = "Мій опис", "manual"
         pi.save()
@@ -170,7 +170,7 @@ class EnrichTest(TestCase):
     # ---------------- підтягування з картки
     def seed_items(self, n=3):
         for i in range(n):
-            SupplierItem.objects.create(supplier=self.sup, brand="B", sku=f"S{i}", sku_norm=f"S{i}", cost=10, ext_id=f"ID{i}")
+            SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="B", sku=f"S{i}", sku_norm=f"S{i}", cost=10, ext_id=f"ID{i}")
 
     def test_enrich_item_batch_skips_done_and_handles_errors(self):
         self.seed_items(4)
@@ -183,7 +183,7 @@ class EnrichTest(TestCase):
         done, _ = enrich.enrich_batch(sup, limit=10, fetch=Net(self.CARD))       # лишилось тільки 2 необроблених
         self.assertEqual(done, 2)
         self.assertEqual(enrich.enrich_batch(sup, limit=10, fetch=Net(self.CARD)), (0, 0))
-        self.assertEqual(PartOe.objects.filter(brand="B", sku_norm="S0").count(), 3)
+        self.assertEqual(PartOe.objects.filter(company=self.company, brand="B", sku_norm="S0").count(), 3)
 
     def test_enrich_batch_stops_on_rate_limit_and_marks_404(self):
         self.seed_items(3)
@@ -226,7 +226,7 @@ class EnrichTest(TestCase):
         SupplierItem.objects.create(supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000,
                                     name="Амортизатор задній Trafic", ext_id="U1")
         SupplierItem.objects.create(supplier=self.sup, brand="SACHS", sku="315 849", sku_norm="315849", cost=800, name="Амортизатор")
-        Product.objects.create(name="Амортизатор SACHS", sku="315 849", brand="SACHS", price=1100, current_stock=2)
+        Product.objects.create(company=self.company, name="Амортизатор SACHS", sku="315 849", brand="SACHS", price=1100, current_stock=2)
         PartOe.objects.create(brand="BILSTEIN", sku_norm="19152615", oe_norm="1K0411105AB", oe_raw="1K0 411 105 AB", oe_brand="VAG", source="api")
         PartOe.objects.create(brand="SACHS", sku_norm="315849", oe_norm="1K0411105AB", oe_raw="1K0411105AB", source="import")
 
@@ -272,7 +272,7 @@ class EnrichTest(TestCase):
         self.assertEqual((o.brand, o.sku_norm, o.oe_norm, o.oe_brand, o.source), ("MEYLE", "29160600008", "4D0407693", "AUDI", "import"))
         f = SimpleUploadedFile("d.csv", "Бренд;Артикул;Опис;Характеристики;Застосовність\nMeyle;29-16 060 0008;Тяга стабілізатора;Довжина: 120 мм|Сторона: ліва;Audi A4|Audi A6\n".encode("utf-8"))
         self.adm.post("/parts-data/", {"kind": "desc", "file": f, "has_header": "1"})
-        pi = PartInfo.objects.get(brand="MEYLE")
+        pi = PartInfo.objects.get(company=self.company, brand="MEYLE")
         self.assertEqual((pi.description, pi.attrs, pi.cars), ("Тяга стабілізатора", "Довжина: 120 мм\nСторона: ліва", "Audi A4\nAudi A6"))
         self.assertEqual(self.cash.get("/parts-data/").status_code, 403)
 
