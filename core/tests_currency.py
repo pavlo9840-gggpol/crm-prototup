@@ -100,7 +100,7 @@ class CurrencyFlowTest(TestCase):
         self.assertEqual((m.cost, m.price_orig), (D("300.00"), None))
 
     def test_rate_change_recomputes_prices_and_auto_price_but_not_fixed_or_history(self):
-        PriceRule.objects.create(name="r", markup_pct=30)
+        PriceRule.objects.create(company=self.company, name="r", markup_pct=30)
         self.import_price(self.sup, [["BILSTEIN", "19-152615", "Амортизатор", 20]])
         fixed = Supplier.objects.create(company=self.company, name="Свій курс", currency=self.eur, fixed_rate=D("40"))
         SupplierItem.objects.create(company=self.company, supplier=fixed, brand="X", sku="F1", sku_norm="F1", cost=D("800"), price_orig=D("20"))
