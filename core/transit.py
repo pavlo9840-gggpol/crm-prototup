@@ -352,15 +352,15 @@ def crossrefs(request):
     if request.method == "POST":
         act = request.POST.get("act")
         if act == "delete":
-            CrossRef.objects.filter(pk=request.POST.get("pk") or 0).delete()
+            CrossRef.objects.filter(company=request.company, pk=request.POST.get("pk") or 0).delete()
         elif act == "add":
             pairs = _read_pairs([[request.POST.get("a", ""), request.POST.get("b", "")]], False)
             if not pairs:
                 messages.error(request, "Вкажіть два різні артикули")
             else:
-                CrossRef.objects.bulk_create([CrossRef(a=a, b=b, a_raw=r[0], b_raw=r[1], source="manual") for (a, b), r in pairs.items()],
+                CrossRef.objects.bulk_create([CrossRef(company=request.company, a=a, b=b, a_raw=r[0], b_raw=r[1], source="manual") for (a, b), r in pairs.items()],
                                              ignore_conflicts=True)
-                CrossRef.objects.filter(a__in=[p[0] for p in pairs], b__in=[p[1] for p in pairs]).update(source="manual")
+                CrossRef.objects.filter(company=request.company, a__in=[p[0] for p in pairs], b__in=[p[1] for p in pairs]).update(source="manual")
                 messages.success(request, "Аналог додано і позначено як підтверджений")
         elif act == "upload":
             f = request.FILES.get("file")
@@ -368,16 +368,16 @@ def crossrefs(request):
                 if not f or f.size > MAX_FILE:
                     raise TableError("Оберіть файл .xlsx або .csv (до 30 МБ)")
                 pairs = _read_pairs(read_table(f.read(), f.name), bool(request.POST.get("has_header")))
-                before = CrossRef.objects.count()
-                CrossRef.objects.bulk_create([CrossRef(a=a, b=b, a_raw=r[0], b_raw=r[1]) for (a, b), r in pairs.items()],
+                before = CrossRef.objects.filter(company=request.company).count()
+                CrossRef.objects.bulk_create([CrossRef(company=request.company, a=a, b=b, a_raw=r[0], b_raw=r[1]) for (a, b), r in pairs.items()],
                                              ignore_conflicts=True, batch_size=500)
-                messages.success(request, f"Імпортовано пар аналогів: {CrossRef.objects.count() - before} "
+                messages.success(request, f"Імпортовано пар аналогів: {CrossRef.objects.filter(company=request.company).count() - before} "
                                           f"(у файлі пар: {len(pairs)})")
             except TableError as e:
                 messages.error(request, str(e))
         return redirect("crossrefs")
     q = norm_sku(request.GET.get("q", ""))
-    qs = CrossRef.objects.filter(Q(a__contains=q) | Q(b__contains=q)) if q else CrossRef.objects.all()
+    qs = CrossRef.objects.filter(company=request.company).filter(Q(a__contains=q) | Q(b__contains=q)) if q else CrossRef.objects.filter(company=request.company)
     pairs = []
     for pair in qs.order_by("-pk")[:100]:
         a_products = list(Product.objects.filter(company=request.company, sku_norm=pair.a, is_active=True)[:3])
