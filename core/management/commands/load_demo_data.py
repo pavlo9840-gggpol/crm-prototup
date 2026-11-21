@@ -44,14 +44,15 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--reset", action="store_true")
+        parser.add_argument("--company-id", type=int, default=None, help="ID локального магазину (обов’язково, якщо магазинів декілька)")
         parser.add_argument("--out", default="demo_invoice.csv", help="куди записати тестову накладну")
 
     def handle(self, *a, **o):
         if o["reset"]:
-            self.reset()
+            self.reset(company_id=o.get("company_id"))
             self.stdout.write("Демо-дані видалено.")
             return
-        company = self.get_company()
+        company = self.get_company(company_id=o.get("company_id"))
         if Supplier.objects.filter(company=company, name__in=SUPPLIERS).exists():
             self.stdout.write("Демо-дані вже створено. Щоб створити заново: load_demo_data --reset")
             return
@@ -61,14 +62,19 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING("Усі артикули й OE-номери вигадані: це тестові дані, а не реальний каталог."))
 
     # ------------------------------------------------------------------
-    def get_company(self):
+    def get_company(self, company_id=None):
         companies = Company.objects.order_by("pk")
+        if company_id is not None:
+            company = companies.filter(pk=company_id).first()
+            if company is None:
+                raise CommandError(f"Магазин з ID {company_id} не знайдено.")
+            return company
         if companies.count() != 1:
             raise CommandError("Для демоданих має бути налаштований рівно один локальний магазин. Спочатку завершіть початкове налаштування CRM.")
         return companies.first()
 
-    def reset(self):
-        company = self.get_company()
+    def reset(self, company_id=None):
+        company = self.get_company(company_id=company_id)
         demo_cust = Customer.objects.filter(company=company, notes=TAG)
         sales = Sale.objects.filter(customer__in=demo_cust)
         SaleItem.objects.filter(sale__in=sales).delete()
