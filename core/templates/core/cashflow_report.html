@@ -1,0 +1,54 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>Рух грошових коштів</h2>
+<p class="muted">Звіт за фактичними касовими операціями та банківським журналом. Управлінські записи з розділу «Фінанси» тут не додаються, щоб не дублювати рухи.</p>
+<form method="get" class="filter">
+  <label>З дати <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
+  <label>По дату <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
+  <button class="btn">Показати</button>
+</form>
+<div class="kpi">
+  <div class="card">Надходження<b>{{ total_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Витрати / списання<b>{{ total_out|floatformat:2 }} ₴</b></div>
+  <div class="card">Чистий рух<b>{{ total_net|floatformat:2 }} ₴</b></div>
+</div>
+<div class="card">
+<h3>Каса</h3>
+<table><thead><tr><th>Показник</th><th class="n">Сума</th></tr></thead><tbody>
+<tr><td>Внесення</td><td class="n">{{ cash_in|floatformat:2 }} ₴</td></tr>
+<tr><td>Вилучення / інкасація</td><td class="n">{{ cash_out|floatformat:2 }} ₴</td></tr>
+<tr><td>Чистий рух каси</td><td class="n">{{ cash_net|floatformat:2 }} ₴</td></tr>
+<tr><td>Корекції залишку (окремо)</td><td class="n">{{ cash_adjust|floatformat:2 }} ₴</td></tr>
+</tbody></table>
+</div>
+<div class="card">
+<h3>Банківські рахунки</h3>
+<table><thead><tr><th>Показник</th><th class="n">Сума</th></tr></thead><tbody>
+<tr><td>Надходження</td><td class="n">{{ bank_in|floatformat:2 }} ₴</td></tr>
+<tr><td>Списання</td><td class="n">{{ bank_out|floatformat:2 }} ₴</td></tr>
+<tr><td>Чистий рух банку</td><td class="n">{{ bank_net|floatformat:2 }} ₴</td></tr>
+</tbody></table>
+</div>
+<h3>Денна динаміка</h3>
+<table><thead><tr><th>Дата</th><th class="n">Каса +</th><th class="n">Каса −</th><th class="n">Корекції</th><th class="n">Банк +</th><th class="n">Банк −</th><th class="n">Чистий рух</th></tr></thead><tbody>
+{% for row in daily_rows %}
+<tr><td>{{ row.date|date:"d.m.Y" }}</td><td class="n">{{ row.cash_in|floatformat:2 }}</td><td class="n">{{ row.cash_out|floatformat:2 }}</td><td class="n">{{ row.cash_adjust|floatformat:2 }}</td><td class="n">{{ row.bank_in|floatformat:2 }}</td><td class="n">{{ row.bank_out|floatformat:2 }}</td><td class="n"><strong>{{ row.net|floatformat:2 }}</strong></td></tr>
+{% empty %}<tr><td colspan="7">За вибраний період рухів немає.</td></tr>{% endfor %}
+</tbody></table>
+<div class="card">
+<h3>Касові операції</h3>
+<table><thead><tr><th>Дата</th><th>Тип</th><th>Касир</th><th>Примітка</th><th class="n">Сума</th></tr></thead><tbody>
+{% for op in cash_operations %}
+<tr><td>{{ op.created_at|date:"d.m.Y H:i" }}</td><td>{{ op.get_kind_display }}</td><td>{{ op.user.get_username }}</td><td>{{ op.note|default:"—" }}</td><td class="n">{{ op.amount|floatformat:2 }} ₴</td></tr>
+{% empty %}<tr><td colspan="5">Касових операцій немає.</td></tr>{% endfor %}
+</tbody></table>
+</div>
+<div class="card">
+<h3>Банківські операції</h3>
+<table><thead><tr><th>Дата</th><th>Рахунок</th><th>Напрямок</th><th>Категорія</th><th>Контрагент</th><th>Призначення</th><th class="n">Сума</th></tr></thead><tbody>
+{% for op in bank_operations %}
+<tr><td>{{ op.transaction_date|date:"d.m.Y" }}</td><td>{{ op.account.bank_name }} · {{ op.account.iban }}</td><td>{{ op.get_direction_display }}</td><td>{{ op.category }}</td><td>{{ op.counterparty|default:"—" }}</td><td>{{ op.document_ref|default:"—" }}</td><td class="n">{{ op.amount|floatformat:2 }} ₴</td></tr>
+{% empty %}<tr><td colspan="7">Банківських операцій немає.</td></tr>{% endfor %}
+</tbody></table>
+</div>
+{% endblock %}

@@ -33,7 +33,15 @@ def parse_lines(records, rate=None):
             bad.append((n, sku or "?", "порожній артикул або кількість"))
             continue
         brand = " ".join((r.get("brand") or "").split()).upper()[:60]
-        cost = num(r.get("cost")) or D0
+        raw_cost = (r.get("cost") or "").strip()
+        parsed_cost = num(raw_cost) if raw_cost else D0
+        if parsed_cost is None:
+            bad.append((n, sku, "некоректна закупівельна ціна"))
+            continue
+        if parsed_cost < D0:
+            bad.append((n, sku, "закупівельна ціна не може бути від'ємною"))
+            continue
+        cost = parsed_cost
         key = (brand, sn)
         if key in merged:
             m = merged[key]
@@ -57,7 +65,7 @@ def _item_brand(it):
 
 def _open_orders(sup):
     """Відкриті замовлення клієнтів у постачальника: {(бренд, артикул_норм): [позиції за чергою]}."""
-    qs = (SaleItem.objects.filter(source=SaleItem.SUPPLIER, supplier=sup, fulfil_status=SaleItem.ORDERED, sale__status=Sale.DONE)
+    qs = (SaleItem.objects.filter(company=sup.company, sale__company=sup.company, source=SaleItem.SUPPLIER, supplier=sup, fulfil_status=SaleItem.ORDERED, sale__status=Sale.DONE)
           .select_related("sale__customer", "sale__cashier", "supplier_item", "product").order_by("sale__created_at", "pk"))
     out = defaultdict(list)
     for it in qs:
@@ -74,8 +82,8 @@ def _resolve_brand(sup, line, open_orders):
     ordered = {b for (b, n) in open_orders if n == sn}
     if len(ordered) == 1:
         return next(iter(ordered)), None
-    cands = ordered or (set(SupplierItem.objects.filter(supplier=sup, sku_norm=sn).values_list("brand", flat=True))
-                        | {b.upper() for b in Product.objects.filter(sku_norm=sn).values_list("brand", flat=True)})
+    cands = ordered or (set(SupplierItem.objects.filter(company=sup.company, supplier=sup, sku_norm=sn).values_list("brand", flat=True))
+                        | {b.upper() for b in Product.objects.filter(company=sup.company, sku_norm=sn).values_list("brand", flat=True)})
     cands.discard("")
     if len(cands) == 1:
         return cands.pop(), None
@@ -121,7 +129,7 @@ def plan(sup, lines):
                             break
         if remaining > 0 and not ln["cost"]:
             row["warnings"].append("у накладній немає ціни: на склад піде з нульовою закупівельною")
-        if remaining > 0 and not Product.objects.filter(sku_norm=ln["sn"], brand__iexact=brand).exists():
+        if remaining > 0 and not Product.objects.filter(company=sup.company, sku_norm=ln["sn"], brand__iexact=brand).exists():
             row["warnings"].append("нова деталь: на складі такої картки ще немає, її буде створено. Перевірте ціну продажу після приймання")
     totals = {"matched": sum(len(r["alloc"]) for r in rows), "stock_lines": sum(1 for r in rows if r["stock_qty"] > 0 and not r["error"]),
               "errors": sum(1 for r in rows if r["error"]), "pending_after": sum(len(v) for v in open_orders.values()) - len(claimed)}
@@ -131,7 +139,7 @@ def plan(sup, lines):
 def _split(it, take):
     """Ділить позицію чека: нова позиція на `take` одиниць (прибула), у старої лишається решта. Сума чека не змінюється."""
     new = SaleItem.objects.create(
-        sale=it.sale, product=it.product, quantity=take, original_price=it.original_price, price=it.price,
+        company=it.company, sale=it.sale, product=it.product, quantity=take, original_price=it.original_price, price=it.price,
         cost_price=it.cost_price, source=it.source, supplier=it.supplier, supplier_item=it.supplier_item,
         fulfil_status=SaleItem.ORDERED, markup_pct=it.markup_pct)
     it.quantity -= take
@@ -144,7 +152,7 @@ def execute(user, sup, number, days, lines):
     """Застосовує приймання (план перераховується всередині, щоб не покладатись на застарілі дані)."""
     pl = plan(sup, lines)
     number = (number or "").strip()[:60]
-    days = days if days else CompanySettings.get().pickup_days
+    days = days if days else CompanySettings.get(sup.company).pickup_days
     n_matched = n_stock = n_skipped = 0
     stock_lines, notes = [], []
     for row in pl["rows"]:
@@ -154,7 +162,7 @@ def execute(user, sup, number, days, lines):
             notes.append(f"пропущено {ln['sku']}: {row['error']}")
             continue
         for a in row["alloc"]:
-            it = SaleItem.objects.select_for_update().get(pk=a["item"].pk)
+            it = SaleItem.objects.select_for_update().get(pk=a["item"].pk, company=sup.company)
             if it.fulfil_status != SaleItem.ORDERED:
                 raise StockError("Дані змінились під час приймання, повторіть")
             target = _split(it, a["qty"]) if a["split"] else it
@@ -165,20 +173,20 @@ def execute(user, sup, number, days, lines):
             n_matched += 1
             notes.append(f"{ln['brand']} {ln['sku']} × {a['qty'].normalize():f} → {it.sale.number}")
         if row["stock_qty"] > 0:
-            prod = Product.objects.filter(sku_norm=ln["sn"], brand__iexact=row["brand"]).first()
+            prod = Product.objects.filter(company=sup.company, sku_norm=ln["sn"], brand__iexact=row["brand"]).first()
             if prod is None:
-                si = SupplierItem.objects.filter(supplier=sup, brand=row["brand"], sku_norm=ln["sn"]).first()
+                si = SupplierItem.objects.filter(company=sup.company, supplier=sup, brand=row["brand"], sku_norm=ln["sn"]).first()
                 if si:
                     prod = services.ensure_product(si)
                 else:
                     cost = ln["cost"] or D0
-                    prod = Product.objects.create(name=ln["name"] or f"{row['brand']} {ln['sku']}", sku=ln["sku"], brand=row["brand"],
-                                                  cost_price=cost, price=services.markup_price(cost, services.tier_pct(None)))
+                    prod = Product.objects.create(company=sup.company, name=ln["name"] or f"{row['brand']} {ln['sku']}", sku=ln["sku"], brand=row["brand"],
+                                                  cost_price=cost, price=services.markup_price(cost, services.tier_pct(None, company=sup.company)))
             stock_lines.append((prod, row["stock_qty"], ln["cost"] or D0))
             n_stock += 1
             notes.append(f"{ln['brand']} {ln['sku']} × {row['stock_qty'].normalize():f} → склад")
-    pur = services.create_purchase(user, sup, stock_lines) if stock_lines else None
+    pur = services.create_purchase(user, sup, stock_lines, company=sup.company) if stock_lines else None
     if not (n_matched or n_stock):
         raise StockError("Немає що приймати: жоден рядок не вдалося зіставити")
-    return Receipt.objects.create(supplier=sup, number=number, user=user, n_matched=n_matched, n_stock=n_stock,
+    return Receipt.objects.create(company=sup.company, supplier=sup, number=number, user=user, n_matched=n_matched, n_stock=n_stock,
                                   n_skipped=n_skipped, purchase=pur, note="\n".join(notes)[:5000])

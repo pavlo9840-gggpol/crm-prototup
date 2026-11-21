@@ -1,0 +1,51 @@
+{% extends "core/base.html" %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+  <a class="btn" href="{% url 'inventory_count_print' count.pk %}" target="_blank" rel="noopener">Друк відомості</a>
+  <div><h2>{{ count.number }} — інвентаризація</h2><p class="muted">Створено {{ count.created_at|date:"d.m.Y H:i" }} · {{ count.created_by }}{% if count.note %} · {{ count.note }}{% endif %}</p></div>
+  {% if count.status == "approved" %}<span class="badge green">Затверджено {{ count.approved_at|date:"d.m.Y H:i" }}</span>{% else %}<span class="badge gray">Чернетка</span>{% endif %}
+</div>
+<div class="grid3" style="margin-bottom:14px">
+  <div class="card"><small>Позицій у документі</small><h2>{{ summary.total }}</h2></div>
+  <div class="card"><small>Пораховано</small><h2>{{ summary.counted }}</h2></div>
+  <div class="card"><small>Надлишок</small><h2 style="color:var(--success,#16803c)">{{ summary.surplus|floatformat:"-3" }}</h2></div>
+  <div class="card"><small>Нестача</small><h2 style="color:var(--danger,#b42318)">{{ summary.shortage|floatformat:"-3" }}</h2></div>
+  <div class="card"><small>Чиста різниця</small><h2>{{ summary.net_difference|floatformat:"-3" }}</h2></div>
+</div>
+<form method="get" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
+<label>Пошук товару / штрихкоду<br><input name="q" value="{{ q }}" placeholder="Назва, артикул, штрих-код"></label>
+<label>Стан підрахунку<br><select name="status"><option value="all" {% if status == "all" %}selected{% endif %}>Усі</option><option value="counted" {% if status == "counted" %}selected{% endif %}>Пораховані</option><option value="pending" {% if status == "pending" %}selected{% endif %}>Не пораховані</option><option value="difference" {% if status == "difference" %}selected{% endif %}>Лише розбіжності</option><option value="surplus" {% if status == "surplus" %}selected{% endif %}>Надлишки</option><option value="shortage" {% if status == "shortage" %}selected{% endif %}>Нестачі</option></select></label>
+<button class="btn">Фільтрувати</button>
+</form>
+{% if count.status == "draft" %}
+<form method="post" class="card">{% csrf_token %}
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+    <label style="flex:1;min-width:220px">Сканер штрих-коду<br><input name="barcode" autofocus autocomplete="off" placeholder="Відскануйте код і натисніть Enter"></label>
+    <button class="btn">Додати 1 шт. за скануванням</button>
+  </div>
+  <p class="muted">Сканування збільшує фактичну кількість на одну одиницю. Для ручного перерахунку введіть кількість у таблиці та натисніть «Зберегти підрахунок».</p>
+  <div style="overflow:auto">
+  <table style="width:100%">
+  <thead><tr><th>Товар</th><th>Артикул / код</th><th class="n">Обліковий залишок</th><th class="n">Фактично</th><th class="n">Різниця</th></tr></thead>
+  <tbody>
+  {% for item in items %}
+  <tr>
+    <td>{{ item.product.name }}</td><td>{{ item.product.sku }}{% if item.product.barcode %}<small style="display:block">{{ item.product.barcode }}</small>{% endif %}</td>
+    <td class="n">{{ item.expected_quantity|floatformat:"-3" }}</td>
+    <td class="n"><input style="width:110px;text-align:right" type="number" min="0" step="0.001" name="counted_{{ item.pk }}" value="{{ item.counted_quantity|default_if_none:'' }}" placeholder="—"></td>
+    <td class="n">{% if item.difference is not None %}{{ item.difference|floatformat:"-3" }}{% else %}—{% endif %}</td>
+  </tr>
+  {% empty %}<tr><td colspan="5">За цим фільтром товарів немає.</td></tr>{% endfor %}
+  </tbody></table></div>
+  <button class="btn green" name="action" value="save" style="margin-top:14px">Зберегти підрахунок</button>
+</form>
+<form method="post" style="margin-top:12px" onsubmit="return confirm('Затвердити інвентаризацію? Зміни залишків буде записано в історію руху товарів.');">{% csrf_token %}
+  <button class="btn primary" name="action" value="approve">Затвердити інвентаризацію та провести різниці</button>
+</form>
+{% else %}
+<div class="card" style="overflow:auto"><table style="width:100%">
+<thead><tr><th>Товар</th><th>Артикул</th><th class="n">Було</th><th class="n">Фактично</th><th class="n">Різниця</th></tr></thead>
+<tbody>{% for item in items %}<tr><td>{{ item.product.name }}</td><td>{{ item.product.sku }}</td><td class="n">{{ item.book_quantity_at_approval|default:item.expected_quantity|floatformat:"-3" }}</td><td class="n">{{ item.counted_quantity|default:"—" }}</td><td class="n">{{ item.difference|default:"—" }}</td></tr>{% empty %}<tr><td colspan="5">Немає позицій.</td></tr>{% endfor %}</tbody></table></div>
+<p class="muted">Затвердив: {{ count.approved_by|default:"—" }}. Рух товарів збережено в журналі.</p>
+{% endif %}
+{% endblock %}

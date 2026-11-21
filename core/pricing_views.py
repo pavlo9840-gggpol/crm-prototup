@@ -10,10 +10,17 @@ from django.utils import timezone
 
 from . import pricing
 from .models import PriceRule, Product, SupplierPriceChange
-from .views import simple_form, staff_only
+from .views import simple_form, tenant_staff_only
+from .tenant_context import company_queryset, company_required
 
 
 class PriceRuleForm(forms.ModelForm):
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if company is not None:
+            from .models import Category
+            self.fields["category"].queryset = Category.objects.filter(company=company)
+
     class Meta:
         model = PriceRule
         fields = ["name", "brand", "category", "markup_pct", "min_margin_pct", "rounding", "priority", "is_active"]
@@ -34,36 +41,38 @@ class PriceRuleForm(forms.ModelForm):
         return v
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def price_rules(request):
-    rs = pricing.RuleSet()
+    rs = pricing.RuleSet(company=request.company)
     rows = []
-    for r in PriceRule.objects.select_related("category"):
-        ex = pricing.compute_price(1000, pricing.base_pct(None, r), r)
+    for r in PriceRule.objects.filter(company=request.company).select_related("category"):
+        ex = pricing.compute_price(1000, pricing.base_pct(None, r, company=request.company), r)
         rows.append({"r": r, "example": ex})
     return render(request, "core/price_rules.html", {"rows": rows, "has_default": any(not r.brand and not r.category_id and r.is_active for r in rs.rules)})
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def price_rule_edit(request, pk=None):
     return simple_form(request, PriceRuleForm, "Правило ціни", "price_rules", pk, PriceRule)
 
 
-def build_rows(brand_q="", only_ids=None):
+def build_rows(company, brand_q="", only_ids=None):
     """Для кожного товару: що рекомендують правила й чи просіла маржа."""
-    qs = Product.objects.filter(is_active=True, cost_price__gt=0).exclude(from_supplier=True, current_stock__lte=0, auto_price=False)
+    qs = Product.objects.filter(company=company, is_active=True, cost_price__gt=0).exclude(from_supplier=True, current_stock__lte=0, auto_price=False)
     if only_ids is not None:
         qs = qs.filter(pk__in=only_ids)
     if brand_q:
         qs = qs.filter(Q(brand__icontains=brand_q) | Q(sku__icontains=brand_q))
     prods = list(qs.select_related("category")[:3000])
-    rs, repl = pricing.RuleSet(), pricing.replacement_costs(prods)
+    rs, repl = pricing.RuleSet(company=company), pricing.replacement_costs(prods)
     rows = []
     for p in prods:
         rule = rs.for_(p.brand, p.category_id)
         r = repl.get((p.brand.upper(), p.sku_norm))
         ref = r or p.cost_price
-        rec = pricing.compute_price(ref, pricing.base_pct(None, rule), rule)
+        rec = pricing.compute_price(ref, pricing.base_pct(None, rule, company=company), rule)
         cur_m = pricing.margin_pct(p.price, p.cost_price)
         floor = rule.min_margin_pct if rule else Decimal(0)
         low = bool(floor and cur_m < floor - Decimal("0.01"))
@@ -75,7 +84,8 @@ def build_rows(brand_q="", only_ids=None):
     return rows
 
 
-@staff_only
+@tenant_staff_only
+@company_required
 def price_review(request):
     brand_q = request.GET.get("q", "").strip()
     show = request.GET.get("show", "problems")
@@ -83,30 +93,30 @@ def price_review(request):
         act = request.POST.get("act")
         ids = [int(i) for i in request.POST.getlist("ids") if i.isdigit()]
         if act == "apply_all":
-            ids = [r["p"].pk for r in build_rows(request.POST.get("q", "").strip()) if r["needs"]]
+            ids = [r["p"].pk for r in build_rows(request.company, request.POST.get("q", "").strip()) if r["needs"]]
         if not ids:
             messages.error(request, "Нічого не вибрано")
         elif act in ("apply", "apply_all"):
-            rs, n = pricing.RuleSet(), 0
-            for r in build_rows(only_ids=ids):
+            rs, n = pricing.RuleSet(company=request.company), 0
+            for r in build_rows(request.company, only_ids=ids):
                 if pricing.reprice_product(r["p"], request.user, cost=r["ref"], rs=rs):
                     n += 1
             messages.success(request, f"Ціни перераховано за правилами: {n}")
         elif act in ("enable_auto", "disable_auto"):
-            Product.objects.filter(pk__in=ids).update(auto_price=(act == "enable_auto"))
+            Product.objects.filter(company=request.company, pk__in=ids).update(auto_price=(act == "enable_auto"))
             messages.success(request, ("Автоціну ввімкнено" if act == "enable_auto" else "Автоціну вимкнено") + f" для {len(ids)} товарів")
         return redirect(f"{request.path}?q={brand_q}&show={show}")
-    rows = build_rows(brand_q)
+    rows = build_rows(request.company, brand_q)
     totals = {"all": len(rows), "needs": sum(1 for r in rows if r["needs"]), "low": sum(1 for r in rows if r["low"]),
               "cost_up": sum(1 for r in rows if r["cost_up"]), "auto": sum(1 for r in rows if r["p"].auto_price)}
     shown = {"problems": [r for r in rows if r["needs"]], "auto": [r for r in rows if r["p"].auto_price],
              "all": rows}.get(show, [r for r in rows if r["needs"]])[:400]
     since = timezone.now() - timedelta(days=14)
     changes = []
-    for c in SupplierPriceChange.objects.filter(at__gte=since).select_related("item__supplier")[:60]:
-        mine = Product.objects.filter(sku_norm=c.item.sku_norm, brand__iexact=c.item.brand).first()
+    for c in SupplierPriceChange.objects.filter(company=request.company, at__gte=since).select_related("item__supplier")[:60]:
+        mine = Product.objects.filter(company=request.company, sku_norm=c.item.sku_norm, brand__iexact=c.item.brand).first()
         pct = (c.new_cost - c.old_cost) / c.old_cost * 100 if c.old_cost else Decimal(0)
         changes.append({"c": c, "pct": pct, "mine": mine})
     changes.sort(key=lambda x: (x["mine"] is None, -abs(x["pct"])))
     return render(request, "core/price_review.html", {"rows": shown, "totals": totals, "q": brand_q, "show": show, "changes": changes,
-                                                      "rules_count": PriceRule.objects.filter(is_active=True).count()})
+                                                      "rules_count": PriceRule.objects.filter(company=request.company, is_active=True).count()})

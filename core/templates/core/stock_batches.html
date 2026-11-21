@@ -1,0 +1,31 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>Партії та терміни придатності</h2>
+<div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:12px 0">
+  <a class="card" href="?status=expired"><b>Прострочені</b><div style="font-size:26px">{{ counts.expired }}</div></a>
+  <a class="card" href="?status=soon"><b>Закінчуються за 30 днів</b><div style="font-size:26px">{{ counts.soon }}</div></a>
+  <a class="card" href="?status=unknown"><b>Без дати придатності</b><div style="font-size:26px">{{ counts.unknown }}</div></a>
+  <a class="card" href="?status=all"><b>Усі партії</b><div style="font-size:26px">Показати</div></a>
+</div>
+<form method="get" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+  <label>Пошук товару / партії<br><input name="q" value="{{ q }}" placeholder="Назва, артикул або № партії"></label>
+  <label>Стан<br><select name="status"><option value="all" {% if status == "all" %}selected{% endif %}>Усі</option><option value="expired" {% if status == "expired" %}selected{% endif %}>Прострочені</option><option value="soon" {% if status == "soon" %}selected{% endif %}>До 30 днів</option><option value="unknown" {% if status == "unknown" %}selected{% endif %}>Без дати</option></select></label>
+  <button class="btn">Знайти</button>
+</form>
+<div class="card" style="overflow:auto">
+<table style="width:100%">
+<thead><tr><th>Товар</th><th>Партія</th><th>Надійшла</th><th>Придатний до</th><th>Залишок</th><th>Собівартість</th><th>Статус</th></tr></thead>
+<tbody>
+{% for row in batches %}{% with b=row.batch %}
+<tr>
+<td><a href="{% url 'product_edit' b.product_id %}">{{ b.product.name }}</a><small style="display:block">{{ b.product.sku }}</small></td>
+<td>{{ b.batch_number|default:"—" }}</td><td>{{ b.received_at|date:"d.m.Y" }}</td>
+<td>{% if b.expiry_date %}{{ b.expiry_date|date:"d.m.Y" }}{% else %}Не вказано{% endif %}</td>
+<td>{{ b.remaining_quantity }} {{ b.product.unit }}</td><td>{{ b.cost_price }} ₴</td>
+<td>{% if row.state == "expired" %}<span class="badge red">Прострочено</span>{% elif row.state == "soon" %}<span class="badge orange">Залишилось {{ row.days_left }} дн.</span>{% elif row.state == "unknown" %}<span class="badge gray">Без дати</span>{% else %}<span class="badge green">У нормі</span>{% endif %}</td>
+</tr>
+{% endwith %}{% empty %}<tr><td colspan="7">Партій із залишком не знайдено.</td></tr>{% endfor %}
+</tbody></table>
+<p class="muted">Показано до 500 партій. Продаж товарів із прострочених партій блокується; партії без дати відображаються окремо.</p>
+</div>
+{% endblock %}

@@ -53,3 +53,133 @@ class SupplierItemAdmin(admin.ModelAdmin):
 
 admin.site.register(m.MarkupTier)
 admin.site.register(m.CrossRef)
+
+
+@admin.register(m.CatalogSource)
+class CatalogSourceAdmin(admin.ModelAdmin):
+    list_display = ("name", "license_name", "version", "commercial_use")
+    search_fields = ("name", "license_name", "version")
+    readonly_fields = ("created_at",)
+
+
+@admin.register(m.CatalogImportRun)
+class CatalogImportRunAdmin(admin.ModelAdmin):
+    list_display = ("source", "started_at", "finished_at", "status", "created_count", "updated_count", "skipped_count", "error_count")
+    readonly_fields = tuple(field.name for field in m.CatalogImportRun._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(m.VehicleMake)
+class VehicleMakeAdmin(admin.ModelAdmin):
+    list_display = ("name", "kind", "slug", "source")
+    search_fields = ("name", "slug", "name_norm")
+    list_filter = ("kind", "source")
+
+
+@admin.register(m.VehicleModel)
+class VehicleModelAdmin(admin.ModelAdmin):
+    list_display = ("name", "make", "slug")
+    search_fields = ("name", "slug", "make__name")
+    list_filter = ("make__kind",)
+
+
+@admin.register(m.VehicleVariant)
+class VehicleVariantAdmin(admin.ModelAdmin):
+    list_display = ("label", "model", "year_from", "year_to", "engine_code", "source")
+    search_fields = ("label", "engine_code", "model__name", "model__make__name")
+
+
+@admin.register(m.CatalogPart)
+class CatalogPartAdmin(admin.ModelAdmin):
+    list_display = ("name", "category_name", "updated_at")
+    search_fields = ("name", "category_name", "description")
+
+
+@admin.register(m.CatalogPartNumber)
+class CatalogPartNumberAdmin(admin.ModelAdmin):
+    list_display = ("brand", "sku", "part", "verified", "source", "product")
+    search_fields = ("brand", "sku", "sku_norm", "part__name")
+    list_filter = ("verified", "source")
+
+
+@admin.register(m.PartFitment)
+class PartFitmentAdmin(admin.ModelAdmin):
+    list_display = ("part_number", "vehicle_model", "year_from", "year_to", "engine_code", "verified", "source")
+    search_fields = ("part_number__sku", "part_number__brand", "vehicle_model__name", "vehicle_model__make__name")
+    list_filter = ("verified", "source", "vehicle_model__make__kind")
+
+
+@admin.register(m.Company)
+class CompanyAdmin(admin.ModelAdmin):
+    list_display = ("name", "slug", "owner", "created_at")
+    search_fields = ("name", "slug", "owner__username")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(m.StaffMembership)
+class StaffMembershipAdmin(admin.ModelAdmin):
+    list_display = ("company", "user", "role", "is_active", "created_at")
+    search_fields = ("company__name", "user__username", "user__email")
+    list_filter = ("role", "is_active")
+    readonly_fields = ("created_at",)
+
+
+@admin.register(m.PurchaseOrder)
+class PurchaseOrderAdmin(admin.ModelAdmin):
+    list_display = ("number", "supplier", "status", "created_at", "expected_date", "user")
+    list_filter = ("status", "supplier")
+    search_fields = ("number", "supplier__name")
+    readonly_fields = ("number", "created_at", "updated_at", "sent_at", "confirmed_at", "closed_at")
+
+
+@admin.register(m.PurchaseOrderItem)
+class PurchaseOrderItemAdmin(admin.ModelAdmin):
+    list_display = ("order", "product", "quantity", "received_quantity", "cost_price")
+    search_fields = ("order__number", "product__name", "product__sku")
+
+
+@admin.register(m.SupplierClaim)
+class SupplierClaimAdmin(admin.ModelAdmin):
+    list_display = ("claim_number", "supplier", "order", "kind", "status", "created_at")
+    list_filter = ("status", "kind", "supplier")
+    search_fields = ("claim_number", "order__number", "supplier__name", "description")
+    readonly_fields = ("claim_number", "created_at", "updated_at", "sent_at", "closed_at")
+
+
+@admin.register(m.SupplierReturn)
+class SupplierReturnAdmin(admin.ModelAdmin):
+    list_display = ("number", "supplier", "purchase_item", "quantity", "unit_cost", "compensation_type", "completed_at")
+    list_filter = ("compensation_type", "supplier")
+    search_fields = ("number", "supplier__name", "purchase_item__purchase__number", "reason")
+    readonly_fields = tuple(field.name for field in m.SupplierReturn._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(m.SupplierCompensation)
+class SupplierCompensationAdmin(admin.ModelAdmin):
+    list_display = ("number", "supplier", "supplier_return", "kind", "amount", "created_at", "created_by")
+    list_filter = ("kind", "created_at")
+    search_fields = ("number", "supplier__name", "supplier_return__number", "purchase__number")
+    readonly_fields = tuple(field.name for field in m.SupplierCompensation._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

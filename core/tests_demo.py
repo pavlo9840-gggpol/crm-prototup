@@ -17,51 +17,53 @@ class DemoDataTest(TestCase):
     """Наскрізна перевірка на демо-даних: прайси → аналоги → клієнти з авто → замовлення → приймання накладної."""
 
     def setUp(self):
-        get_user_model().objects.create_superuser("admin", "", "x")
+        admin = get_user_model().objects.create_superuser("demo-admin", "", "x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(admin, "Demo data test shop", [])
         self.c = self.client
-        self.c.login(username="admin", password="x")
+        self.c.login(username="demo-admin", password="x")
         self.out = os.path.join(tempfile.mkdtemp(), "inv.csv")
-        call_command("load_demo_data", out=self.out, stdout=StringIO())
+        call_command("load_demo_data", out=self.out, company_id=self.company.pk, stdout=StringIO())
 
     def test_dataset_shape_and_idempotence(self):
-        self.assertGreater(SupplierItem.objects.count(), 200)
-        self.assertGreater(PartOe.objects.count(), 100)
-        self.assertEqual((Customer.objects.filter(notes="DEMO").count(), CustomerCar.objects.count(), Sale.objects.count()), (3, 4, 2))
-        before = (Product.objects.count(), SupplierItem.objects.count())
+        self.assertGreater(SupplierItem.objects.filter(company=self.company).count(), 200)
+        self.assertGreater(PartOe.objects.filter(company=self.company).count(), 100)
+        self.assertEqual((Customer.objects.filter(company=self.company, notes="DEMO").count(), CustomerCar.objects.filter(company=self.company).count(), Sale.objects.filter(company=self.company).count()), (3, 4, 2))
+        before = (Product.objects.filter(company=self.company).count(), SupplierItem.objects.filter(company=self.company).count())
         buf = StringIO()
-        call_command("load_demo_data", out=self.out, stdout=buf)
+        call_command("load_demo_data", out=self.out, company_id=self.company.pk, stdout=buf)
         self.assertIn("вже створено", buf.getvalue())
-        self.assertEqual((Product.objects.count(), SupplierItem.objects.count()), before)
+        self.assertEqual((Product.objects.filter(company=self.company).count(), SupplierItem.objects.filter(company=self.company).count()), before)
 
     def test_exact_analogs_by_oe_and_name_inference_on_demo_parts(self):
-        o = PartOe.objects.filter(brand="BILSTEIN").first()
-        res = crosses.analogs(o.brand, o.sku_norm)
+        o = PartOe.objects.filter(company=self.company, brand="BILSTEIN").first()
+        res = crosses.analogs(o.brand, o.sku_norm, company=self.company)
         self.assertGreaterEqual(len(res), 2)                                              # інші бренди з тим самим OE
         self.assertTrue(all(r["level"] in ("oe", "manual") and r["score"] >= 70 for r in res))
         self.assertTrue(all(r["brand"] != "BILSTEIN" for r in res))
-        no_oe = next(i for i in SupplierItem.objects.filter(brand="BILSTEIN") if not PartOe.objects.filter(brand=i.brand, sku_norm=i.sku_norm).exists())
-        named = crosses.analogs(no_oe.brand, no_oe.sku_norm, with_names=True)
+        no_oe = next(i for i in SupplierItem.objects.filter(company=self.company, brand="BILSTEIN") if not PartOe.objects.filter(company=self.company, brand=i.brand, sku_norm=i.sku_norm).exists())
+        named = crosses.analogs(no_oe.brand, no_oe.sku_norm, with_names=True, company=self.company)
         self.assertTrue(named and all(r["level"] == "name" and r["score"] <= 40 for r in named))
         # без назв (як на касі) таких підказок немає: назви не підміняють точні дані
-        self.assertEqual(crosses.analogs(no_oe.brand, no_oe.sku_norm), [])
+        self.assertEqual(crosses.analogs(no_oe.brand, no_oe.sku_norm, company=self.company), [])
         card = self.c.get("/part/", {"b": o.brand, "s": o.sku_norm})
         self.assertContains(card, "Точний аналог (спільний OE)")
         self.assertContains(card, "Тестовий опис")
 
     def test_pos_search_with_customer_car_marks_fitting_parts(self):
-        car = CustomerCar.objects.get(plate="AA 1234 BB")                                    # Renault Trafic II
+        car = CustomerCar.objects.get(company=self.company, plate="AA 1234 BB")                                    # Renault Trafic II
         d = self.c.get("/pos/lookup/", {"q": "амортизатор renault", "car": car.pk}).json()
         fits = {s["fit"] for s in d["suppliers"]}
         self.assertTrue(fits & {True})                                                       # є позиції для цього авто
         self.assertNotIn(None, fits)                                                         # для всіх демо-деталей застосовність відома
         opel = d["suppliers"][0]
-        other = CustomerCar.objects.get(plate="KA 5555 CE")
+        other = CustomerCar.objects.get(company=self.company, plate="KA 5555 CE")
         d2 = self.c.get("/pos/lookup/", {"q": "амортизатор renault", "car": other.pk}).json()   # Opel Vivaro
         self.assertEqual({s["fit"] for s in d2["suppliers"]}, {False})
         self.assertEqual(self.c.get("/pos/customer/", {"q": "aa1234bb"}).json()["results"][0]["name"], "Іван Петренко (демо)")
 
     def test_receiving_generated_invoice_end_to_end(self):
-        bm = Supplier.objects.get(name="Busmarket (демо)")
+        bm = Supplier.objects.get(company=self.company, name="Busmarket (демо)")
         with open(self.out, "rb") as f:
             r = self.c.post("/receive/preview/", {"supplier": bm.pk, "file": SimpleUploadedFile("inv.csv", f.read()), "number": "DEMO-1"})
         t = r.context["plan"]["totals"]
@@ -70,22 +72,22 @@ class DemoDataTest(TestCase):
         data = {"supplier": bm.pk, "token": ctx["token"], "fname": ctx["fname"], "header_row": ctx["hdr"], "number": "DEMO-1", "days": "14"}
         data.update({f"col_{x['key']}": x["sel"] for x in ctx["fields"] if x["sel"] is not None})
         self.assertContains(self.c.post("/receive/apply/", data, follow=True), "під клієнтів 2")
-        self.assertEqual(SaleItem.objects.filter(source="supplier", fulfil_status="arrived").count(), 2)
+        self.assertEqual(SaleItem.objects.filter(company=self.company, source="supplier", fulfil_status="arrived").count(), 2)
         self.assertEqual(Receipt.objects.get().n_stock, 1)
         self.assertContains(self.c.get("/orders/?st=arrived"), "Іван Петренко (демо)")
         self.assertContains(self.c.get("/orders/?st=arrived"), "🚗")                            # авто клієнта видно в замовленні
 
     def test_reset_removes_everything_demo(self):
-        call_command("load_demo_data", reset=True, stdout=StringIO())
+        call_command("load_demo_data", reset=True, company_id=self.company.pk, stdout=StringIO())
         for model in (SupplierItem, PartOe, PartInfo, CrossRef, CustomerCar, Sale, SaleItem, Customer, Product):
-            self.assertEqual(model.objects.count(), 0, model.__name__)
-        self.assertFalse(Supplier.objects.exists())
-        call_command("load_demo_data", reset=True, stdout=StringIO())                       # повторно безпечно
-        call_command("load_demo_data", out=self.out, stdout=StringIO())                      # і можна створити знову
-        self.assertGreater(SupplierItem.objects.count(), 200)
+            self.assertEqual(model.objects.filter(company=self.company).count(), 0, model.__name__)
+        self.assertFalse(Supplier.objects.filter(company=self.company).exists())
+        call_command("load_demo_data", reset=True, company_id=self.company.pk, stdout=StringIO())                       # повторно безпечно
+        call_command("load_demo_data", out=self.out, company_id=self.company.pk, stdout=StringIO())                      # і можна створити знову
+        self.assertGreater(SupplierItem.objects.filter(company=self.company).count(), 200)
 
     def test_reset_after_receiving_keeps_protected_data_without_crashing(self):
-        bm = Supplier.objects.get(name="Busmarket (демо)")
+        bm = Supplier.objects.get(company=self.company, name="Busmarket (демо)")
         with open(self.out, "rb") as f:
             r = self.c.post("/receive/preview/", {"supplier": bm.pk, "file": SimpleUploadedFile("inv.csv", f.read())})
         ctx = r.context
@@ -93,6 +95,6 @@ class DemoDataTest(TestCase):
         data.update({f"col_{x['key']}": x["sel"] for x in ctx["fields"] if x["sel"] is not None})
         self.c.post("/receive/apply/", data)
         buf = StringIO()
-        call_command("load_demo_data", reset=True, stdout=buf)                               # закупівля посилається на постачальника
+        call_command("load_demo_data", reset=True, company_id=self.company.pk, stdout=buf)                               # закупівля посилається на постачальника
         self.assertIn("не видалено", buf.getvalue())
-        self.assertEqual(Customer.objects.filter(notes="DEMO").count(), 0)
+        self.assertEqual(Customer.objects.filter(company=self.company, notes="DEMO").count(), 0)

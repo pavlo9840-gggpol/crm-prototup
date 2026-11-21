@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Звіти СТО</title>
+<style>
+:root{color-scheme:light}body{font:16px system-ui,sans-serif;max-width:1150px;margin:2rem auto;padding:0 1rem;color:#172033;background:#f7f8fb}
+a{color:#155eef}.nav{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0 1.5rem}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1rem}.card{background:white;border:1px solid #e3e7ef;border-radius:14px;padding:1rem;box-shadow:0 2px 8px #1720330a}.label{color:#596579;font-size:.9rem}.value{font-size:1.7rem;font-weight:700;margin-top:.35rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-top:1rem}table{width:100%;border-collapse:collapse;background:white;margin-top:.5rem}td,th{text-align:left;padding:.65rem;border-bottom:1px solid #e3e7ef}th{font-size:.9rem;color:#596579}section{min-width:0}h2{margin-bottom:.5rem}
+</style>
+</head>
+<body>
+<h1>Звіти сервісного центру</h1>
+<p>Період: <strong>{{ month_start|date:"d.m.Y" }} — {{ today|date:"d.m.Y" }}</strong></p>
+<nav class="nav"><a href="{% url 'service_home' %}">← До СТО</a><a href="{% url 'service_order_new' %}">＋ Новий наряд</a><a href="{% url 'dashboard' %}">CRM</a></nav>
+<div class="cards">
+<div class="card"><div class="label">Створено нарядів за місяць</div><div class="value">{{ orders_count }}</div></div>
+<div class="card"><div class="label">Роботи за нарядами</div><div class="value">{{ labor_total|floatformat:2 }} грн</div></div>
+<div class="card"><div class="label">Запчастини за нарядами</div><div class="value">{{ parts_total|floatformat:2 }} грн</div></div>
+<div class="card"><div class="label">Вартість робіт і запчастин</div><div class="value">{{ service_total|floatformat:2 }} грн</div></div>
+<div class="card"><div class="label">Фактично отримано оплат за місяць</div><div class="value">{{ collected|floatformat:2 }} грн</div></div>
+<div class="card"><div class="label">Борг за незакритими нарядами</div><div class="value">{{ outstanding|floatformat:2 }} грн</div></div>
+</div>
+<div class="grid">
+<section><h2>Наряди за статусом</h2><table><thead><tr><th>Статус</th><th>Кількість</th></tr></thead><tbody>{% for label, count in status_counts %}<tr><td>{{ label }}</td><td>{{ count }}</td></tr>{% endfor %}</tbody></table></section>
+<section><h2>Останні оплати за місяць</h2><table><thead><tr><th>Дата</th><th>Наряд</th><th>Спосіб</th><th>Сума</th><th>Прийняв</th></tr></thead><tbody>{% for p in recent_payments %}<tr><td>{{ p.created_at|date:"d.m.Y H:i" }}</td><td><a href="{% url 'service_order_detail' p.order_id %}">#{{ p.order_id }}</a></td><td>{{ p.get_method_display }}</td><td>{{ p.amount|floatformat:2 }} грн</td><td>{{ p.received_by|default:"—" }}</td></tr>{% empty %}<tr><td colspan="5">Оплат за цей період поки немає.</td></tr>{% endfor %}</tbody></table></section>
+</div>
+<p class="label">Фінансові підсумки рахуються за датою створення наряду та датою фактичної оплати. Борг включає незавершені та завершені, але ще не видані наряди.</p>
+</body></html>

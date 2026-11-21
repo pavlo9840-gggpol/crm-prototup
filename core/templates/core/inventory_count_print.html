@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Інвентаризація {{ count.number }}</title>
+<style>
+  @page { size: A4 portrait; margin: 14mm 12mm; }
+  * { box-sizing: border-box; }
+  body { font: 12px/1.4 Arial, sans-serif; color: #111; margin: 0; }
+  h1 { font-size: 20px; margin: 0 0 5px; }
+  .meta { margin: 0 0 14px; color: #333; }
+  .toolbar { margin-bottom: 14px; }
+  button { padding: 8px 14px; border: 1px solid #555; background: #fff; cursor: pointer; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #777; padding: 5px 6px; vertical-align: top; }
+  th { background: #eee; text-align: left; }
+  .num { text-align: right; white-space: nowrap; }
+  .write { min-width: 70px; height: 20px; }
+  .signatures { display: flex; gap: 35px; margin-top: 34px; }
+  .signature { flex: 1; border-top: 1px solid #222; padding-top: 5px; }
+  .muted { color: #555; }
+  @media print { .toolbar { display: none; } body { font-size: 10px; } th,td { padding: 4px; } }
+</style>
+</head>
+<body>
+<div class="toolbar"><button type="button" onclick="window.print()">Друкувати / зберегти PDF</button> <a href="{% url 'inventory_count_detail' count.pk %}">Повернутися до документа</a></div>
+<h1>Відомість інвентаризації — {{ count.number }}</h1>
+<p class="meta">
+  Магазин: {{ count.company.name }}<br>
+  Створено: {{ count.created_at|date:"d.m.Y H:i" }} · Автор: {{ count.created_by }}<br>
+  Статус: {% if count.status == "approved" %}Затверджено{% else %}Чернетка{% endif %}
+  {% if count.note %}<br>Примітка: {{ count.note }}{% endif %}
+</p>
+<table>
+<thead><tr><th style="width:5%">№</th><th>Назва товару</th><th style="width:16%">Артикул</th><th style="width:14%">Штрихкод</th><th class="num" style="width:12%">Облікова к-сть</th><th class="num" style="width:12%">Фактична к-сть</th><th class="num" style="width:10%">Різниця</th></tr></thead>
+<tbody>
+{% for item in items %}
+<tr>
+<td>{{ forloop.counter }}</td><td>{{ item.product.name }}</td><td>{{ item.product.sku|default:"—" }}</td><td>{{ item.product.barcode|default:"—" }}</td>
+<td class="num">{% if count.status == "approved" %}{{ item.book_quantity_at_approval|default:item.expected_quantity|floatformat:"-3" }}{% else %}{{ item.expected_quantity|floatformat:"-3" }}{% endif %}</td>
+<td class="num">{% if item.counted_quantity is not None %}{{ item.counted_quantity|floatformat:"-3" }}{% else %}<div class="write"></div>{% endif %}</td>
+<td class="num">{% if item.difference is not None %}{{ item.difference|floatformat:"-3" }}{% else %}—{% endif %}</td>
+</tr>
+{% empty %}<tr><td colspan="7">У документі немає позицій.</td></tr>{% endfor %}
+</tbody></table>
+{% if count.status == "approved" %}
+<p class="meta">Затвердив: {{ count.approved_by|default:"—" }} · {{ count.approved_at|date:"d.m.Y H:i" }}</p>
+{% endif %}
+<div class="signatures"><div class="signature">Матеріально відповідальна особа</div><div class="signature">Член комісії</div><div class="signature">Керівник</div></div>
+<p class="muted" style="margin-top:18px">Надруковано: {{ printed_at|date:"d.m.Y H:i" }}</p>
+</body></html>

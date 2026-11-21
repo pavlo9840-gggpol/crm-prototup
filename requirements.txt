@@ -3,3 +3,7 @@ Pillow
 reportlab>=4.0
 # optional: PNG/JPG export of printed forms
 pymupdf
+cryptography>=42.0
+platformdirs>=4.0
+waitress>=3.0
+whitenoise>=6.7

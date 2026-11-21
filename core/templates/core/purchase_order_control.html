@@ -1,0 +1,58 @@
+{% extends "core/base.html" %}
+{% block title %}Контроль постачань{% endblock %}
+{% block content %}
+<h2>Контроль доставок і недопоставок</h2>
+<p>Тут показані лише відправлені, підтверджені та частково отримані замовлення, за якими ще залишилися товари до отримання.</p>
+<div class="kpi">
+  <div class="card"><span>Замовлень із залишком</span><b>{{ incomplete_count }}</b></div>
+  <div class="card low"><span>Прострочених замовлень</span><b>{{ overdue_count }}</b></div>
+  <div class="card"><span>Очікується одиниць</span><b>{{ outstanding_units|floatformat:"-3" }}</b></div>
+  <div class="card"><span>Планова вартість залишку</span><b>{{ outstanding_value|floatformat:2 }} ₴</b></div>
+</div>
+<form method="get" class="filter" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0">
+  <label for="delivery-filter">Показати</label>
+  <select id="delivery-filter" name="delivery">
+    <option value="all"{% if selected_delivery == "all" %} selected{% endif %}>Усі незавершені</option>
+    <option value="overdue"{% if selected_delivery == "overdue" %} selected{% endif %}>Лише прострочені</option>
+    <option value="incomplete"{% if selected_delivery == "incomplete" %} selected{% endif %}>Є недопоставка</option>
+  </select>
+  <button class="btn">Застосувати</button>
+  <a class="btn" href="{% url 'purchase_order_control' %}">Скинути</a>
+  <a class="btn" href="{% url 'purchase_order_list' %}">Усі замовлення</a>
+</form>
+{% for order in orders %}
+<section class="card" style="border-left:4px solid {% if order.is_overdue %}#c43d32{% else %}#d69b28{% endif %};margin-bottom:14px">
+  <div style="display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;align-items:flex-start">
+    <div>
+      <h3 style="margin:0 0 5px"><a href="{% url 'purchase_order_detail' order.pk %}">{{ order.number }}</a> · {{ order.supplier.name }}</h3>
+      <div>{{ order.get_status_display }} · Створено {{ order.created_at|date:"d.m.Y" }}</div>
+      <div>Очікувана доставка: <b>{{ order.expected_date|date:"d.m.Y"|default:"дату не вказано" }}</b></div>
+      {% if order.is_overdue %}<div style="color:#b42318;font-weight:700">Прострочено на {{ order.days_overdue }} дн.</div>{% endif %}
+    </div>
+    <div style="text-align:right">
+      <div>Залишок до отримання</div>
+      <b style="font-size:20px">{{ order.outstanding_quantity|floatformat:"-3" }}</b>
+      <div>Планова сума: <b>{{ order.outstanding_value|floatformat:2 }} ₴</b></div>
+    </div>
+  </div>
+  <div style="overflow-x:auto;margin-top:12px">
+    <table style="margin:0">
+      <tr><th>Товар</th><th>Артикул</th><th class="n">Замовлено</th><th class="n">Отримано</th><th class="n">Не отримано</th><th class="n">Планова сума залишку</th></tr>
+      {% for line in order.outstanding_lines %}
+      <tr>
+        <td>{{ line.item.product.name }}</td>
+        <td>{{ line.item.product.sku }}</td>
+        <td class="n">{{ line.item.quantity|floatformat:"-3" }}</td>
+        <td class="n">{{ line.item.received_quantity|floatformat:"-3" }}</td>
+        <td class="n"><b>{{ line.remaining|floatformat:"-3" }}</b></td>
+        <td class="n">{{ line.remaining_value|floatformat:2 }} ₴</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  <p style="margin:12px 0 0"><a class="btn" href="{% url 'purchase_order_detail' order.pk %}">Відкрити замовлення та прийняти товар</a></p>
+</section>
+{% empty %}
+<div class="card">За вибраним фільтром незавершених постачань немає.</div>
+{% endfor %}
+{% endblock %}

@@ -1,3 +1,158 @@
-{% extends "core/base.html" %}{% block content %}<h2>Накладна {{ p.number }}</h2><p>{{ p.created_at|date:"d.m.Y H:i" }} · {{ p.supplier }} · {{ p.user }}</p>
-<table><tr><th>Товар<th class="n">К-сть<th class="n">Ціна<th class="n">Сума</tr>{% for i in p.items.all %}<tr><td>{{ i.product.name }}<td class="n">{{ i.quantity|floatformat:"-3" }}<td class="n">{{ i.cost_price }}<td class="n">{{ i.line_total|floatformat:2 }}</tr>{% endfor %}
-<tr><th colspan="3">Разом<th class="n">{{ p.total }} ₴</tr></table><p><a class="btn" target="_blank" href="{% url 'print_docs' 'purchase' %}?ids={{ p.pk }}">🖨 Друк накладної</a></p>{% endblock %}
+{% extends "core/base.html" %}
+{% block content %}
+<h2>Накладна {{ p.number }}</h2>
+<p>{{ p.created_at|date:"d.m.Y H:i" }} · {{ p.supplier }} · {{ p.user }}</p>
+
+<div class="card">
+  <h3>Позиції закупівлі</h3>
+  <table>
+    <tr><th>Товар</th><th class="n">Отримано</th><th class="n">Ціна</th><th class="n">Сума</th><th class="n">Повернуто</th><th class="n">Доступно до повернення</th></tr>
+    {% for i in purchase_items %}
+    <tr>
+      <td>{{ i.product.name }}<br><small>{{ i.product.sku }}</small></td>
+      <td class="n">{{ i.quantity|floatformat:"-3" }}</td>
+      <td class="n">{{ i.cost_price|floatformat:2 }} ₴</td>
+      <td class="n">{{ i.line_total|floatformat:2 }} ₴</td>
+      <td class="n">{{ i.returned_quantity|floatformat:"-3" }}</td>
+      <td class="n"><b>{{ i.returnable_quantity|floatformat:"-3" }}</b></td>
+    </tr>
+    {% if i.returnable_quantity > 0 and i.product.tracking_mode != "serial" %}
+    <tr><td colspan="6">
+      <form method="post" action="{% url 'supplier_return_create' p.pk i.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        {% csrf_token %}
+        <label>Кількість до повернення
+          <input type="number" name="quantity" min="0.001" max="{{ i.returnable_quantity }}" step="0.001" required>
+        </label>
+        <label>Очікувана компенсація
+          <select name="compensation_type">
+            <option value="credit">Зарахувати в рахунок боргу</option>
+            <option value="refund">Повернення коштів</option>
+            <option value="replacement">Заміна товару</option>
+          </select>
+        </label>
+        <label style="min-width:220px;flex:1">Причина
+          <input name="reason" maxlength="5000" required placeholder="Брак, пошкодження, помилкова поставка…">
+        </label>
+        <label style="min-width:180px;flex:1">Примітка
+          <input name="note" maxlength="5000" placeholder="Номер акту / коментар">
+        </label>
+        <button class="btn danger" type="submit">Оформити повернення</button>
+      </form>
+      {% if i.product.tracking_mode == "batch" or i.product.tracking_mode == "expiry" %}
+      <small class="muted">Повернення буде списано саме з невикористаних партій цього надходження.</small>
+      {% endif %}
+    </td></tr>
+    {% endif %}
+    {% for ret in i.supplier_returns.all %}
+    <tr><td colspan="6">
+      <b>Повернення {{ ret.number }}</b> · {{ ret.created_at|date:"d.m.Y H:i" }} · {{ ret.quantity|floatformat:"-3" }} од. · {{ ret.total|floatformat:2 }} ₴ · Очікується: {{ ret.get_compensation_type_display }} · {{ ret.reason }}
+      <br><small>Компенсовано: {{ ret.compensated_amount|floatformat:2 }} ₴ · Залишок: {{ ret.compensation_remaining|floatformat:2 }} ₴</small>
+      {% if ret.compensation_type == "replacement" %}
+      <br><small>Заміна отримана: {{ ret.replacement_received_quantity|floatformat:"-3" }} / {{ ret.quantity|floatformat:"-3" }} од. · Залишилось: {{ ret.replacement_remaining_quantity|floatformat:"-3" }} од.</small>
+      {% for receipt in ret.replacement_receipts.all %}
+      <p class="muted">Надходження заміни {{ receipt.purchase.number }} · {{ receipt.quantity|floatformat:"-3" }} од. · {{ receipt.created_at|date:"d.m.Y H:i" }} · {{ receipt.created_by }}</p>
+      {% endfor %}
+      {% if ret.replacement_remaining_quantity > 0 %}
+      <form method="post" action="{% url 'supplier_replacement_receive' ret.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:8px">
+        {% csrf_token %}
+        <label>Кількість заміни<input type="number" name="quantity" min="0.001" max="{{ ret.replacement_remaining_quantity }}" step="0.001" required></label>
+        {% if i.product.tracking_mode == "batch" or i.product.tracking_mode == "expiry" %}
+        <label>Номер партії<input name="batch_number" maxlength="80"></label>
+        {% endif %}
+        {% if i.product.tracking_mode == "expiry" %}
+        <label>Термін придатності<input type="date" name="expiry_date" required></label>
+        {% endif %}
+        {% if i.product.tracking_mode == "serial" %}
+        <label>Серійні номери (по одному в рядку)<textarea name="serial_numbers" rows="3" required></textarea></label>
+        {% endif %}
+        <label>Примітка<input name="note" maxlength="250"></label>
+        <button class="btn green" type="submit">Оприбуткувати заміну</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% if ret.compensation_remaining > 0 %}
+      <form method="post" action="{% url 'supplier_return_compensate' ret.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:8px">
+        {% csrf_token %}
+        <label>Фактичний спосіб
+          <select name="kind">
+            <option value="credit">Кредит-нота / залік боргу</option>
+            <option value="cash">Повернення готівкою</option>
+            <option value="bank">Повернення на банківський рахунок</option>
+          </select>
+        </label>
+        <label>Сума, ₴<input type="number" name="amount" min="0.01" max="{{ ret.compensation_remaining }}" step="0.01" required></label>
+        <label>Рахунок
+          <select name="bank_account"><option value="">Оберіть рахунок для банківського повернення</option>{% for account in bank_accounts %}<option value="{{ account.pk }}">{{ account.bank_name }} · {{ account.iban }}</option>{% endfor %}</select>
+        </label>
+        <label>Примітка<input name="note" maxlength="250"></label>
+        <button class="btn green" type="submit">Провести компенсацію</button>
+      </form>
+      {% endif %}
+      {% for comp in ret.compensations.all %}
+      <small>Компенсація {{ comp.number }} · {{ comp.get_kind_display }} · {{ comp.amount|floatformat:2 }} ₴ · {{ comp.created_at|date:"d.m.Y H:i" }}{% if comp.bank_account %} · {{ comp.bank_account.iban }}{% endif %}{% if comp.note %} · {{ comp.note }}{% endif %}{% if comp.is_void %} · Скасовано: {{ comp.void_reason }}{% endif %}</small>
+      {% if not comp.is_void %}
+      <form method="post" action="{% url 'supplier_compensation_void' comp.pk %}" style="display:flex;gap:8px;align-items:center;margin:4px 0">
+        {% csrf_token %}
+        <input name="reason" maxlength="250" required placeholder="Причина скасування компенсації">
+        <button class="btn red sm" type="submit">Скасувати</button>
+      </form>
+      {% endif %}
+      {% endfor %}
+    </td></tr>
+    {% endfor %}
+    {% empty %}
+    <tr><td colspan="6">У накладній немає позицій.</td></tr>
+    {% endfor %}
+    <tr><th colspan="3">Разом за закупівлею</th><th class="n">{{ p.total|floatformat:2 }} ₴</th><th colspan="2"></th></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Взаєморозрахунок із постачальником</h3>
+  <p>Сплачено: <b>{{ settlement_paid|floatformat:2 }} ₴</b> · Компенсації: <b>{{ settlement_compensated|floatformat:2 }} ₴</b> · Залишок боргу: <b>{{ settlement_balance|floatformat:2 }} ₴</b>{% if supplier_credit > 0 %} · Переплата / кредит постачальника: <b>{{ supplier_credit|floatformat:2 }} ₴</b>{% endif %}</p>
+  {% if supplier_credit_sources and settlement_balance > 0 %}
+  <div class="card" style="margin-top:12px">
+    <h4>Залік кредиту з іншої накладної</h4>
+    <p class="muted">Переносимо лише надлишковий кредит із повністю закритої або переплаченої закупівлі цього постачальника. Каса, банк і склад не змінюються.</p>
+    <form method="post" action="{% url 'supplier_credit_apply' p.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+      {% csrf_token %}
+      <label>Джерело кредиту
+        <select name="source_purchase" required>
+          {% for source in supplier_credit_sources %}
+          <option value="{{ source.pk }}">№{{ source.number }} · доступно {{ source.available_supplier_credit|floatformat:2 }} ₴</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Сума, ₴<input type="number" name="amount" min="0.01" max="{{ settlement_balance }}" step="0.01" required></label>
+      <label>Примітка<input name="note" maxlength="250"></label>
+      <button class="btn green">Застосувати кредит</button>
+    </form>
+  </div>
+  {% endif %}
+  {% if supplier_credit_applications %}
+  <h4>Заліки кредиту в цю накладну</h4>
+  {% for application in supplier_credit_applications %}
+  <p>{{ application.created_at|date:"d.m.Y H:i" }} · джерело №{{ application.source_purchase.number }} · {{ application.amount|floatformat:2 }} ₴ · {{ application.created_by }}{% if application.is_void %} · Скасовано: {{ application.void_reason }}{% else %}
+    <form method="post" action="{% url 'supplier_credit_application_void' application.pk %}" style="display:inline-flex;gap:6px;align-items:center">
+      {% csrf_token %}<input name="reason" maxlength="250" required placeholder="Причина скасування"><button class="btn red sm">Скасувати залік</button>
+    </form>{% endif %}</p>
+  {% endfor %}
+  {% endif %}
+  {% if settlement_balance > 0 %}
+  <form method="post" action="{% url 'settlement_payment_new' 'purchase' p.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+    {% csrf_token %}
+    <label>Сума, ₴<input type="number" name="amount" min="0.01" max="{{ settlement_balance }}" step="0.01" required></label>
+    <label>Спосіб<select name="payment_method"><option value="cash">Готівка</option><option value="card">Картка</option><option value="bank">Банківський рахунок</option><option value="advance">З авансу</option></select></label>
+    <label>Аванс<select name="advance"><option value="">Не використовувати</option>{% for adv in available_advances %}<option value="{{ adv.pk }}">#{{ adv.pk }} · {{ adv.remaining|floatformat:2 }} ₴ · {{ adv.created_at|date:"d.m.Y" }}</option>{% endfor %}</select></label>
+    <label>Документ<input name="document_ref" maxlength="80"></label>
+    <label>Примітка<input name="note" maxlength="250"></label>
+    <button class="btn green">Зареєструвати оплату</button>
+  </form>
+  {% endif %}
+  {% for payment in settlement_payments %}
+  <p>{{ payment.created_at|date:"d.m.Y H:i" }} · {{ payment.amount|floatformat:2 }} ₴ · {{ payment.get_payment_method_display }} · {{ payment.created_by }}{% if payment.is_void %} · Скасовано: {{ payment.void_reason }}{% endif %}</p>
+  {% empty %}<p class="muted">Оплат за документом ще немає.</p>{% endfor %}
+  <p class="muted">Кредит-нота зменшує борг або формує кредит постачальника. Готівкове повернення збільшує касу через відкриту зміну, банківське — додає вхідну операцію на обраний рахунок. Кожна компенсація окремо прив'язана до документа повернення.</p>
+</div>
+<p><a class="btn" target="_blank" href="{% url 'print_docs' 'purchase' %}?ids={{ p.pk }}">🖨 Друк накладної</a></p>
+{% endblock %}

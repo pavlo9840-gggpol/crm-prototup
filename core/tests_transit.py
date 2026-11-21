@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from core.models import (CrossRef, Customer, MarkupTier, Product, Sale, SaleItem, StockMovement, Supplier,
                          SupplierItem, norm_sku)
+from core.tests_tenant_helpers import create_test_company
 
 D = Decimal
 
@@ -30,18 +31,20 @@ def xlsx_bytes(rows):
 class TransitTest(TestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
+        admin_user = U.objects.create_superuser("admin", "", "x")
         self.mgr_user = U.objects.create_user("anna", password="x")
         self.mgr2 = U.objects.create_user("petro", password="x")
+        self.company = create_test_company(admin_user, "Transit test shop",
+                                           [(self.mgr_user, "cashier"), (self.mgr2, "cashier")])
         self.adm, self.mgr, self.mgr2c = self.client, self.client_class(), self.client_class()
         self.adm.login(username="admin", password="x")
         self.mgr.login(username="anna", password="x")
         self.mgr2c.login(username="petro", password="x")
         for c in (self.mgr, self.mgr2c):
             c.post("/shift/", {"action": "open", "cash": "0"})
-        self.sup = Supplier.objects.create(name="Busmarket")
-        MarkupTier.objects.create(name="Роздріб", percent=30, is_default=True)
-        self.sto = MarkupTier.objects.create(name="СТО", percent=15)
+        self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
+        MarkupTier.objects.create(company=self.company, name="Роздріб", percent=30, is_default=True)
+        self.sto = MarkupTier.objects.create(company=self.company, name="СТО", percent=15)
 
     # ---------- допоміжне
     def import_price(self, rows, sup=None, header=1):
@@ -68,6 +71,36 @@ class TransitTest(TestCase):
              ["Gone", "X-1", "Зникне", "10", "0"]]
 
     # ---------- тести
+    def test_credit_sale_creates_customer_receivable_without_changing_drawer(self):
+        product = Product.objects.create(company=self.company, name="Тестовий товар", sku="CREDIT-1",
+                                         price=D("250.00"), cost_price=D("100.00"), current_stock=D("5"))
+        customer = Customer.objects.create(company=self.company, name="Клієнт у борг", phone="0507770011")
+        from core.models import Shift
+        shift = Shift.objects.get(company=self.company, cashier=self.mgr_user, closed_at__isnull=True)
+        before = shift.drawer.copy()
+        response = self.mgr.post("/pos/checkout/", json.dumps({
+            "items": [{"id": product.pk, "qty": 2, "price": "250.00"}],
+            "payment": "credit", "customer_id": customer.pk,
+        }), content_type="application/json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()["ok"], response.json())
+        sale = Sale.objects.get(pk=response.json()["id"])
+        self.assertEqual(sale.payment_method, "credit")
+        self.assertEqual((sale.cash_amount, sale.card_amount), (D("0.00"), D("0.00")))
+        self.assertEqual(sale.customer_id, customer.pk)
+        self.assertEqual(sale.total, D("500.00"))
+        shift.refresh_from_db()
+        self.assertEqual(shift.drawer, before)
+
+    def test_credit_sale_requires_a_customer(self):
+        product = Product.objects.create(company=self.company, name="Товар", sku="CREDIT-2",
+                                         price=D("50.00"), current_stock=D("2"))
+        response = self.mgr.post("/pos/checkout/", json.dumps({
+            "items": [{"id": product.pk, "qty": 1}], "payment": "credit",
+        }), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("оберіть", response.json()["error"].lower())
+
     def test_norm_sku(self):
         self.assertEqual(norm_sku("19-152 615"), norm_sku("19152615"))
         self.assertEqual(norm_sku(" ab.12/3 "), "AB123")
@@ -89,9 +122,9 @@ class TransitTest(TestCase):
 
     def test_lookup_analogs_and_stock_visibility(self):
         self.import_price(self.PRICE)
-        own = Product.objects.create(name="Амортизатор SACHS Trafic", sku="SACHS-77", brand="SACHS", price=900,
+        own = Product.objects.create(company=self.company, name="Амортизатор SACHS Trafic", sku="SACHS-77", brand="SACHS", price=900,
                                      cost_price=700, current_stock=3)
-        empty = Product.objects.create(name="Інший аналог без залишку", sku="NOSTOCK-1", price=1, current_stock=0)
+        empty = Product.objects.create(company=self.company, name="Інший аналог без залишку", sku="NOSTOCK-1", price=1, current_stock=0)
         self.adm.post("/crossrefs/", {"act": "add", "a": "19-152615", "b": "sachs 77"})
         self.adm.post("/crossrefs/", {"act": "add", "a": "SACHS-77", "b": "NOSTOCK-1"})
         d = self.mgr.get("/pos/lookup/?q=19152615").json()
@@ -108,7 +141,7 @@ class TransitTest(TestCase):
     def test_sale_from_supplier_skips_warehouse_and_margin(self):
         self.import_price(self.PRICE)
         si = SupplierItem.objects.get(sku="19-152615")
-        sto_client = Customer.objects.create(name="СТО Вікторія", phone="1", markup_tier=self.sto)
+        sto_client = Customer.objects.create(company=self.company, name="СТО Вікторія", phone="1", markup_tier=self.sto)
         # ціна за націнкою клієнта (+15%) і ручна
         self.assertEqual(self.mgr.get("/pos/customer/?q=Вікторія").json()["results"][0]["pct"], 15.0)
         sale = self.checkout(self.mgr, [{"si": si.pk, "qty": 2, "price": 1150}], sto_client.pk)
@@ -149,7 +182,7 @@ class TransitTest(TestCase):
     def test_arrival_countdown_issue_stock_and_supplier_return(self):
         self.import_price(self.PRICE)
         si = SupplierItem.objects.get(sku="19-152615")
-        c = Customer.objects.create(name="Іван", phone="2")
+        c = Customer.objects.create(company=self.company, name="Іван", phone="2")
         sale = self.checkout(self.mgr, [{"si": si.pk, "qty": 2, "price": 1300}, {"si": si.pk, "qty": 1, "price": 1300}], c.pk)
         it = sale.items.get()                                                             # однакові позиції злилися
         self.assertEqual(it.quantity, 3)
@@ -216,8 +249,8 @@ class TransitTest(TestCase):
     def test_manager_history_and_margin(self):
         self.import_price(self.PRICE)
         si = SupplierItem.objects.get(sku="19-152615")
-        own = Product.objects.create(name="Свічка", sku="SV1", price=100, cost_price=60, current_stock=10)
-        c = Customer.objects.create(name="Олег", phone="555")
+        own = Product.objects.create(company=self.company, name="Свічка", sku="SV1", price=100, cost_price=60, current_stock=10)
+        c = Customer.objects.create(company=self.company, name="Олег", phone="555")
         self.checkout(self.mgr, [{"si": si.pk, "qty": 2, "price": 1300}, {"id": own.pk, "qty": 5}], c.pk)
         self.checkout(self.mgr2c, [{"id": own.pk, "qty": 1}])
         r = self.mgr.get("/my-sales/")
@@ -266,3 +299,48 @@ class TransitTest(TestCase):
         r = self.adm.post("/supplier-prices/apply/", data, follow=True)
         self.assertContains(r, "нових 1")
         self.assertEqual(SupplierItem.objects.get(sku="A-1").cost, D("12.50"))
+
+
+    def test_order_action_rejects_external_next_redirect(self):
+        self.import_price(self.PRICE)
+        si = SupplierItem.objects.get(sku="19-152615")
+        sale = self.checkout(self.mgr, [{"si": si.pk, "qty": 1}])
+        item = sale.items.get()
+        response = self.mgr.post(f"/orders/{item.pk}/arrived/", {"next": "https://evil.example/phishing"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/orders/")
+
+    def test_cashier_order_and_sales_views_are_isolated_and_actions_cannot_mutate_other_orders(self):
+        self.import_price(self.PRICE)
+        si = SupplierItem.objects.get(sku="19-152615")
+        own_sale = self.checkout(self.mgr, [{"si": si.pk, "qty": 1}])
+        other_sale = self.checkout(self.mgr2c, [{"si": si.pk, "qty": 2}])
+        own_item = own_sale.items.get()
+        other_item = other_sale.items.get()
+
+        # The cashier sees only their own supplier orders, including filtered views.
+        response = self.mgr.get("/orders/?st=ordered")
+        self.assertEqual(response.status_code, 200)
+        visible_ids = {item.pk for item in response.context["items"]}
+        self.assertIn(own_item.pk, visible_ids)
+        self.assertNotIn(other_item.pk, visible_ids)
+
+        # A guessed foreign item ID must be rejected before a state transition.
+        response = self.mgr.post(f"/orders/{other_item.pk}/arrived/", {"days": "3"})
+        self.assertEqual(response.status_code, 404)
+        other_item.refresh_from_db()
+        self.assertEqual(other_item.fulfil_status, SaleItem.ORDERED)
+        self.assertIsNone(other_item.pickup_deadline)
+
+        # The sales page and CSV export must enforce the same cashier boundary.
+        response = self.mgr.get("/my-sales/")
+        self.assertEqual(response.status_code, 200)
+        visible_sales = {row.sale_id for row in response.context["rows"]}
+        self.assertIn(own_sale.pk, visible_sales)
+        self.assertNotIn(other_sale.pk, visible_sales)
+        csv_response = self.mgr.get("/my-sales/?csv=1")
+        self.assertEqual(csv_response.status_code, 200)
+        csv_text = csv_response.content.decode("utf-8-sig")
+        self.assertIn(own_sale.number, csv_text)
+        self.assertNotIn(other_sale.number, csv_text)
+

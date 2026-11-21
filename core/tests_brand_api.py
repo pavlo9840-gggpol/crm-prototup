@@ -18,18 +18,22 @@ D = Decimal
 
 class BrandFormTest(TestCase):
     def setUp(self):
-        get_user_model().objects.create_superuser("admin", "", "x")
-        get_user_model().objects.create_user("cash", password="x")
+        admin = get_user_model().objects.create_superuser("admin", "", "x")
+        cashier = get_user_model().objects.create_user("cash", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(admin, "Brand form shop", [(cashier, "cashier")])
+        self.company.business_type = "auto_parts"
+        self.company.save(update_fields=["business_type"])
         self.adm = self.client
         self.adm.login(username="admin", password="x")
 
     FORM = {"brand": "bilstein", "sku": "19-152615", "name": "Амортизатор задній", "unit": "шт", "cost_price": "1000",
-            "price": "1300", "min_stock": "0", "initial_stock": "2", "is_active": "on"}
+            "price": "1300", "min_stock": "0", "initial_stock": "2", "condition": "new", "is_active": "on"}
 
     def test_form_shows_brand_first_with_suggestions(self):
-        Product.objects.create(name="X", sku="1", brand="SACHS")
-        s = Supplier.objects.create(name="S")
-        SupplierItem.objects.create(supplier=s, brand="MEYLE", sku="5", sku_norm="5", cost=1)
+        Product.objects.create(company=self.company, name="X", sku="1", brand="SACHS")
+        s = Supplier.objects.create(company=self.company, name="S")
+        SupplierItem.objects.create(company=self.company, supplier=s, brand="MEYLE", sku="5", sku_norm="5", cost=1)
         r = self.adm.get("/products/new/")
         html = r.content.decode()
         self.assertLess(html.index('name="brand"'), html.index('name="sku"'))
@@ -37,23 +41,23 @@ class BrandFormTest(TestCase):
         self.assertIn('list="brand-list"', html)
         self.assertIn('<option value="SACHS">', html)
         self.assertIn('<option value="MEYLE">', html)                   # бренди з прайсів теж підказуються
-        self.assertIn("Що це за деталь", html)
+        self.assertIn("Введіть код або назву", html)
 
     def test_brand_required_normalized_and_duplicates(self):
         r = self.adm.post("/products/new/", dict(self.FORM, brand=""))
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "обов&#x27;язкове")                        # «Це поле обов'язкове»
-        self.assertEqual(Product.objects.count(), 0)
+        self.assertEqual(Product.objects.filter(company=self.company).count(), 0)
         self.assertEqual(self.adm.post("/products/new/", self.FORM).status_code, 302)
-        p = Product.objects.get()
+        p = Product.objects.get(company=self.company)
         self.assertEqual((p.brand, p.sku, p.sku_norm, p.current_stock), ("BILSTEIN", "19-152615", "19152615", 2))
         # той самий товар, інакше записаний артикул: відхиляється
         r = self.adm.post("/products/new/", dict(self.FORM, brand="Bilstein", sku="19 152615"))
-        self.assertContains(r, "Такий товар уже є в базі")
-        self.assertEqual(Product.objects.count(), 1)
+        self.assertContains(r, "Такий код уже використовується")
+        self.assertEqual(Product.objects.filter(company=self.company).count(), 1)
         # той самий артикул в ІНШОГО бренду: це інший товар, дозволено
         self.assertEqual(self.adm.post("/products/new/", dict(self.FORM, brand="SACHS", name="Інший")).status_code, 302)
-        self.assertEqual(Product.objects.filter(sku="19-152615").count(), 2)
+        self.assertEqual(Product.objects.filter(company=self.company, sku="19-152615").count(), 2)
         # редагування не конфліктує саме з собою
         self.assertEqual(self.adm.post(f"/products/{p.pk}/edit/", dict(self.FORM, name="Нова назва")).status_code, 302)
 
@@ -62,11 +66,11 @@ class BrandFormTest(TestCase):
         for q in ("bilstein", "19152615", "19-152 615", "152615"):
             self.assertContains(self.adm.get("/products/", {"q": q}), "Амортизатор задній", msg_prefix=q)
         self.assertNotContains(self.adm.get("/products/", {"q": "mann"}), "Амортизатор задній")
-        self.assertContains(self.adm.get("/products/"), "<th>Бренд<th>Артикул")
+        self.assertContains(self.adm.get("/products/"), "Артикул:")
 
     def test_csv_identity_is_brand_plus_article(self):
-        Product.objects.create(name="A", sku="112021", brand="SOLGY", price=10)
-        Product.objects.create(name="B", sku="112021", brand="SACHS", price=20)     # однаковий артикул, різні бренди
+        Product.objects.create(company=self.company, name="A", sku="112021", brand="SOLGY", price=10)
+        Product.objects.create(company=self.company, name="B", sku="112021", brand="SACHS", price=20)     # однаковий артикул, різні бренди
         csv_ = self.adm.get("/products/export/").content.decode("utf-8-sig")
         self.assertIn("Бренд", csv_.splitlines()[0])
         self.assertIn("SOLGY", csv_)
@@ -78,8 +82,8 @@ class BrandFormTest(TestCase):
         self.adm.post("/products/import/", up("Код;Бренд;Назва;Ціна продажу\n112021;sachs;;99\n112021;NEWBRAND;Новий;5\n"))
         r = self.adm.post("/products/import/apply/", follow=True)
         self.assertContains(r, "створено 1, оновлено 1")
-        self.assertEqual(Product.objects.get(brand="SACHS").price, D("99"))
-        self.assertEqual(Product.objects.get(brand="SOLGY").price, D("10"))
+        self.assertEqual(Product.objects.get(company=self.company, brand="SACHS").price, D("99"))
+        self.assertEqual(Product.objects.get(company=self.company, brand="SOLGY").price, D("10"))
         # дубль пари бренд+артикул у файлі
         r = self.adm.post("/products/import/", up("Код;Бренд;Назва\nZ-1;K;a\nZ 1;k;b\n"))
         self.assertContains(r, "повторюється у файлі")
@@ -102,13 +106,15 @@ class FakeNet:
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="retail_test_media_"))
 class SupplierApiTest(TestCase):
     def setUp(self):
-        get_user_model().objects.create_superuser("admin", "", "x")
-        get_user_model().objects.create_user("cash", password="x")
+        admin = get_user_model().objects.create_superuser("admin", "", "x")
+        cashier = get_user_model().objects.create_user("cash", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(admin, "Supplier API shop", [(cashier, "cashier")])
         self.adm, self.cash = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.cash.login(username="cash", password="x")
-        self.sup = Supplier.objects.create(name="Busmarket")
-        self.cfg = SupplierApi.objects.create(supplier=self.sup, url="https://api.example.com/v1/products", fmt="json",
+        self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
+        self.cfg = SupplierApi.objects.create(company=self.company, supplier=self.sup, url="https://api.example.com/v1/products", fmt="json",
                                               auth_mode="bearer", api_key="SECRET-KEY-123", items_path="data.items",
                                               f_sku="article", f_brand="brand.name", f_name="title", f_cost="price", f_qty="stock")
 
@@ -133,13 +139,13 @@ class SupplierApiTest(TestCase):
         self.assertEqual(net.calls[0][0], "https://api.example.com/v1/products?page=1")
         self.assertEqual(net.calls[1][0], "https://api.example.com/v1/products?page=2")
         self.assertEqual(net.calls[0][1]["Authorization"], "Bearer SECRET-KEY-123")
-        a = SupplierItem.objects.get(sku="19-152615")
+        a = SupplierItem.objects.get(company=self.company, sku="19-152615")
         self.assertEqual((a.brand, a.cost, a.qty_avail, a.available), ("BILSTEIN", D("1000.50"), D("4"), True))
-        self.assertEqual(SupplierItem.objects.get(sku="112021").cost, D("500.00"))
-        self.assertEqual(SupplierItem.objects.get(sku="112021").qty_avail, D("10"))     # «>10» → 10
-        self.assertFalse(SupplierItem.objects.get(sku="NOSTOCK").available)
-        self.assertFalse(SupplierItem.objects.filter(sku="BAD").exists())             # без ціни не імпортується
-        self.assertTrue(SupplierItem.objects.filter(sku="777", brand="MEYLE").exists())
+        self.assertEqual(SupplierItem.objects.get(company=self.company, sku="112021").cost, D("500.00"))
+        self.assertEqual(SupplierItem.objects.get(company=self.company, sku="112021").qty_avail, D("10"))     # «>10» → 10
+        self.assertFalse(SupplierItem.objects.get(company=self.company, sku="NOSTOCK").available)
+        self.assertFalse(SupplierItem.objects.filter(company=self.company, sku="BAD").exists())             # без ціни не імпортується
+        self.assertTrue(SupplierItem.objects.filter(company=self.company, sku="777", brand="MEYLE").exists())
         self.cfg.refresh_from_db()
         self.assertIn("отримано 4", self.cfg.last_result)
         self.assertIsNotNone(self.cfg.last_sync_at)
@@ -150,7 +156,7 @@ class SupplierApiTest(TestCase):
         net = FakeNet(self.PAGE2)                                        # завжди одна й та сама відповідь
         apisync.sync_supplier(self.sup_(), None, fetch=net)
         self.assertEqual(len(net.calls), 2)
-        self.assertEqual(SupplierItem.objects.count(), 1)
+        self.assertEqual(SupplierItem.objects.filter(company=self.company).count(), 1)
 
     def test_auth_modes(self):
         for mode, name, check in [("header", "X-Token", lambda u, h: h["X-Token"] == "SECRET-KEY-123"),
@@ -172,8 +178,8 @@ class SupplierApiTest(TestCase):
                '<offer available="0"><vendorCode>AB-2</vendorCode><vendor>Febi</vendor><name>Свічка</name><price>20</price></offer>'
                '</offers></shop></yml_catalog>').encode()
         apisync.sync_supplier(self.sup_(), None, fetch=FakeNet(xml))
-        self.assertEqual(SupplierItem.objects.get(sku="AB-1").qty_avail, D("12"))
-        self.assertFalse(SupplierItem.objects.get(sku="AB-2").available)
+        self.assertEqual(SupplierItem.objects.get(company=self.company, sku="AB-1").qty_avail, D("12"))
+        self.assertFalse(SupplierItem.objects.get(company=self.company, sku="AB-2").available)
         # XML-бомба з ENTITY відхиляється
         bomb = b'<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa">]><r><offer/></r>'
         with self.assertRaises(apisync.SyncError):
@@ -183,24 +189,24 @@ class SupplierApiTest(TestCase):
         self.cfg.save()
         csv_ = "Артикул;Бренд;Назва;Ціна;Залишок\nQ-1;Mann;Фільтр;77,5;3\n".encode("utf-8")
         apisync.sync_supplier(self.sup_(), None, fetch=FakeNet(csv_))
-        self.assertEqual(SupplierItem.objects.get(sku="Q-1").cost, D("77.50"))          # «d» = четверта колонка (Ціна)
+        self.assertEqual(SupplierItem.objects.get(company=self.company, sku="Q-1").cost, D("77.50"))          # «d» = четверта колонка (Ціна)
 
     # ---------------- запобіжники
     def test_empty_or_suspicious_response_never_wipes_catalog(self):
         for i in range(60):
-            SupplierItem.objects.create(supplier=self.sup, brand="B", sku=f"S{i}", sku_norm=f"S{i}", cost=10, available=True)
+            SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="B", sku=f"S{i}", sku_norm=f"S{i}", cost=10, available=True)
         with self.assertRaises(apisync.SyncError) as cm:
             apisync.sync_supplier(self.sup_(), None, fetch=FakeNet(self.EMPTY))
         self.assertIn("Каталог не змінено", str(cm.exception))
-        self.assertEqual(SupplierItem.objects.filter(available=True).count(), 60)
+        self.assertEqual(SupplierItem.objects.filter(company=self.company, available=True).count(), 60)
         with self.assertRaises(apisync.SyncError) as cm:                  # 1 позиція замість 60
             apisync.sync_supplier(self.sup_(), None, fetch=FakeNet(self.PAGE2))
         self.assertIn("підозріло мало", str(cm.exception))
-        self.assertEqual(SupplierItem.objects.filter(available=True).count(), 60)
+        self.assertEqual(SupplierItem.objects.filter(company=self.company, available=True).count(), 60)
         self.cfg.refresh_from_db()
         self.assertIn("помилка", self.cfg.last_result)
         apisync.sync_supplier(self.sup_(), None, force=True, fetch=FakeNet(self.PAGE2))     # явне підтвердження
-        self.assertEqual(SupplierItem.objects.filter(available=True).count(), 1)
+        self.assertEqual(SupplierItem.objects.filter(company=self.company, available=True).count(), 1)
 
     def test_key_never_leaks_into_errors(self):
         self.cfg.auth_mode, self.cfg.auth_name = "query", "key"
@@ -269,14 +275,14 @@ class SupplierApiTest(TestCase):
             r = self.adm.post(f"/suppliers/{self.sup.pk}/api/", {"act": "test"})
             self.assertContains(r, "Приклад прочитаних позицій")
             self.assertContains(r, "19-152615")
-            self.assertEqual(SupplierItem.objects.count(), 0)
+            self.assertEqual(SupplierItem.objects.filter(company=self.company).count(), 0)
             r = self.adm.post(f"/suppliers/{self.sup.pk}/api/", {"act": "sync", "next": "supplier_prices"}, follow=True)
             self.assertContains(r, "отримано 3")
-            self.assertEqual(SupplierItem.objects.count(), 3)
+            self.assertEqual(SupplierItem.objects.filter(company=self.company).count(), 3)
         with mock.patch("core.apisync.fetch_bytes", FakeNet(apisync.SyncError("Постачальник відповів HTTP 401: ключ відхилено"))):
             r = self.adm.post(f"/suppliers/{self.sup.pk}/api/", {"act": "sync", "next": "supplier_prices"}, follow=True)
             self.assertContains(r, "HTTP 401")
-            self.assertEqual(SupplierItem.objects.filter(available=True).count(), 2)         # каталог цілий
+            self.assertEqual(SupplierItem.objects.filter(company=self.company, available=True).count(), 2)         # каталог цілий
 
     def test_management_command(self):
         from unittest import mock
@@ -284,7 +290,7 @@ class SupplierApiTest(TestCase):
         with mock.patch("core.apisync.fetch_bytes", FakeNet(self.PAGE1)):
             call_command("sync_prices", stdout=out)
         self.assertIn("Busmarket: ", out.getvalue())
-        self.assertEqual(SupplierItem.objects.count(), 3)
+        self.assertEqual(SupplierItem.objects.filter(company=self.company).count(), 3)
         with mock.patch("core.apisync.fetch_bytes", FakeNet(apisync.SyncError("boom"))):
             with self.assertRaises(SystemExit):
                 call_command("sync_prices", stdout=StringIO(), stderr=StringIO())
@@ -313,7 +319,7 @@ class SupplierApiTest(TestCase):
             apisync.sync_supplier(self.sup_(), None)
             self.assertEqual(seen["auth"], "Bearer SECRET-KEY-123")
             self.assertEqual(seen["path"], "/api?lang=uk")
-            self.assertEqual(SupplierItem.objects.get().sku, "777")
+            self.assertEqual(SupplierItem.objects.get(company=self.company).sku, "777")
             self.cfg.api_key = "WRONG"
             self.cfg.save()
             with self.assertRaises(apisync.SyncError) as cm:

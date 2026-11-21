@@ -39,54 +39,59 @@ class Net:
 
 class CrossEngineTest(TestCase):
     def setUp(self):
-        self.sup = Supplier.objects.create(name="S")
+        user = get_user_model().objects.create_superuser("cross-admin", "", "x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(user, "Cross engine shop")
+        self.sup = Supplier.objects.create(company=self.company, name="S")
 
     def oe(self, brand, sku, *oes, ob="VAG"):
         for o in oes:
-            PartOe.objects.create(brand=brand, sku_norm="".join(c for c in sku if c.isalnum()).upper(), sku=sku,
+            PartOe.objects.create(company=self.company, brand=brand, sku_norm="".join(c for c in sku if c.isalnum()).upper(), sku=sku,
                                   oe_norm="".join(c for c in o if c.isalnum()).upper(), oe_raw=o, oe_brand=ob)
 
     def test_shared_oe_gives_exact_analogs_with_evidence(self):
         self.oe("BILSTEIN", "19-152615", "1K0 411 105 AB", "1K0411105AC")
         self.oe("SACHS", "315 849", "1K0411105AB")                       # спільний OE (записаний інакше)
         self.oe("MEYLE", "M-1", "ZZZ999")                                # чужий OE, не аналог
-        Product.objects.create(name="Амортизатор SACHS", sku="315 849", brand="SACHS", price=900, current_stock=3)
-        SupplierItem.objects.create(supplier=self.sup, brand="SACHS", sku="315 849", sku_norm="315849", cost=700, name="Амортизатор SACHS")
-        res = crosses.analogs("BILSTEIN", "19152615")
+        Product.objects.create(company=self.company, name="Амортизатор SACHS", sku="315 849", brand="SACHS", price=900, current_stock=3)
+        SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="SACHS", sku="315 849", sku_norm="315849", cost=700, name="Амортизатор SACHS")
+        res = crosses.analogs("BILSTEIN", "19152615", company=self.company)
         self.assertEqual([(r["brand"], r["sku_norm"], r["level"]) for r in res], [("SACHS", "315849", "oe")])
         self.assertEqual(res[0]["shared"], ["1K0 411 105 AB"])         # так, як записано в самої деталі
         self.assertEqual((res[0]["stock"], res[0]["price"], res[0]["offer_cost"]), (3, D("900"), D("700")))
         # зворотний напрямок
-        self.assertEqual([r["sku_norm"] for r in crosses.analogs("SACHS", "315849")], ["19152615"])
-        self.assertEqual(crosses.analogs("MEYLE", "M1"), [])
+        self.assertEqual([r["sku_norm"] for r in crosses.analogs("SACHS", "315849", company=self.company)], ["19152615"])
+        self.assertEqual(crosses.analogs("MEYLE", "M1", company=self.company), [])
 
     def test_levels_rank_oe_over_manual_over_cross_over_maybe(self):
         self.oe("A", "X1", "OE1")
         self.oe("B", "OEPART", "OE1")
-        CrossRef.objects.create(a="X1", b="MAN1", source="manual")
-        CrossRef.objects.create(a="X1", b="CRS1", source="import")
-        CrossRef.objects.create(a="CRS1", b="FAR1", source="import")       # через ланцюжок
-        CrossRef.objects.create(a="X1", b="OEPART", source="import")       # і крос, і OE: лишається найкращий
-        lv = crosses.analog_levels("X1")
+        CrossRef.objects.create(company=self.company, a="X1", b="MAN1", source="manual")
+        CrossRef.objects.create(company=self.company, a="X1", b="CRS1", source="import")
+        CrossRef.objects.create(company=self.company, a="CRS1", b="FAR1", source="import")       # через ланцюжок
+        CrossRef.objects.create(company=self.company, a="X1", b="OEPART", source="import")       # і крос, і OE: лишається найкращий
+        lv = crosses.analog_levels("X1", company=self.company)
         self.assertEqual(lv, {"OEPART": "oe", "MAN1": "manual", "CRS1": "cross", "FAR1": "maybe"})
 
     def test_typing_the_oe_number_itself_finds_parts(self):
         self.oe("BILSTEIN", "19-152615", "1K0 411 105 AB")
         self.oe("SACHS", "315849", "1K0411105AB")
-        self.assertEqual(crosses.analog_levels("1K0411105AB"), {"19152615": "oe", "315849": "oe"})
+        self.assertEqual(crosses.analog_levels("1K0411105AB", company=self.company), {"19152615": "oe", "315849": "oe"})
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="retail_test_media_"))
 class EnrichTest(TestCase):
     def setUp(self):
-        get_user_model().objects.create_superuser("admin", "", "x")
-        get_user_model().objects.create_user("cash", password="x")
+        admin = get_user_model().objects.create_superuser("admin", "", "x")
+        cashier = get_user_model().objects.create_user("cash", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(admin, "Part enrichment shop", [(cashier, "cashier")])
         self.adm, self.cash = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.cash.login(username="cash", password="x")
-        self.sup = Supplier.objects.create(name="Busmarket")
+        self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
         self.cfg = SupplierApi.objects.create(
-            supplier=self.sup, url="https://api.bm.parts/prices/list", fmt="csv", method="POST", auth_mode="header",
+            company=self.company, supplier=self.sup, url="https://api.bm.parts/prices/list", fmt="csv", method="POST", auth_mode="header",
             auth_name="Authorization", api_key="TOKEN-XYZ", header_row=2, f_id="UUID", f_sku="Article", f_brand="Brand",
             f_name="Name", f_cost="Price", f_qty="QTY:*", body='{"currency": "C1", "warehouses": ["W1"]}',
             det_url="https://api.bm.parts/product/{id}?oe=full", det_image_base="https://cdn.example.com")
@@ -108,10 +113,10 @@ class EnrichTest(TestCase):
         self.assertEqual(headers["User-Agent"], "RetailShop/1.0")           # обов'язковий заголовок
         self.assertEqual(headers["Content-Type"], "application/json")
         self.assertEqual(json.loads(body), {"currency": "C1", "warehouses": ["W1"]})
-        a = SupplierItem.objects.get(sku="VM41023")
+        a = SupplierItem.objects.get(company=self.company, sku="VM41023")
         self.assertEqual((a.brand, a.cost, a.qty_avail, a.ext_id), ("VIBRA MASTER", D("1206.96"), D("3"), "80006E98C49AE02F4CB01012B3CA9C36"))
-        self.assertEqual(SupplierItem.objects.get(sku="02.53.071").qty_avail, D("1"))   # «Київ» порожньо = 0
-        self.assertFalse(SupplierItem.objects.get(sku="29-16 060 0008/HD").available)    # на жодному складі немає
+        self.assertEqual(SupplierItem.objects.get(company=self.company, sku="02.53.071").qty_avail, D("1"))   # «Київ» порожньо = 0
+        self.assertFalse(SupplierItem.objects.get(company=self.company, sku="29-16 060 0008/HD").available)    # на жодному складі немає
 
     def test_preset_fills_bm_settings_keeps_key_and_requires_real_uuids(self):
         self.cfg.delete()
@@ -152,20 +157,20 @@ class EnrichTest(TestCase):
         self.assertEqual((empty["oe"], empty["description"], empty["image_url"]), ([], "", ""))
 
     def test_save_info_protects_manual_edits_and_manual_oe(self):
-        enrich.save_info("BILSTEIN", "19-152615", {"oe": [("A1", "A1", "VAG")], "description": "з API"}, "api")
-        PartOe.objects.create(brand="BILSTEIN", sku_norm="19152615", oe_norm="MAN", oe_raw="MAN", source="manual")
-        pi = PartInfo.objects.get(brand="BILSTEIN")
+        enrich.save_info("BILSTEIN", "19-152615", {"oe": [("A1", "A1", "VAG")], "description": "з API"}, "api", company=self.company)
+        PartOe.objects.create(company=self.company, brand="BILSTEIN", sku_norm="19152615", oe_norm="MAN", oe_raw="MAN", source="manual")
+        pi = PartInfo.objects.get(company=self.company, brand="BILSTEIN")
         pi.description, pi.source = "Мій опис", "manual"
         pi.save()
-        enrich.save_info("BILSTEIN", "19-152615", {"oe": [("A2", "A2", "")], "description": "новий з API", "cars": "Opel"}, "api")
+        enrich.save_info("BILSTEIN", "19-152615", {"oe": [("A2", "A2", "")], "description": "новий з API", "cars": "Opel"}, "api", company=self.company)
         pi.refresh_from_db()
         self.assertEqual((pi.description, pi.cars), ("Мій опис", "Opel"))       # ручний опис не перезаписано, порожнє поле заповнено
-        self.assertEqual(sorted(PartOe.objects.filter(brand="BILSTEIN").values_list("oe_norm", flat=True)), ["A2", "MAN"])
+        self.assertEqual(sorted(PartOe.objects.filter(company=self.company, brand="BILSTEIN").values_list("oe_norm", flat=True)), ["A2", "MAN"])
 
     # ---------------- підтягування з картки
     def seed_items(self, n=3):
         for i in range(n):
-            SupplierItem.objects.create(supplier=self.sup, brand="B", sku=f"S{i}", sku_norm=f"S{i}", cost=10, ext_id=f"ID{i}")
+            SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="B", sku=f"S{i}", sku_norm=f"S{i}", cost=10, ext_id=f"ID{i}")
 
     def test_enrich_item_batch_skips_done_and_handles_errors(self):
         self.seed_items(4)
@@ -178,7 +183,7 @@ class EnrichTest(TestCase):
         done, _ = enrich.enrich_batch(sup, limit=10, fetch=Net(self.CARD))       # лишилось тільки 2 необроблених
         self.assertEqual(done, 2)
         self.assertEqual(enrich.enrich_batch(sup, limit=10, fetch=Net(self.CARD)), (0, 0))
-        self.assertEqual(PartOe.objects.filter(brand="B", sku_norm="S0").count(), 3)
+        self.assertEqual(PartOe.objects.filter(company=self.company, brand="B", sku_norm="S0").count(), 3)
 
     def test_enrich_batch_stops_on_rate_limit_and_marks_404(self):
         self.seed_items(3)
@@ -187,11 +192,11 @@ class EnrichTest(TestCase):
             enrich.enrich_batch(sup, limit=5, fetch=Net(SyncError("Постачальник відповів HTTP 429: перевищено ліміт")))
         self.assertIn("обмежив частоту", str(cm.exception))
         enrich.enrich_batch(sup, limit=5, fetch=Net(SyncError("Постачальник відповів HTTP 404: адресу не знайдено")))
-        self.assertEqual(PartInfo.objects.count(), 3)                              # позначено, щоб не питати вічно
+        self.assertEqual(PartInfo.objects.filter(company=self.company).count(), 3)                              # позначено, щоб не питати вічно
         self.assertEqual(enrich.enrich_batch(sup, limit=5, fetch=Net(self.CARD)), (0, 0))
 
     def test_enrich_needs_id_and_url(self):
-        si = SupplierItem.objects.create(supplier=self.sup, brand="B", sku="X", sku_norm="X", cost=1)
+        si = SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="B", sku="X", sku_norm="X", cost=1)
         with self.assertRaises(SyncError) as cm:
             enrich.enrich_item(SupplierItem.objects.select_related("supplier__api").get(pk=si.pk), fetch=Net(self.CARD))
         self.assertIn("немає ID", str(cm.exception))
@@ -211,19 +216,19 @@ class EnrichTest(TestCase):
             self.assertNotContains(r, "TOKEN-XYZ")
             r = self.adm.post(f"/suppliers/{self.sup.pk}/api/", {"act": "enrich"}, follow=True)
             self.assertContains(r, "Підтягнуто дані про деталі: 2")
-            SupplierItem.objects.create(supplier=self.sup, brand="B", sku="Z9", sku_norm="Z9", cost=1, ext_id="IDZ")
+            SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="B", sku="Z9", sku_norm="Z9", cost=1, ext_id="IDZ")
             call_command("enrich_parts", stdout=StringIO())
-        self.assertTrue(PartInfo.objects.filter(brand="B", sku_norm="Z9").exists())
+        self.assertTrue(PartInfo.objects.filter(company=self.company, brand="B", sku_norm="Z9").exists())
         self.assertEqual(self.cash.post(f"/suppliers/{self.sup.pk}/api/", {"act": "enrich"}).status_code, 403)
 
     # ---------------- картка запчастини, редагування, імпорт, каса
     def build_catalog(self):
-        SupplierItem.objects.create(supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000,
+        SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000,
                                     name="Амортизатор задній Trafic", ext_id="U1")
-        SupplierItem.objects.create(supplier=self.sup, brand="SACHS", sku="315 849", sku_norm="315849", cost=800, name="Амортизатор")
-        Product.objects.create(name="Амортизатор SACHS", sku="315 849", brand="SACHS", price=1100, current_stock=2)
-        PartOe.objects.create(brand="BILSTEIN", sku_norm="19152615", oe_norm="1K0411105AB", oe_raw="1K0 411 105 AB", oe_brand="VAG", source="api")
-        PartOe.objects.create(brand="SACHS", sku_norm="315849", oe_norm="1K0411105AB", oe_raw="1K0411105AB", source="import")
+        SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="SACHS", sku="315 849", sku_norm="315849", cost=800, name="Амортизатор")
+        Product.objects.create(company=self.company, name="Амортизатор SACHS", sku="315 849", brand="SACHS", price=1100, current_stock=2)
+        PartOe.objects.create(company=self.company, brand="BILSTEIN", sku_norm="19152615", oe_norm="1K0411105AB", oe_raw="1K0 411 105 AB", oe_brand="VAG", source="api")
+        PartOe.objects.create(company=self.company, brand="SACHS", sku_norm="315849", oe_norm="1K0411105AB", oe_raw="1K0411105AB", source="import")
 
     def test_part_card_shows_analogs_stock_offers_and_permissions(self):
         self.build_catalog()
@@ -246,14 +251,14 @@ class EnrichTest(TestCase):
         self.assertContains(r, "ZZ 111")
         # повторне збереження замінює свої ручні OE і не чіпає чужі (api)
         self.adm.post("/part/edit/", dict(data, oe=""))
-        self.assertEqual(sorted(PartOe.objects.filter(brand="BILSTEIN").values_list("oe_norm", flat=True)), ["1K0411105AB"])
+        self.assertEqual(sorted(PartOe.objects.filter(company=self.company, brand="BILSTEIN").values_list("oe_norm", flat=True)), ["1K0411105AB"])
 
     def test_part_refresh_button(self):
         self.build_catalog()
         with mock.patch("core.apisync.fetch_bytes", Net(self.CARD)):
             r = self.cash.post("/part/refresh/", {"b": "BILSTEIN", "s": "19152615"}, follow=True)
         self.assertContains(r, "Дані оновлено з API")
-        self.assertTrue(PartOe.objects.filter(brand="BILSTEIN", oe_norm="WVA1234").exists())
+        self.assertTrue(PartOe.objects.filter(company=self.company, brand="BILSTEIN", oe_norm="WVA1234").exists())
         r = self.cash.post("/part/refresh/", {"b": "SACHS", "s": "315849"}, follow=True)      # у цієї позиції немає ID
         self.assertContains(r, "Немає постачальника з налаштованим API")
 
@@ -263,11 +268,11 @@ class EnrichTest(TestCase):
                                                       ["meyle", "29-16 060 0008", "4D0407693", "AUDI"], ["", "X", "Y", ""]]))
         r = self.adm.post("/parts-data/", {"kind": "oe", "file": f, "has_header": "1"}, follow=True)
         self.assertContains(r, "деталь ↔ OE»: 1")
-        o = PartOe.objects.get()
+        o = PartOe.objects.get(company=self.company)
         self.assertEqual((o.brand, o.sku_norm, o.oe_norm, o.oe_brand, o.source), ("MEYLE", "29160600008", "4D0407693", "AUDI", "import"))
         f = SimpleUploadedFile("d.csv", "Бренд;Артикул;Опис;Характеристики;Застосовність\nMeyle;29-16 060 0008;Тяга стабілізатора;Довжина: 120 мм|Сторона: ліва;Audi A4|Audi A6\n".encode("utf-8"))
         self.adm.post("/parts-data/", {"kind": "desc", "file": f, "has_header": "1"})
-        pi = PartInfo.objects.get(brand="MEYLE")
+        pi = PartInfo.objects.get(company=self.company, brand="MEYLE")
         self.assertEqual((pi.description, pi.attrs, pi.cars), ("Тяга стабілізатора", "Довжина: 120 мм\nСторона: ліва", "Audi A4\nAudi A6"))
         self.assertEqual(self.cash.get("/parts-data/").status_code, 403)
 

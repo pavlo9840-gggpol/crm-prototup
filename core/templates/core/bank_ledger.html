@@ -1,0 +1,110 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>Банківські рахунки та операції</h2>
+<div style="margin:10px 0"><a class="btn" href="{% url 'bank_import' %}">Імпорт CSV-виписки</a> <a class="btn" href="{% url 'bank_export_csv' %}?from={{ date_from|date:'Y-m-d' }}&to={{ date_to|date:'Y-m-d' }}">Експорт журналу CSV</a></div>
+<p class="muted">Ручний управлінський журнал банківських рухів. Початковий залишок задається вручну як баланс на початок зазначеної дати; операції з цієї дати додаються до нього. Розрахунковий залишок не є підтвердженням фактичного балансу банку — звіряйте його з офіційною випискою.</p>
+
+<form method="get" class="filter">
+  <label>З дати <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
+  <label>По дату <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
+  <button class="btn">Показати</button>
+</form>
+
+<div class="kpi">
+  <div class="card">Надходження за період<b>{{ income|floatformat:2 }} ₴</b></div>
+  <div class="card">Списання за період<b>{{ expense|floatformat:2 }} ₴</b></div>
+  <div class="card">Різниця за період<b>{{ balance|floatformat:2 }} ₴</b></div>
+</div>
+
+<div class="card">
+  <h3>Рахунки магазину</h3>
+  <table>
+    <thead><tr><th>Банк / IBAN</th><th>Початковий залишок</th><th class="n">Залишок на початок періоду</th><th class="n">Надходження за період</th><th class="n">Списання за період</th><th class="n">Розрахунковий залишок на кінець</th></tr></thead>
+    <tbody>
+    {% for row in balances %}
+      <tr>
+        <td>{{ row.account.bank_name }}{% if row.account.is_default %} · Основний{% endif %}<br><small>{{ row.account.iban }} · {{ row.account.currency }}</small></td>
+        <td>{{ row.account.opening_balance|floatformat:2 }} {{ row.account.currency }}<br><small>станом на {{ row.account.opening_balance_date|date:"d.m.Y" }}</small></td>
+        <td class="n">{% if row.opening_at_period is not None %}{{ row.opening_at_period|floatformat:2 }} {{ row.account.currency }}{% else %}Не визначено{% endif %}</td>
+        <td class="n">{{ row.period_income|floatformat:2 }}</td><td class="n">{{ row.period_expense|floatformat:2 }}</td>
+        <td class="n"><strong>{% if row.closing_at_period is not None %}{{ row.closing_at_period|floatformat:2 }} {{ row.account.currency }}{% else %}Не визначено{% endif %}</strong></td>
+      </tr>
+    {% empty %}<tr><td colspan="6">Рахунки ще не додані.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3>Додати банківський рахунок</h3>
+    <form method="post">
+      {% csrf_token %}<input type="hidden" name="form_kind" value="account">
+      {{ account_form.as_p }}
+      <button class="btn primary">Додати рахунок</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>Додати рух за випискою</h3>
+    {% if accounts %}
+    <form method="post">
+      {% csrf_token %}<input type="hidden" name="form_kind" value="transaction">
+      {{ transaction_form.as_p }}
+      <button class="btn primary">Зберегти операцію</button>
+    </form>
+    {% else %}<p>Спочатку додайте банківський рахунок.</p>{% endif %}
+  </div>
+</div>
+
+<h3>Операції за період</h3>
+<table>
+  <thead><tr><th>Дата</th><th>Рахунок</th><th>Напрямок</th><th>Категорія</th><th>Контрагент</th><th>Документ / призначення</th><th class="n">Сума</th><th>Звірка / дії</th></tr></thead>
+  <tbody>
+  {% for entry in entries %}
+    <tr>
+      <td>{{ entry.transaction_date|date:"d.m.Y" }}</td><td>{{ entry.account.bank_name }} · {{ entry.account.iban }}</td>
+      <td>{{ entry.get_direction_display }}</td><td>{{ entry.category }}</td><td>{{ entry.counterparty|default:"—" }}</td><td>{{ entry.document_ref|default:"—" }}</td>
+      <td class="n">{% if entry.is_void %}<s>{% endif %}{{ entry.amount|floatformat:2 }} {{ entry.account.currency }}{% if entry.is_void %}</s>{% endif %}</td>
+      <td>
+        {% if entry.is_void %}
+          <strong>Скасовано</strong><br><small>{{ entry.void_reason }} · {{ entry.voided_by.get_username }} · {{ entry.voided_at|date:"d.m.Y H:i" }}</small>
+        {% else %}
+          {% with reconciliation=entry.active_reconciliation %}
+          {% if reconciliation %}
+            <strong>Звірено</strong><br>
+            {% if reconciliation.settlement_payment_id %}
+              {% if reconciliation.settlement_payment.sale %}Продаж №{{ reconciliation.settlement_payment.sale.number|default:reconciliation.settlement_payment.sale.pk }}{% else %}Закупівля №{{ reconciliation.settlement_payment.purchase.number|default:reconciliation.settlement_payment.purchase.pk }}{% endif %}
+              · {{ reconciliation.settlement_payment.amount|floatformat:2 }} ₴
+            {% else %}
+              {% if reconciliation.account_advance.party_type == "customer" %}Аванс клієнта{% else %}Аванс постачальнику{% endif %}
+              · {{ reconciliation.account_advance.customer|default:reconciliation.account_advance.supplier }} · {{ reconciliation.account_advance.amount|floatformat:2 }} ₴
+            {% endif %}<br>
+            <small>{{ reconciliation.matched_by.get_username }} · {{ reconciliation.matched_at|date:"d.m.Y H:i" }}</small>
+            <form method="post" action="{% url 'bank_reconciliation_void' reconciliation.pk %}">{% csrf_token %}
+              <input name="reason" maxlength="250" placeholder="Причина скасування звірки" required>
+              <button class="btn" type="submit" onclick="return confirm('Скасувати звірку?')">Скасувати звірку</button>
+            </form>
+          {% else %}
+            {% with candidates=entry.reconciliation_candidates %}
+            {% if candidates %}
+              <form method="post" action="{% url 'bank_reconcile' entry.pk %}">{% csrf_token %}
+                <select name="match_ref" required>
+                  <option value="">Оберіть відповідний платіж або аванс</option>
+                  {% for candidate in candidates %}<option value="{{ candidate.ref }}">{{ candidate.label }}</option>{% endfor %}
+                </select>
+                <button class="btn primary" type="submit">Звірити</button>
+              </form>
+            {% else %}<small>Немає відповідного незвіреного платежу</small>{% endif %}
+            {% endwith %}
+            <form method="post" action="{% url 'bank_transaction_void' entry.pk %}">{% csrf_token %}
+              <input name="reason" maxlength="250" placeholder="Причина скасування запису" required>
+              <button class="btn" type="submit" onclick="return confirm('Скасувати запис? Він залишиться в аудиті.')">Скасувати запис</button>
+            </form>
+          {% endif %}
+          {% endwith %}
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}<tr><td colspan="8">Операцій за вибраний період немає.</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

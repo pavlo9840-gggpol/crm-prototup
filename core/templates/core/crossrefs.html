@@ -1,7 +1,36 @@
-{% extends "core/base.html" %}{% block content %}<h2>Аналоги (кроси)</h2>
-<div class="card" style="max-width:820px"><p style="margin-top:0">Пари артикулів-аналогів. Коли менеджер шукає артикул, каса показує, що з аналогів уже лежить на складі, щоб не замовляти зайвого. Аналоги працюють в обидва боки і через ланцюжок (OE ↔ виробник ↔ виробник). Артикули порівнюються без пробілів і дефісів.</p>
-<form method="post">{% csrf_token %}<input type="hidden" name="act" value="add">Артикул: <input name="a" required> ↔ аналог: <input name="b" required> <button class="btn">Додати пару</button></form><hr>
-<form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="act" value="upload">Імпорт з файлу (.xlsx / .csv, дві колонки: артикул, аналог): <input type="file" name="file" accept=".xlsx,.csv,.txt" required>
-<label><input type="checkbox" name="has_header" value="1" checked> перший рядок — заголовок</label> <button class="btn">Імпортувати</button></form></div>
-<div class="card"><form class="filter" style="margin-top:0">Пошук за артикулом: <input name="q" value="{{ request.GET.q }}"> <button class="btn gray">Знайти</button> <span style="color:var(--mute)">Усього пар: {{ total }}</span></form>
-<table><tr><th>Артикул<th>Аналог<th></tr>{% for p in pairs %}<tr><td>{{ p.a_raw|default:p.a }}<td>{{ p.b_raw|default:p.b }}<td><form method="post" style="display:inline">{% csrf_token %}<input type="hidden" name="act" value="delete"><input type="hidden" name="pk" value="{{ p.pk }}"><button class="btn red sm">×</button></form></tr>{% empty %}<tr><td colspan="3">Пар аналогів ще немає</tr>{% endfor %}</table></div>{% endblock %}
+{% extends "core/base.html" %}{% block title %}Аналоги запчастин{% endblock %}{% block content %}
+<style>
+.cross-intro{max-width:1000px}.cross-tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.cross-tools form{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.cross-tools input[type=text],.cross-tools input:not([type]){min-width:120px;flex:1}
+.cross-table{display:grid;gap:10px}.cross-pair{display:grid;grid-template-columns:minmax(0,1fr) 48px minmax(0,1fr) 150px 44px;gap:12px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:10px;padding:13px}
+.cross-side{min-width:0}.cross-code{font-size:16px;font-weight:800;overflow-wrap:anywhere}.cross-side small{display:block;color:var(--mute);margin-top:4px}.cross-mid{text-align:center;color:var(--pri);font-weight:800}.cross-state{font-size:12px}.cross-stock{font-weight:700;margin-top:5px}.cross-delete{display:flex;justify-content:flex-end}
+.cross-warn{background:#fff8e7;border:1px solid #f2d28c;border-radius:8px;padding:10px;color:#805500;margin:12px 0}
+@media(max-width:760px){.cross-pair{grid-template-columns:1fr 28px 1fr}.cross-state{grid-column:1/4}.cross-delete{grid-column:3;grid-row:1}.cross-code{font-size:14px}}
+</style>
+<h2>Аналоги (кроси)</h2>
+<div class="card cross-intro">
+<p style="margin-top:0">Кроси допомагають знаходити альтернативні артикули. Рівень довіри залежить від джерела: ручне підтвердження, спільний OE, API постачальника або імпорт. Ланцюжок кросів і збіг назви — лише підказки, а не гарантія взаємозамінності.</p>
+<div class="cross-warn"><b>Важливо:</b> зараз пара зберігається за нормалізованими артикулами без бренду. Якщо однакові номери використовуються різними виробниками, перевіряйте бренд і технічні характеристики перед підтвердженням.</div>
+<div class="cross-tools">
+<form method="post">{% csrf_token %}<input type="hidden" name="act" value="add"><input name="a" placeholder="Артикул A" required><span>↔</span><input name="b" placeholder="Артикул B" required><button class="btn">Підтвердити пару</button></form>
+<form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="act" value="upload"><input type="file" name="file" accept=".xlsx,.csv,.txt" required><label><input type="checkbox" name="has_header" value="1" checked> Заголовок</label><button class="btn gray">Імпортувати</button></form>
+</div></div>
+<div class="card">
+<form class="filter" style="margin-top:0">Пошук артикула: <input name="q" value="{{ query }}" placeholder="Введіть частину номера"><button class="btn gray">Знайти</button><a class="btn gray" href="{% url 'crossrefs' %}">Скинути</a><span class="muted">Усього пар: {{ total }}</span></form>
+<div class="cross-table">
+{% for p in pairs %}
+<div class="cross-pair">
+<div class="cross-side"><div class="cross-code">{{ p.obj.a_raw|default:p.obj.a }}</div><small>Нормалізований: {{ p.obj.a }}</small><div class="cross-stock">Склад: {{ p.a_stock|floatformat:"-3" }}</div>
+{% for x in p.a_products %}<small>CRM: {{ x.brand }} · {{ x.name|truncatechars:55 }}</small>{% endfor %}
+{% for x in p.a_offers %}<small>{{ x.supplier.name }} · {{ x.cost }} ₴</small>{% endfor %}
+{% if not p.a_products and not p.a_offers %}<small>Немає в CRM та активних прайсах</small>{% endif %}</div>
+<div class="cross-mid">↔</div>
+<div class="cross-side"><div class="cross-code">{{ p.obj.b_raw|default:p.obj.b }}</div><small>Нормалізований: {{ p.obj.b }}</small><div class="cross-stock">Склад: {{ p.b_stock|floatformat:"-3" }}</div>
+{% for x in p.b_products %}<small>CRM: {{ x.brand }} · {{ x.name|truncatechars:55 }}</small>{% endfor %}
+{% for x in p.b_offers %}<small>{{ x.supplier.name }} · {{ x.cost }} ₴</small>{% endfor %}
+{% if not p.b_products and not p.b_offers %}<small>Немає в CRM та активних прайсах</small>{% endif %}</div>
+<div class="cross-state"><b>{{ p.source_label }}</b><small class="muted">Додано як пару артикулів</small></div>
+<div class="cross-delete"><form method="post">{% csrf_token %}<input type="hidden" name="act" value="delete"><input type="hidden" name="pk" value="{{ p.obj.pk }}"><button class="btn red sm" title="Видалити пару">×</button></form></div>
+</div>
+{% empty %}<div class="muted">Пар аналогів ще немає. Додайте вручну або імпортуйте файл від постачальника.</div>{% endfor %}
+</div></div>{% endblock %}
