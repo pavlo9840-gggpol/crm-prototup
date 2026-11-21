@@ -21,7 +21,7 @@ class DemoDataTest(TestCase):
         from core.tests_tenant_helpers import create_test_company
         self.company = create_test_company(admin, "Demo data test shop", [])
         self.c = self.client
-        self.c.login(username="admin", password="x")
+        self.c.login(username="demo-admin", password="x")
         self.out = os.path.join(tempfile.mkdtemp(), "inv.csv")
         call_command("load_demo_data", out=self.out, company_id=self.company.pk, stdout=StringIO())
 
