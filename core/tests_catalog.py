@@ -66,7 +66,9 @@ class VehicleCatalogueImportTests(TestCase):
         from django.contrib.auth import get_user_model
         from core.models import Product
         user = get_user_model().objects.create_user(username="catalog-user", password="test-pass")
-        Product.objects.create(name="Oil filter", sku="AB-123", brand="ExampleBrand", price=25)
+        from core.tests_tenant_helpers import create_test_company
+        company = create_test_company(user, "Catalogue search shop", [])
+        Product.objects.create(company=company, name="Oil filter", sku="AB-123", brand="ExampleBrand", price=25)
         self.client.login(username="catalog-user", password="test-pass")
         response = self.client.get("/catalogue/?q=AB123")
         self.assertEqual(response.status_code, 200)
