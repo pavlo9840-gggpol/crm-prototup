@@ -100,14 +100,14 @@ class FinancePeriodCloseTests(TestCase):
         self._close()
         snapshot = FinancePeriodClose.objects.get(company=self.company).snapshot
         metrics = snapshot["metrics"]
-        self.assertEqual(metrics["gross_revenue"], "50")
-        self.assertEqual(metrics["net_revenue"], "50")
-        self.assertEqual(metrics["gross_cost_of_goods_sold"], "30")
-        self.assertEqual(metrics["gross_profit"], "20")
-        self.assertEqual(metrics["other_income"], "2")
-        self.assertEqual(metrics["operating_expenses"], "7")
-        self.assertEqual(metrics["operating_result"], "15")
-        self.assertEqual(metrics["sold_units"], "1")
+        self.assertEqual(metrics["gross_revenue"], "50.00")
+        self.assertEqual(metrics["net_revenue"], "50.00")
+        self.assertEqual(metrics["gross_cost_of_goods_sold"], "30.00")
+        self.assertEqual(metrics["gross_profit"], "20.00")
+        self.assertEqual(metrics["other_income"], "2.00")
+        self.assertEqual(metrics["operating_expenses"], "7.00")
+        self.assertEqual(metrics["operating_result"], "15.00")
+        self.assertEqual(metrics["sold_units"], "1.000")
         self.assertEqual(voided.is_void, True)
 
     def test_period_close_model_rejects_mutation_and_deletion(self):
