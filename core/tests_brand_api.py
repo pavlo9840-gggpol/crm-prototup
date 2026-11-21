@@ -53,7 +53,7 @@ class BrandFormTest(TestCase):
         self.assertEqual((p.brand, p.sku, p.sku_norm, p.current_stock), ("BILSTEIN", "19-152615", "19152615", 2))
         # той самий товар, інакше записаний артикул: відхиляється
         r = self.adm.post("/products/new/", dict(self.FORM, brand="Bilstein", sku="19 152615"))
-        self.assertContains(r, "Такий товар уже є в базі")
+        self.assertContains(r, "Такий код уже використовується")
         self.assertEqual(Product.objects.filter(company=self.company).count(), 1)
         # той самий артикул в ІНШОГО бренду: це інший товар, дозволено
         self.assertEqual(self.adm.post("/products/new/", dict(self.FORM, brand="SACHS", name="Інший")).status_code, 302)
