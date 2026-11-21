@@ -243,8 +243,8 @@ class ReceivingTest(TestCase):
         self.assertEqual(metrics["gross_profit"], "15.00")
         self.assertEqual(metrics["customer_debt"], "15.00")
         self.assertEqual(metrics["supplier_debt"], "160.00")
-        self.assertEqual(metrics["counts"]["active_bank_matches"], 2)
-        self.assertEqual(metrics["counts"]["closed_shifts"], 1)
+        self.assertEqual(close.snapshot["counts"]["active_bank_matches"], 2)
+        self.assertEqual(close.snapshot["counts"]["closed_shifts"], 1)
         self.assertTrue(close.verify_checksum())
 
     def test_fifo_earlier_order_first_and_partial_split_keeps_sale_total(self):
