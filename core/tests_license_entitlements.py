@@ -98,7 +98,7 @@ class LocalLicenseEnforcementTests(TestCase):
         client = Client()
         client.force_login(self.user)
         original = LicenseActivation.objects.get(pk=1).token
-        response = client.post("/activate/", {"license_key": "AZ1.invalid.invalid"})
+        response = client.post("/activate/", {"license_key": "not-a-license-key"})
         self.assertEqual(response.status_code, 200)
         activation = LicenseActivation.objects.get(pk=1)
         self.assertEqual(activation.token, original)
