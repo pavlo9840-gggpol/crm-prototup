@@ -61,7 +61,7 @@ class StructuredFitmentLookupTests(TestCase):
         self.assertFalse(PartFitment.objects.filter(part_number__sku_norm__in=["19152615", "19152616"]).exists())
 
     def test_cross_reference_screen_shows_real_stock_and_supplier_data(self):
-        CrossRef.objects.create(a="315849", b="19152615", a_raw="315 849", b_raw="19-152615", source="manual")
+        CrossRef.objects.create(company=self.company, a="315849", b="19152615", a_raw="315 849", b_raw="19-152615", source="manual")
         response = self.client.get("/crossrefs/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Підтверджено вручну")
