@@ -16,11 +16,17 @@ details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more
 <form method="post" enctype="multipart/form-data" id="pf" autocomplete="off">{% csrf_token %}
 <div class="grid2"><div>
 <div class="card"><div class="sec"><i>1</i><h3>Основна інформація про товар</h3></div>
- <div class="frow"><div class="fld"><label for="id_brand">Бренд / виробник</label>{{ form.brand }}{{ form.brand.errors }}<span class="helptext">Необов’язково. Виробник товару або торгова марка.</span></div>
- <div class="fld"><label for="id_sku">Артикул / внутрішній код <span class="req">*</span></label>{{ form.sku }}{{ form.sku.errors }}<span class="helptext">Внутрішній код, артикул виробника або код позиції.</span></div></div>
+ {% if is_auto_parts %}
+ <div class="frow"><div class="fld"><label for="id_brand">Бренд виробника <span class="req">*</span></label>{{ form.brand }}{{ form.brand.errors }}<span class="helptext">Для автозапчастин ідентифікує товар разом з артикулом.</span></div>
+ <div class="fld"><label for="id_sku">Артикул виробника <span class="req">*</span></label>{{ form.sku }}{{ form.sku.errors }}<span class="helptext">Однаковий артикул у різних брендів може означати різні деталі.</span></div></div>
+ <div class="fld"><label for="id_name">Назва запчастини <span class="req">*</span></label>{{ form.name }}{{ form.name.errors }}</div>
+ {% else %}
+ <div class="fld"><label for="id_name">Назва товару <span class="req">*</span></label>{{ form.name }}{{ form.name.errors }}</div>
+ <div class="frow"><div class="fld"><label for="id_sku">Внутрішній код / SKU <span class="req">*</span></label>{{ form.sku }}{{ form.sku.errors }}<span class="helptext">Код для пошуку товару у вашому магазині.</span></div>
+ <div class="fld"><label for="id_barcode">Штрих-код</label>{{ form.barcode }}{{ form.barcode.errors }}</div></div>
+ {% endif %}
  <div class="status" id="st"></div>
- <div class="fld"><label for="id_name">Назва <span class="req">*</span></label>{{ form.name }}{{ form.name.errors }}</div>
- <div class="frow"><div class="fld"><label for="id_category">Категорія</label>{{ form.category }}{{ form.category.errors }}<span class="helptext">Система запропонує категорію за назвою, якщо залишити поле порожнім.</span></div><div class="fld"><label for="id_unit">Одиниця виміру</label>{{ form.unit }}{{ form.unit.errors }}</div></div>
+ <div class="frow"><div class="fld"><label for="id_category">Категорія</label>{{ form.category }}{{ form.category.errors }}<span class="helptext">За потреби оберіть групу товару.</span></div><div class="fld"><label for="id_unit">Одиниця виміру</label>{{ form.unit }}{{ form.unit.errors }}</div></div>
  <div class="sec" style="margin-top:14px"><i>2</i><h3>Тип та правила обліку</h3></div>
  <div class="frow"><div class="fld"><label for="id_product_kind">Тип позиції</label>{{ form.product_kind }}{{ form.product_kind.errors }}</div><div class="fld"><label for="id_tracking_mode">Спосіб обліку</label>{{ form.tracking_mode }}{{ form.tracking_mode.errors }}</div><div class="fld"><label for="id_tax_category">Податкова категорія</label>{{ form.tax_category }}{{ form.tax_category.errors }}</div></div>
 <div class="sec" style="margin-top:14px"><i>!</i><h3>Стан товару</h3></div>
@@ -45,6 +51,7 @@ details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more
  <div class="fld"><label for="id_photo_url">Або посилання на фото (HTTPS)</label>{{ form.photo_url }}{{ form.photo_url.errors }}<span class="helptext">Використовуйте пряме посилання на зображення.</span></div>
  <div class="fld"><label>Попередній перегляд</label><div id="photo-preview" style="min-height:90px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);border-radius:8px;padding:8px;color:var(--mute)">Фото не вибрано</div></div>
  <details class="more"{% if form.errors.notes or form.errors.is_active %} open{% endif %}><summary>Додатково</summary><div style="margin-top:10px">
+  {% if not is_auto_parts %}<div class="fld"><label for="id_brand">Бренд / виробник (необов’язково)</label>{{ form.brand }}{{ form.brand.errors }}</div>{% endif %}
   <div class="fld"><label style="display:flex;gap:8px;align-items:center;font-weight:500">{{ form.is_favorite }} Швидка кнопка на касі</label></div>
   <div class="fld"><label style="display:flex;gap:8px;align-items:center;font-weight:500">{{ form.allow_price_change }} Дозволити змінювати ціну на касі</label></div>
   <div class="fld"><label style="display:flex;gap:8px;align-items:center;font-weight:500">{{ form.auto_price }} Автоціна: ціна сама перераховується за правилами цін</label></div>
@@ -59,6 +66,7 @@ details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more
 {% for h in history %}<tr><td>{{ h.changed_at|date:"d.m.Y H:i" }}<td>{{ h.changed_by }}<td>{% if h.field == "price" %}Ціна продажу{% else %}Ціна закупівлі{% endif %}<td class="n">{{ h.old_value }}<td class="n">{{ h.new_value }}</tr>{% endfor %}</table></div>{% endif %}
 <script>
 (function(){
+const IS_AUTO={{ is_auto_parts|yesno:'true,false' }};
 const $=id=>document.getElementById(id),esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const brand=$('id_brand'),sku=$('id_sku'),nm=$('id_name'),cost=$('id_cost_price'),price=$('id_price'),mk=$('mk'),calc=$('calc'),st=$('st'),hints=$('hints');
 const condition=$('id_condition'),defect=$('id_has_defect'),desc=$('id_condition_description'),defectWrap=$('defect-wrap'),photoFile=$('id_photo'),photoUrl=$('id_photo_url'),photoPreview=$('photo-preview');
@@ -112,7 +120,7 @@ function show(d){if(d.empty){st.innerHTML='';return}
 [brand,sku,$('id_barcode')].forEach(e=>e&&e.addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();const f=[brand,sku,nm,cost,price];const i=f.indexOf(e);(f[i+1]||nm).focus()}}));
 $('pf').addEventListener('submit',()=>{document.querySelectorAll('.actions .btn').forEach(b=>setTimeout(()=>b.disabled=true,0))});
 if(n(cost.value)>0&&n(mk.value)==null&&n(price.value)>0)recalcMarkup();else if(n(cost.value)>0&&!n(price.value)){mk.value=DEF;applyMarkup()}else paint();
-(brand.value?sku:brand).focus();if(sku.value)ask();
+(IS_AUTO?(brand.value?sku:brand):sku).focus();if(sku.value)ask();
 })();
 </script>
 {% endblock %}
