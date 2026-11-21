@@ -86,7 +86,10 @@ class UniversalProductFieldsTests(TestCase):
     def setUp(self):
         User = get_user_model()
         owner = User.objects.create_superuser("owner", "", "secret")
-        self.company = Company.objects.create(name="Універсальний магазин", slug="universal-shop", owner=owner)
+        self.company = Company.objects.create(
+            name="Універсальний магазин", slug="universal-shop", owner=owner,
+            business_type="general_retail",
+        )
         StaffMembership.objects.create(company=self.company, user=owner, role="owner")
         self.owner = owner
         self.client.force_login(owner)
@@ -127,6 +130,8 @@ class UniversalProductFieldsTests(TestCase):
         self.assertIn("sku", form.errors)
 
     def test_auto_parts_profile_allows_same_sku_for_different_brands(self):
+        self.company.business_type = "auto_parts"
+        self.company.save(update_fields=["business_type"])
         Product.objects.create(company=self.company, name="Амортизатор Bilstein", sku="19-152", brand="BILSTEIN")
         form = ProductForm({
             "name": "Амортизатор Sachs", "sku": "19152", "brand": "SACHS", "unit": "шт",
