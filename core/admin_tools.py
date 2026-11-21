@@ -194,7 +194,7 @@ def verify_backup_archive(source):
             if "manifest.json" in names:
                 try:
                     manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
-                    if not isinstance(manifest, dict) or manifest.get("format_version") != 1:
+                    if not isinstance(manifest, dict) or type(manifest.get("format_version")) is not int or manifest.get("format_version") != 1:
                         raise ValueError("Непідтримувана версія маніфесту резервної копії.")
                     if manifest.get("database_engine") != "sqlite":
                         raise ValueError("Маніфест містить невідому СУБД.")
@@ -215,7 +215,7 @@ def verify_backup_archive(source):
                     for name, metadata in expected.items():
                         if not isinstance(metadata, dict):
                             raise ValueError(f"Метадані файлу в маніфесті некоректні: {name}")
-                        if not isinstance(metadata.get("size"), int) or metadata["size"] < 0:
+                        if type(metadata.get("size")) is not int or metadata["size"] < 0:
                             raise ValueError(f"Розмір файлу в маніфесті некоректний: {name}")
                         digest = metadata.get("sha256")
                         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
