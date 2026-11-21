@@ -104,6 +104,18 @@ class LocalLicenseEnforcementTests(TestCase):
         self.assertEqual(activation.token, original)
         self.assertContains(response, "Непідтримуваний формат ключа", status_code=200)
 
+    def test_activation_view_rejects_license_below_current_active_user_count(self):
+        User = get_user_model()
+        extra = User.objects.create_user(username="extra-staff", password="Strong-Password-123")
+        StaffMembership.objects.create(company=self.company, user=extra, role="cashier")
+        client = Client()
+        client.force_login(self.user)
+        token = self.make_token(plan="start", max_users=1, max_workstations=1)
+        response = client.post("/activate/", {"license_key": token})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "активних облікових записів", status_code=200)
+        self.assertEqual(LicenseActivation.objects.get(pk=1).plan, "start")
+
     def test_activation_view_rejects_license_for_another_installation(self):
         client = Client()
         client.force_login(self.user)
