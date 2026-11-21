@@ -384,12 +384,12 @@ class V4Test(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Фільтри Захід")
         self.assertContains(response, "Знайдено накладних: <strong>1</strong>")
-        self.assertContains(response, "24.00 ₴")
+        self.assertEqual(response.context["summary_total"], Decimal("24.00"))
         self.assertContains(response, 'value="Фільтри"')
 
         response = self.adm.get(f"/purchases/?supplier={supplier_b.pk}")
         self.assertContains(response, "АвтоСвіт")
-        self.assertContains(response, "12.00 ₴")
+        self.assertEqual(response.context["summary_total"], Decimal("12.00"))
         self.assertContains(response, f'value="{supplier_b.pk}" selected')
 
         response = self.adm.get("/purchases/?q=немає-такого")
