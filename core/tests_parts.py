@@ -69,7 +69,7 @@ class CrossEngineTest(TestCase):
         CrossRef.objects.create(company=self.company, a="X1", b="MAN1", source="manual")
         CrossRef.objects.create(company=self.company, a="X1", b="CRS1", source="import")
         CrossRef.objects.create(company=self.company, a="CRS1", b="FAR1", source="import")       # через ланцюжок
-        CrossRef.objects.create(a="X1", b="OEPART", source="import")       # і крос, і OE: лишається найкращий
+        CrossRef.objects.create(company=self.company, a="X1", b="OEPART", source="import")       # і крос, і OE: лишається найкращий
         lv = crosses.analog_levels("X1", company=self.company)
         self.assertEqual(lv, {"OEPART": "oe", "MAN1": "manual", "CRS1": "cross", "FAR1": "maybe"})
 
@@ -216,7 +216,7 @@ class EnrichTest(TestCase):
             self.assertNotContains(r, "TOKEN-XYZ")
             r = self.adm.post(f"/suppliers/{self.sup.pk}/api/", {"act": "enrich"}, follow=True)
             self.assertContains(r, "Підтягнуто дані про деталі: 2")
-            SupplierItem.objects.create(supplier=self.sup, brand="B", sku="Z9", sku_norm="Z9", cost=1, ext_id="IDZ")
+            SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="B", sku="Z9", sku_norm="Z9", cost=1, ext_id="IDZ")
             call_command("enrich_parts", stdout=StringIO())
         self.assertTrue(PartInfo.objects.filter(company=self.company, brand="B", sku_norm="Z9").exists())
         self.assertEqual(self.cash.post(f"/suppliers/{self.sup.pk}/api/", {"act": "enrich"}).status_code, 403)
@@ -228,7 +228,7 @@ class EnrichTest(TestCase):
         SupplierItem.objects.create(supplier=self.sup, brand="SACHS", sku="315 849", sku_norm="315849", cost=800, name="Амортизатор")
         Product.objects.create(company=self.company, name="Амортизатор SACHS", sku="315 849", brand="SACHS", price=1100, current_stock=2)
         PartOe.objects.create(company=self.company, brand="BILSTEIN", sku_norm="19152615", oe_norm="1K0411105AB", oe_raw="1K0 411 105 AB", oe_brand="VAG", source="api")
-        PartOe.objects.create(brand="SACHS", sku_norm="315849", oe_norm="1K0411105AB", oe_raw="1K0411105AB", source="import")
+        PartOe.objects.create(company=self.company, brand="SACHS", sku_norm="315849", oe_norm="1K0411105AB", oe_raw="1K0411105AB", source="import")
 
     def test_part_card_shows_analogs_stock_offers_and_permissions(self):
         self.build_catalog()
@@ -258,7 +258,7 @@ class EnrichTest(TestCase):
         with mock.patch("core.apisync.fetch_bytes", Net(self.CARD)):
             r = self.cash.post("/part/refresh/", {"b": "BILSTEIN", "s": "19152615"}, follow=True)
         self.assertContains(r, "Дані оновлено з API")
-        self.assertTrue(PartOe.objects.filter(brand="BILSTEIN", oe_norm="WVA1234").exists())
+        self.assertTrue(PartOe.objects.filter(company=self.company, brand="BILSTEIN", oe_norm="WVA1234").exists())
         r = self.cash.post("/part/refresh/", {"b": "SACHS", "s": "315849"}, follow=True)      # у цієї позиції немає ID
         self.assertContains(r, "Немає постачальника з налаштованим API")
 
