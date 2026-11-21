@@ -89,6 +89,7 @@ class BusinessProfileMiddlewareTests(SimpleTestCase):
         request = self.factory.get("/car-parts/")
         request.company = SimpleNamespace(business_type="grocery", get_business_type_display=lambda: "Продуктовий магазин")
         request.user = AnonymousUser()
+        request.resolver_match = None
         response = BusinessProfileMiddleware(lambda _request: HttpResponse("ok"))(request)
         self.assertEqual(response.status_code, 403)
 
