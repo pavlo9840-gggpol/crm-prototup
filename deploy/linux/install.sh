@@ -77,6 +77,14 @@ set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
 set +a
+
+# Refuse unsafe or non-standard production configuration before migrations.
+[[ "${DJANGO_DEBUG:-}" == "0" ]] || fail "Для встановлення DEBUG має бути 0."
+[[ "${DJANGO_ALLOWED_HOSTS:-}" =~ [^[:space:]] ]] || fail "DJANGO_ALLOWED_HOSTS не може бути порожнім."
+[[ "${AUTOZAPAZ_DATA_DIR:-}" == "$DATA_DIR" ]] || fail "AUTOZAPAZ_DATA_DIR має бути $DATA_DIR."
+[[ "${AUTOZAPAZ_BACKUP_DIR:-}" == "$DATA_DIR/backups" ]] || fail "AUTOZAPAZ_BACKUP_DIR має бути $DATA_DIR/backups."
+[[ "${AUTOZAPAZ_REQUIRE_LICENSE:-}" == "1" ]] || fail "AUTOZAPAZ_REQUIRE_LICENSE має бути 1."
+[[ "${AUTOZAPAZ_LICENSE_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "Некоректний відкритий Ed25519-ключ ліцензії."
 export DJANGO_SETTINGS_MODULE=config.settings
 runuser -u "$SERVICE_USER" -- env \
     DJANGO_SECRET_KEY="$DJANGO_SECRET_KEY" \
