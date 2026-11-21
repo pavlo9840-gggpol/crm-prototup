@@ -39,7 +39,10 @@ class Net:
 
 class CrossEngineTest(TestCase):
     def setUp(self):
-        self.sup = Supplier.objects.create(name="S")
+        user = get_user_model().objects.create_superuser("cross-admin", "", "x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(user, "Cross engine shop")
+        self.sup = Supplier.objects.create(company=self.company, name="S")
 
     def oe(self, brand, sku, *oes, ob="VAG"):
         for o in oes:
