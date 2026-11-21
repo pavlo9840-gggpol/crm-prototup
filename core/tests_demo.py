@@ -23,7 +23,7 @@ class DemoDataTest(TestCase):
         self.c = self.client
         self.c.login(username="admin", password="x")
         self.out = os.path.join(tempfile.mkdtemp(), "inv.csv")
-        call_command("load_demo_data", out=self.out, stdout=StringIO())
+        call_command("load_demo_data", out=self.out, company_id=self.company.pk, stdout=StringIO())
 
     def test_dataset_shape_and_idempotence(self):
         self.assertGreater(SupplierItem.objects.filter(company=self.company).count(), 200)
@@ -31,7 +31,7 @@ class DemoDataTest(TestCase):
         self.assertEqual((Customer.objects.filter(company=self.company, notes="DEMO").count(), CustomerCar.objects.filter(company=self.company).count(), Sale.objects.filter(company=self.company).count()), (3, 4, 2))
         before = (Product.objects.filter(company=self.company).count(), SupplierItem.objects.filter(company=self.company).count())
         buf = StringIO()
-        call_command("load_demo_data", out=self.out, stdout=buf)
+        call_command("load_demo_data", out=self.out, company_id=self.company.pk, stdout=buf)
         self.assertIn("вже створено", buf.getvalue())
         self.assertEqual((Product.objects.filter(company=self.company).count(), SupplierItem.objects.filter(company=self.company).count()), before)
 
@@ -78,7 +78,7 @@ class DemoDataTest(TestCase):
         self.assertContains(self.c.get("/orders/?st=arrived"), "🚗")                            # авто клієнта видно в замовленні
 
     def test_reset_removes_everything_demo(self):
-        call_command("load_demo_data", reset=True, stdout=StringIO())
+        call_command("load_demo_data", reset=True, company_id=self.company.pk, stdout=StringIO())
         for model in (SupplierItem, PartOe, PartInfo, CrossRef, CustomerCar, Sale, SaleItem, Customer, Product):
             self.assertEqual(model.objects.filter(company=self.company).count(), 0, model.__name__)
         self.assertFalse(Supplier.objects.filter(company=self.company).exists())
@@ -95,6 +95,6 @@ class DemoDataTest(TestCase):
         data.update({f"col_{x['key']}": x["sel"] for x in ctx["fields"] if x["sel"] is not None})
         self.c.post("/receive/apply/", data)
         buf = StringIO()
-        call_command("load_demo_data", reset=True, stdout=buf)                               # закупівля посилається на постачальника
+        call_command("load_demo_data", reset=True, company_id=self.company.pk, stdout=buf)                               # закупівля посилається на постачальника
         self.assertIn("не видалено", buf.getvalue())
         self.assertEqual(Customer.objects.filter(company=self.company, notes="DEMO").count(), 0)
