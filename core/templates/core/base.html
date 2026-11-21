@@ -65,7 +65,7 @@ body.sb-open .sidebar{transform:none}main{padding:12px}table{display:block;overf
 {% for g in nav_groups %}{% if g.single %}<a class="solo {% if g.items.0.active %}on{% endif %}" href="{% url g.items.0.name %}"><span class="ic">{{ g.icon }}</span>{{ g.items.0.label }}</a>
 {% else %}<div class="grp {% if g.has_active %}open act{% endif %}" data-g="{{ g.title }}"><button type="button" class="gh"><span class="ic">{{ g.icon }}</span><span>{{ g.title }}</span><i>▸</i></button>
 <div class="gb">{% for it in g.items %}{% url it.name as href %}<a href="{{ href }}" class="{% if it.active %}on{% endif %}">{{ it.label }}</a>{% endfor %}</div></div>{% endif %}{% endfor %}
-<div class="grp" data-g="Система"><button type="button" class="gh"><span class="ic">🧰</span><span>Система</span><i>▸</i></button><div class="gb"><a href="/admin/">Адмін-панель Django</a></div></div>
+{% if user.is_staff %}<div class="grp" data-g="Система"><button type="button" class="gh"><span class="ic">🧰</span><span>Система</span><i>▸</i></button><div class="gb"><a href="/admin/">Адмін-панель Django</a></div></div>{% endif %}
 </nav>{% endif %}
 <main>{% if installation_conflict %}<div class="msg error"><span>Виявлено більше одного локального магазину в базі. Для безпечного переходу з попередньої версії потрібне об'єднання даних; робота тимчасово обмежена, щоб не змішати записи.</span></div>{% endif %}{% for m in messages %}<div class="msg {{ m.tags }}"><span>{{ m }}</span><button type="button" class="x" aria-label="Закрити" onclick="this.parentNode.remove()">×</button></div>{% endfor %}{% block content %}{% endblock %}</main></div><script>
 (function(){var sb=document.getElementById('sidebar');if(!sb)return;var K='nav-open',st={};try{st=JSON.parse(localStorage.getItem(K)||'{}')}catch(e){}
