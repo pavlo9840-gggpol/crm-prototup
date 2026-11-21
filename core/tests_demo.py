@@ -37,15 +37,15 @@ class DemoDataTest(TestCase):
 
     def test_exact_analogs_by_oe_and_name_inference_on_demo_parts(self):
         o = PartOe.objects.filter(company=self.company, brand="BILSTEIN").first()
-        res = crosses.analogs(o.brand, o.sku_norm)
+        res = crosses.analogs(o.brand, o.sku_norm, company=self.company)
         self.assertGreaterEqual(len(res), 2)                                              # інші бренди з тим самим OE
         self.assertTrue(all(r["level"] in ("oe", "manual") and r["score"] >= 70 for r in res))
         self.assertTrue(all(r["brand"] != "BILSTEIN" for r in res))
         no_oe = next(i for i in SupplierItem.objects.filter(company=self.company, brand="BILSTEIN") if not PartOe.objects.filter(company=self.company, brand=i.brand, sku_norm=i.sku_norm).exists())
-        named = crosses.analogs(no_oe.brand, no_oe.sku_norm, with_names=True)
+        named = crosses.analogs(no_oe.brand, no_oe.sku_norm, with_names=True, company=self.company)
         self.assertTrue(named and all(r["level"] == "name" and r["score"] <= 40 for r in named))
         # без назв (як на касі) таких підказок немає: назви не підміняють точні дані
-        self.assertEqual(crosses.analogs(no_oe.brand, no_oe.sku_norm), [])
+        self.assertEqual(crosses.analogs(no_oe.brand, no_oe.sku_norm, company=self.company), [])
         card = self.c.get("/part/", {"b": o.brand, "s": o.sku_norm})
         self.assertContains(card, "Точний аналог (спільний OE)")
         self.assertContains(card, "Тестовий опис")
@@ -82,8 +82,8 @@ class DemoDataTest(TestCase):
         for model in (SupplierItem, PartOe, PartInfo, CrossRef, CustomerCar, Sale, SaleItem, Customer, Product):
             self.assertEqual(model.objects.filter(company=self.company).count(), 0, model.__name__)
         self.assertFalse(Supplier.objects.filter(company=self.company).exists())
-        call_command("load_demo_data", reset=True, stdout=StringIO())                       # повторно безпечно
-        call_command("load_demo_data", out=self.out, stdout=StringIO())                      # і можна створити знову
+        call_command("load_demo_data", reset=True, company_id=self.company.pk, stdout=StringIO())                       # повторно безпечно
+        call_command("load_demo_data", out=self.out, company_id=self.company.pk, stdout=StringIO())                      # і можна створити знову
         self.assertGreater(SupplierItem.objects.filter(company=self.company).count(), 200)
 
     def test_reset_after_receiving_keeps_protected_data_without_crashing(self):
