@@ -23,14 +23,14 @@ def car_parts(request):
     instock = bool(request.GET.get("instock"))
     toks = fitment.car_tokens(make, model)
     ctx = {"car": car, "make": make, "model": model, "year": year or "", "q": request.GET.get("q", ""), "instock": instock,
-           "searched": bool(toks), "groups": [], "total": 0, "known": PartInfo.objects.exclude(cars="").count() + PartFitment.objects.count(), "customer": customer}
+           "searched": bool(toks), "groups": [], "total": 0, "known": PartInfo.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import")).exclude(cars="").count() + PartFitment.objects.count(), "customer": customer}
     if not toks:
         return render(request, "core/car_parts.html", ctx)
     cond = Q()
     for t in toks:
         cond &= Q(cars_lc__contains=t)
     keys = set()
-    for pi in PartInfo.objects.filter(cond)[:4000]:
+    for pi in PartInfo.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import")).filter(cond)[:4000]:
         if any(fitment.line_matches(ln, toks, year) for ln in pi.cars_lc.splitlines()):
             keys.add((pi.brand, pi.sku_norm))
     structured = PartFitment.objects.select_related(
