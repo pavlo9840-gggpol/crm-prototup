@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from django.contrib.auth.models import AnonymousUser
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase
 
@@ -87,12 +88,14 @@ class BusinessProfileMiddlewareTests(SimpleTestCase):
     def test_non_automotive_profile_cannot_open_automotive_url_directly(self):
         request = self.factory.get("/car-parts/")
         request.company = SimpleNamespace(business_type="grocery")
+        request.user = AnonymousUser()
         response = BusinessProfileMiddleware(lambda _request: HttpResponse("ok"))(request)
         self.assertEqual(response.status_code, 403)
 
     def test_auto_parts_profile_can_open_automotive_url(self):
         request = self.factory.get("/car-parts/")
         request.company = SimpleNamespace(business_type="auto_parts")
+        request.user = AnonymousUser()
         response = BusinessProfileMiddleware(lambda _request: HttpResponse("ok"))(request)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"ok")
@@ -100,5 +103,6 @@ class BusinessProfileMiddlewareTests(SimpleTestCase):
     def test_shared_url_is_not_blocked_for_other_profiles(self):
         request = self.factory.get("/products/")
         request.company = SimpleNamespace(business_type="electronics")
+        request.user = AnonymousUser()
         response = BusinessProfileMiddleware(lambda _request: HttpResponse("ok"))(request)
         self.assertEqual(response.status_code, 200)
