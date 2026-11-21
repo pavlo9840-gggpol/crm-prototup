@@ -199,7 +199,7 @@ def _import_desc(rows, company=None):
     return n
 
 
-@tenant_staff_only
+@tenant_cashier_only
 @company_required
 @require_POST
 def analog_action(request):
