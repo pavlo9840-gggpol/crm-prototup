@@ -225,7 +225,6 @@ class ReceivingTest(TestCase):
         self.assertEqual(CashOperation.objects.filter(company=self.company, shift=shift).count(), 0)
 
         # 7) Close the current finance period and validate the frozen result.
-        from django.utils import timezone
         today = timezone.localdate()
         first_day = today.replace(day=1)
         controls_url = f"/reports/finance/controls/?from={first_day.isoformat()}&to={today.isoformat()}"
