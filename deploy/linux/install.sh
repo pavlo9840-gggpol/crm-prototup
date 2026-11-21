@@ -158,10 +158,10 @@ PY
 
 info "Встановлення systemd-служби"
 install -o root -g root -m 0644 "$SERVICE_SOURCE" "$SERVICE_FILE"
-systemctl daemon-reload
-systemctl enable --now autozapaz.service
 UNIT_INSTALLED=1
+systemctl daemon-reload
 SERVICE_STARTED=1
+systemctl enable --now autozapaz.service
 if ! health_check; then
     systemctl stop autozapaz.service || true
     fail "Служба не пройшла HTTP health-check. Перевірте журнал: journalctl -u autozapaz.service -n 100"
