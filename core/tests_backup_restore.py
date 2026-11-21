@@ -64,6 +64,41 @@ class BackupArchiveTests(TransactionTestCase):
         with self.assertRaisesRegex(ValueError, "Небезпечний шлях"):
             admin_tools.verify_backup_archive(malicious.getvalue())
 
+    def test_manifest_must_cover_every_payload_file(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        forged = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(data), "r") as source, zipfile.ZipFile(forged, "w") as target:
+            for name in source.namelist():
+                payload = source.read(name)
+                if name == "manifest.json":
+                    manifest = json.loads(payload)
+                    manifest["files"].pop("db.sqlite3")
+                    payload = json.dumps(manifest).encode("utf-8")
+                target.writestr(name, payload)
+
+        with self.assertRaisesRegex(ValueError, "не містить контрольної суми db.sqlite3"):
+            admin_tools.verify_backup_archive(forged.getvalue())
+
+    def test_manifest_rejects_unknown_version_and_malformed_digest(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        with zipfile.ZipFile(io.BytesIO(data), "r") as source:
+            members = {name: source.read(name) for name in source.namelist()}
+
+        for mutate, expected_error in (
+            (lambda manifest: manifest.update(format_version=99), "Непідтримувана версія"),
+            (lambda manifest: manifest["files"]["db.sqlite3"].update(sha256="not-a-hash"), "SHA-256"),
+        ):
+            altered = dict(members)
+            manifest = json.loads(altered["manifest.json"])
+            mutate(manifest)
+            altered["manifest.json"] = json.dumps(manifest).encode("utf-8")
+            archive_data = io.BytesIO()
+            with zipfile.ZipFile(archive_data, "w") as archive:
+                for name, payload in altered.items():
+                    archive.writestr(name, payload)
+            with self.assertRaisesRegex(ValueError, expected_error):
+                admin_tools.verify_backup_archive(archive_data.getvalue())
+
     def test_restore_rejects_unexpected_archive_members_without_creating_target(self):
         data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
         with zipfile.ZipFile(io.BytesIO(data), "r") as source:
