@@ -11,16 +11,18 @@ VIN = "VF1FL000X12345678"
 class CarsTest(TestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
-        U.objects.create_user("anna", password="x")
+        owner = U.objects.create_superuser("cars-admin", "", "x")
+        anna = U.objects.create_user("anna", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(owner, "Cars test shop", [(anna, "cashier")])
         self.adm, self.anna = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.anna.login(username="anna", password="x")
         self.anna.post("/shift/", {"action": "open", "cash": "0"})
-        self.ivan = Customer.objects.create(name="Іван Петренко", phone="0501112233")
-        self.olena = Customer.objects.create(name="Олена", phone="0679998877")
-        self.car = CustomerCar.objects.create(customer=self.ivan, plate="AA 1234 BB", make="Renault", model="Trafic II", year=2008, vin=VIN)
-        self.p = Product.objects.create(name="Свічка", sku="SV1", brand="NGK", price=100, cost_price=60, current_stock=5)
+        self.ivan = Customer.objects.create(company=self.company, name="Іван Петренко", phone="0501112233")
+        self.olena = Customer.objects.create(company=self.company, name="Олена", phone="0679998877")
+        self.car = CustomerCar.objects.create(company=self.company, customer=self.ivan, plate="AA 1234 BB", make="Renault", model="Trafic II", year=2008, vin=VIN)
+        self.p = Product.objects.create(company=self.company, name="Свічка", sku="SV1", brand="NGK", price=100, cost_price=60, current_stock=5)
 
     def checkout(self, client, customer, car_id):
         r = client.post("/pos/checkout/", json.dumps({"items": [{"id": self.p.pk, "qty": 1}], "payment": "cash",
@@ -96,10 +98,10 @@ class CarsTest(TestCase):
         self.assertIsNone(Sale.objects.get(status="done").car)
 
     def test_fit_hint_uses_part_applicability_and_only_hints(self):
-        s = Supplier.objects.create(name="S")
+        s = Supplier.objects.create(company=self.company, name="S")
         for brand, sku in (("SACHS", "315849"), ("MEYLE", "MEY001"), ("KYB", "KYB001")):
-            SupplierItem.objects.create(supplier=s, brand=brand, sku=sku, sku_norm=sku, cost=10, name="Амортизатор")
-        PartInfo.objects.create(brand="SACHS", sku_norm="315849", cars="Renault Trafic II 2001-2014\nOpel Vivaro 2001-")
+            SupplierItem.objects.create(company=self.company, supplier=s, brand=brand, sku=sku, sku_norm=sku, cost=10, name="Амортизатор")
+        PartInfo.objects.create(company=self.company, brand="SACHS", sku_norm="315849", cars="Renault Trafic II 2001-2014\nOpel Vivaro 2001-")
         PartInfo.objects.create(brand="MEYLE", sku_norm="MEY001", cars="Fiat Ducato 2006-")
         fit = lambda q, car=None: {x["sku"]: x["fit"] for x in self.anna.get("/pos/lookup/", {"q": q, "car": car or ""}).json()["suppliers"]}
         self.assertEqual(fit("315849", self.car.pk), {"315849": True})                      # Renault Trafic є в застосовності
