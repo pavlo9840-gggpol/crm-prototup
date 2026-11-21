@@ -36,6 +36,13 @@ jobs:
         run: bash -n deploy/linux/install.sh
       - name: Validate Linux updater shell syntax
         run: bash -n deploy/linux/update.sh
+      - name: Validate Linux installer production configuration guards
+        run: |
+          grep -F 'DJANGO_DEBUG:-' deploy/linux/install.sh
+          grep -F 'AUTOZAPAZ_DATA_DIR:-' deploy/linux/install.sh
+          grep -F 'AUTOZAPAZ_BACKUP_DIR:-' deploy/linux/install.sh
+          grep -F 'AUTOZAPAZ_REQUIRE_LICENSE:-' deploy/linux/install.sh
+          grep -F 'AUTOZAPAZ_LICENSE_PUBLIC_KEY:-' deploy/linux/install.sh
       - name: Validate Linux service uses Waitress on loopback
         run: |
           grep -F 'ExecStart=/opt/autozapaz/venv/bin/waitress-serve --listen=127.0.0.1:8000 --threads=8 config.wsgi:application' deploy/linux/autozapaz.service
