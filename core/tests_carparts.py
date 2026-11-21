@@ -89,7 +89,7 @@ class CarPartsTest(TestCase):
         admin_user = get_user_model().objects.create_superuser("carparts-manager", "", "x")
         from core.models import StaffMembership
         StaffMembership.objects.create(company=self.company, user=admin_user, role="manager")
-        adm.login(username="admin", password="x")
+        adm.login(username="carparts-manager", password="x")
         self.assertContains(adm.get(f"/customers/{self.cust.pk}/"), f"/car-parts/?car={self.car.pk}")
         self.c.post("/shift/", {"action": "open", "cash": "0"})
         self.assertIn('id="carparts"', self.c.get("/pos/").content.decode())
