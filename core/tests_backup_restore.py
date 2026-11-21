@@ -114,7 +114,7 @@ class BackupArchiveTests(TransactionTestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "restore"
-            with self.assertRaisesRegex(ValueError, "Непідтримуваний файл"):
+            with self.assertRaisesRegex(ValueError, "Склад файлів не збігається з маніфестом"):
                 admin_tools.restore_backup_archive(malicious.getvalue(), target)
             self.assertFalse(target.exists())
             self.assertEqual(list(Path(temp_dir).glob(".autozapaz-restore-*")), [])
