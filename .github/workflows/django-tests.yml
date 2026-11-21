@@ -36,5 +36,10 @@ jobs:
         run: bash -n deploy/linux/install.sh
       - name: Validate Linux updater shell syntax
         run: bash -n deploy/linux/update.sh
+      - name: Validate Linux service uses Waitress on loopback
+        run: |
+          grep -F 'ExecStart=/opt/autozapaz/venv/bin/waitress-serve --listen=127.0.0.1:8000 --threads=8 config.wsgi:application' deploy/linux/autozapaz.service
+          grep -F 'ReadWritePaths=/var/lib/autozapaz' deploy/linux/autozapaz.service
+          ! grep -F 'manage.py serve' deploy/linux/autozapaz.service
       - name: Run workflow regression tests
         run: python manage.py test core --verbosity 2
