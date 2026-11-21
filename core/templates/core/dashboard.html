@@ -37,13 +37,27 @@
     {% else %}
       <a class="btn" href="{% url 'product_list' %}">Каталог товарів</a>
       <a class="btn gray" href="{% url 'inventory' %}">Контроль залишків</a>
-      <a class="btn gray" href="{% url 'product_list' %}">Каталог товарів</a>
+      <a class="btn gray" href="{% url 'customer_list' %}">Клієнти</a>
     {% endif %}
   </div>
+  {% if business_type == "grocery" and has_batch_tracking %}
+    <div class="kpi" style="margin-top:14px">
+      <div class="card {% if profile_expired_batches %}low{% endif %}">Прострочені партії<b>{{ profile_expired_batches|default:0 }}</b><a href="{% url 'stock_batches' %}">Перевірити партії →</a></div>
+      <div class="card {% if profile_expiring_batches %}low{% endif %}">Закінчується за 30 днів<b>{{ profile_expiring_batches|default:0 }}</b><a href="{% url 'stock_batches' %}">Контроль термінів →</a></div>
+    </div>
+  {% elif business_type == "electronics" and has_serial_tracking %}
+    <div class="kpi" style="margin-top:14px">
+      <div class="card">Серійні одиниці на складі<b>{{ profile_serials_in_stock|default:0 }}</b><a href="{% url 'stock_serials' %}">Переглянути IMEI / номери →</a></div>
+    </div>
+  {% elif business_type == "online_store" and dashboard_can_shipments %}
+    <div class="kpi" style="margin-top:14px">
+      <div class="card">Відправлення в роботі<b>{{ profile_shipments_in_work|default:0 }}</b><a href="{% url 'shipment_list' %}">Переглянути відправлення →</a></div>
+      <div class="card {% if profile_shipments_attention %}low{% endif %}">Потребують уваги<b>{{ profile_shipments_attention|default:0 }}</b><a href="{% url 'shipment_list' %}">Перевірити статуси →</a></div>
+    </div>
+  {% endif %}
 </div>
 
-<div class="kpi">
-  <div class="card">Продажі сьогодні<b>{{ today_total|floatformat:2 }} ₴</b><span class="muted">{{ today_count }} чеків</span></div>
+<div class="kpi">  <div class="card">Продажі сьогодні<b>{{ today_total|floatformat:2 }} ₴</b><span class="muted">{{ today_count }} чеків</span></div>
   <div class="card">Продажі за місяць<b>{{ month_total|floatformat:2 }} ₴</b><a href="{% url 'report_monthly' %}">Звіт за місяць →</a></div>
   <div class="card {% if low_count %}low{% endif %}">Потрібно поповнити<b>{{ low_count }}</b><a href="{% url 'inventory' %}?status=low">Перевірити залишки →</a></div>
   <div class="card {% if overdue_orders %}low{% endif %}">Замовлення для клієнтів<b>{{ waiting_orders }}</b>{% if overdue_orders %}<span class="err">Прострочених: {{ overdue_orders }}</span>{% endif %}<a href="{% url 'orders' %}">Відкрити замовлення →</a></div>
