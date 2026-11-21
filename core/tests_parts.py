@@ -82,14 +82,16 @@ class CrossEngineTest(TestCase):
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="retail_test_media_"))
 class EnrichTest(TestCase):
     def setUp(self):
-        get_user_model().objects.create_superuser("admin", "", "x")
-        get_user_model().objects.create_user("cash", password="x")
+        admin = get_user_model().objects.create_superuser("admin", "", "x")
+        cashier = get_user_model().objects.create_user("cash", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(admin, "Part enrichment shop", [(cashier, "cashier")])
         self.adm, self.cash = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.cash.login(username="cash", password="x")
-        self.sup = Supplier.objects.create(name="Busmarket")
+        self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
         self.cfg = SupplierApi.objects.create(
-            supplier=self.sup, url="https://api.bm.parts/prices/list", fmt="csv", method="POST", auth_mode="header",
+            company=self.company, supplier=self.sup, url="https://api.bm.parts/prices/list", fmt="csv", method="POST", auth_mode="header",
             auth_name="Authorization", api_key="TOKEN-XYZ", header_row=2, f_id="UUID", f_sku="Article", f_brand="Brand",
             f_name="Name", f_cost="Price", f_qty="QTY:*", body='{"currency": "C1", "warehouses": ["W1"]}',
             det_url="https://api.bm.parts/product/{id}?oe=full", det_image_base="https://cdn.example.com")
