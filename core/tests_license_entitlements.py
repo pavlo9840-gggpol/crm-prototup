@@ -48,12 +48,12 @@ class LocalLicenseEnforcementTests(TestCase):
     def tearDown(self):
         self._settings_override.disable()
 
-    def make_token(self, plan="start", max_users=2, max_workstations=1, features=None):
+    def make_token(self, plan="start", max_users=2, max_workstations=1, features=None, installation_id=None):
         now = timezone.now()
         claims = {
             "version": 1,
             "license_id": "license-enforcement-test",
-            "installation_id": str(self.installation_id),
+            "installation_id": str(installation_id or self.installation_id),
             "customer": "Test shop",
             "plan": plan,
             "issued_at": now.isoformat(),
@@ -102,7 +102,7 @@ class LocalLicenseEnforcementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         activation = LicenseActivation.objects.get(pk=1)
         self.assertEqual(activation.token, original)
-        self.assertContains(response, "Некоректний формат", status_code=200)
+        self.assertContains(response, "Непідтримуваний формат ключа", status_code=200)
 
     def test_activation_view_rejects_license_for_another_installation(self):
         client = Client()
