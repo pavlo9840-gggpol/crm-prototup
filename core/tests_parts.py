@@ -68,7 +68,7 @@ class CrossEngineTest(TestCase):
         self.oe("B", "OEPART", "OE1")
         CrossRef.objects.create(company=self.company, a="X1", b="MAN1", source="manual")
         CrossRef.objects.create(company=self.company, a="X1", b="CRS1", source="import")
-        CrossRef.objects.create(a="CRS1", b="FAR1", source="import")       # через ланцюжок
+        CrossRef.objects.create(company=self.company, a="CRS1", b="FAR1", source="import")       # через ланцюжок
         CrossRef.objects.create(a="X1", b="OEPART", source="import")       # і крос, і OE: лишається найкращий
         lv = crosses.analog_levels("X1", company=self.company)
         self.assertEqual(lv, {"OEPART": "oe", "MAN1": "manual", "CRS1": "cross", "FAR1": "maybe"})
@@ -116,7 +116,7 @@ class EnrichTest(TestCase):
         a = SupplierItem.objects.get(company=self.company, sku="VM41023")
         self.assertEqual((a.brand, a.cost, a.qty_avail, a.ext_id), ("VIBRA MASTER", D("1206.96"), D("3"), "80006E98C49AE02F4CB01012B3CA9C36"))
         self.assertEqual(SupplierItem.objects.get(company=self.company, sku="02.53.071").qty_avail, D("1"))   # «Київ» порожньо = 0
-        self.assertFalse(SupplierItem.objects.get(sku="29-16 060 0008/HD").available)    # на жодному складі немає
+        self.assertFalse(SupplierItem.objects.get(company=self.company, sku="29-16 060 0008/HD").available)    # на жодному складі немає
 
     def test_preset_fills_bm_settings_keeps_key_and_requires_real_uuids(self):
         self.cfg.delete()
@@ -196,7 +196,7 @@ class EnrichTest(TestCase):
         self.assertEqual(enrich.enrich_batch(sup, limit=5, fetch=Net(self.CARD)), (0, 0))
 
     def test_enrich_needs_id_and_url(self):
-        si = SupplierItem.objects.create(supplier=self.sup, brand="B", sku="X", sku_norm="X", cost=1)
+        si = SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="B", sku="X", sku_norm="X", cost=1)
         with self.assertRaises(SyncError) as cm:
             enrich.enrich_item(SupplierItem.objects.select_related("supplier__api").get(pk=si.pk), fetch=Net(self.CARD))
         self.assertIn("немає ID", str(cm.exception))
@@ -227,7 +227,7 @@ class EnrichTest(TestCase):
                                     name="Амортизатор задній Trafic", ext_id="U1")
         SupplierItem.objects.create(supplier=self.sup, brand="SACHS", sku="315 849", sku_norm="315849", cost=800, name="Амортизатор")
         Product.objects.create(company=self.company, name="Амортизатор SACHS", sku="315 849", brand="SACHS", price=1100, current_stock=2)
-        PartOe.objects.create(brand="BILSTEIN", sku_norm="19152615", oe_norm="1K0411105AB", oe_raw="1K0 411 105 AB", oe_brand="VAG", source="api")
+        PartOe.objects.create(company=self.company, brand="BILSTEIN", sku_norm="19152615", oe_norm="1K0411105AB", oe_raw="1K0 411 105 AB", oe_brand="VAG", source="api")
         PartOe.objects.create(brand="SACHS", sku_norm="315849", oe_norm="1K0411105AB", oe_raw="1K0411105AB", source="import")
 
     def test_part_card_shows_analogs_stock_offers_and_permissions(self):
@@ -251,7 +251,7 @@ class EnrichTest(TestCase):
         self.assertContains(r, "ZZ 111")
         # повторне збереження замінює свої ручні OE і не чіпає чужі (api)
         self.adm.post("/part/edit/", dict(data, oe=""))
-        self.assertEqual(sorted(PartOe.objects.filter(brand="BILSTEIN").values_list("oe_norm", flat=True)), ["1K0411105AB"])
+        self.assertEqual(sorted(PartOe.objects.filter(company=self.company, brand="BILSTEIN").values_list("oe_norm", flat=True)), ["1K0411105AB"])
 
     def test_part_refresh_button(self):
         self.build_catalog()
