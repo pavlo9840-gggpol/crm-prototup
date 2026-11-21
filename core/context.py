@@ -1,4 +1,5 @@
 from .models import CompanySettings
+from .business_profiles import navigation_items_for_profile
 
 # Основна навігація: щоденні операції окремо, рідше потрібні інструменти — у групах.
 STAFF_NAV = [
@@ -105,9 +106,9 @@ def layout(request):
     groups = []
     if can_manage_company:
         for title, items in STAFF_NAV:
-            # Автомобільний каталог доступний лише профілю автозапчастин.
-            if title == "Каталог автозапчастин" and (not active_company or active_company.business_type != "auto_parts"):
-                continue
+            items = navigation_items_for_profile(
+                items, active_company.business_type if active_company else None
+            )
             if active_license:
                 items = [
                     (label, name) for label, name in items
@@ -138,8 +139,9 @@ def layout(request):
         MECHANIC_NAV if membership and membership.role == "mechanic"
         else CASHIER_NAV if active_company and company_access and not can_manage_company else []
     )
-    if active_company and active_company.business_type != "auto_parts":
-        cashier_items = [(label, name) for label, name in cashier_items if name != "car_parts"]
+    cashier_items = navigation_items_for_profile(
+        cashier_items, active_company.business_type if active_company else None
+    )
     if active_license:
         cashier_items = [
             (label, name) for label, name in cashier_items
