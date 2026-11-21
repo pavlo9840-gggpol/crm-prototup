@@ -67,7 +67,7 @@ class CurrencyFlowTest(TestCase):
         self.company = create_test_company(owner, "Currency test shop", [])
         U.objects.create_user("anna", password="x")
         self.adm, self.anna = self.client, self.client_class()
-        self.adm.login(username="admin", password="x")
+        self.adm.login(username="currency-admin", password="x")
         self.anna.login(username="anna", password="x")
         MarkupTier.objects.create(company=self.company, name="Роздріб", percent=30, is_default=True)
         self.eur = Currency.objects.get(code="EUR")
