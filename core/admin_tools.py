@@ -194,17 +194,37 @@ def verify_backup_archive(source):
             if "manifest.json" in names:
                 try:
                     manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                    if not isinstance(manifest, dict) or manifest.get("format_version") != 1:
+                        raise ValueError("Непідтримувана версія маніфесту резервної копії.")
+                    if manifest.get("database_engine") != "sqlite":
+                        raise ValueError("Маніфест містить невідому СУБД.")
                     expected = manifest.get("files", {})
                     if not isinstance(expected, dict) or "db.sqlite3" not in expected:
                         raise ValueError("Маніфест не містить контрольної суми db.sqlite3.")
+                    payload_names = {
+                        name for name in names
+                        if name not in ("manifest.json", "README.txt") and not name.endswith("/")
+                    }
+                    if payload_names != set(expected):
+                        missing = sorted(payload_names - set(expected))
+                        absent = sorted(set(expected) - payload_names)
+                        raise ValueError(
+                            "Склад файлів не збігається з маніфестом "
+                            f"(без контрольної суми: {missing}; відсутні в архіві: {absent})."
+                        )
                     for name, metadata in expected.items():
-                        if name not in names or not isinstance(metadata, dict):
-                            raise ValueError(f"Файл з маніфесту відсутній або некоректний: {name}")
+                        if not isinstance(metadata, dict):
+                            raise ValueError(f"Метадані файлу в маніфесті некоректні: {name}")
+                        if not isinstance(metadata.get("size"), int) or metadata["size"] < 0:
+                            raise ValueError(f"Розмір файлу в маніфесті некоректний: {name}")
+                        digest = metadata.get("sha256")
+                        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                            raise ValueError(f"SHA-256 у маніфесті некоректний: {name}")
                         info = archive.getinfo(name)
-                        if info.file_size != metadata.get("size"):
+                        if info.file_size != metadata["size"]:
                             raise ValueError(f"Розмір файлу не збігається з маніфестом: {name}")
                         actual = hashlib.sha256(archive.read(name)).hexdigest()
-                        if actual != metadata.get("sha256"):
+                        if actual != digest:
                             raise ValueError(f"Контрольна сума не збігається: {name}")
                 except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                     raise ValueError(f"Маніфест резервної копії пошкоджений: {exc}") from exc
