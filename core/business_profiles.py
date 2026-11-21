@@ -39,6 +39,18 @@ def navigation_items_for_profile(items, business_type, tracking_modes=None):
     return visible
 
 
+DASHBOARD_PROFILES = {
+    "auto_parts": {"title": "Автозапчастини", "subtitle": "Підбір деталей, постачальники, замовлення та склад автозапчастин."},
+    "grocery": {"title": "Продуктовий магазин", "subtitle": "Приймання товару, контроль партій, термінів придатності та щоденних продажів."},
+    "electronics": {"title": "Електроніка та техніка", "subtitle": "Продаж техніки, серійний облік, гарантійна і складська дисципліна."},
+    "online_store": {"title": "Інтернет-магазин", "subtitle": "Замовлення клієнтів, комплектація, відправлення та контроль оплат."},
+    "general_retail": {"title": "Роздрібна торгівля", "subtitle": "Продажі, товари, залишки, клієнти та фінансовий результат магазину."},
+}
+
+def dashboard_profile_config(business_type):
+    """Safe dashboard identity for every supported store profile."""
+    return DASHBOARD_PROFILES.get(business_type, DASHBOARD_PROFILES["general_retail"])
+
 def required_profile_for_path(path):
     """Return the profile required by a specialized URL, if any."""
     normalized = "/" + (path or "").lstrip("/")
