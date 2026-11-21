@@ -142,6 +142,36 @@ def dashboard(request):
         company=request.company, party_type=AccountAdvance.SUPPLIER, is_void=False
     ).aggregate(total=Sum("remaining"))["total"] or D0
 
+    profile_metrics = {}
+    if request.company.business_type == "grocery":
+        from .models import StockBatch
+        expiring_batches = StockBatch.objects.filter(
+            company=request.company, remaining_quantity__gt=0,
+            expiry_date__gte=today, expiry_date__lte=today + timedelta(days=30),
+        )
+        profile_metrics = {
+            "profile_expiring_batches": expiring_batches.count(),
+            "profile_expired_batches": StockBatch.objects.filter(
+                company=request.company, remaining_quantity__gt=0, expiry_date__lt=today,
+            ).count(),
+        }
+    elif request.company.business_type == "electronics":
+        from .models import StockSerialUnit
+        profile_metrics = {
+            "profile_serials_in_stock": StockSerialUnit.objects.filter(
+                company=request.company, status=StockSerialUnit.IN_STOCK,
+            ).count(),
+        }
+    elif request.company.business_type == "online_store":
+        from .models import Shipment
+        profile_metrics = {
+            "profile_shipments_in_work": Shipment.objects.filter(
+                company=request.company, status__in=["created", "in_transit", "arrived"],
+            ).count(),
+            "profile_shipments_attention": Shipment.objects.filter(
+                company=request.company, status="problem",
+            ).count(),
+        }
     low_products = company_queryset(
         Product.objects.filter(is_active=True, current_stock__lte=F("min_stock")).select_related("category")
         .order_by("current_stock", "name"), request
@@ -163,6 +193,7 @@ def dashboard(request):
         "dashboard_can_price_review": not getattr(request, "active_license", None) or feature_is_enabled(request.active_license, "advanced_pricing"),
         "dashboard_can_shipments": not getattr(request, "active_license", None) or feature_is_enabled(request.active_license, "nova_poshta"),
         "business_type": request.company.business_type,
+        **profile_metrics,
         "has_batch_tracking": Product.objects.filter(company=request.company, is_active=True, tracking_mode__in=["batch", "expiry"]).exists(),
         "has_serial_tracking": Product.objects.filter(company=request.company, is_active=True, tracking_mode="serial").exists(),
         "waiting_orders": company_queryset(SaleItem.objects.filter(company=request.company, sale__company=request.company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE), request).filter(
