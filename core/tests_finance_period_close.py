@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
-from core.models import Company, FinancePeriodClose, StaffMembership
+from core.models import Company, FinanceEntry, FinancePeriodClose, Product, Sale, SaleItem, StaffMembership
 
 
 class FinancePeriodCloseTests(TestCase):
@@ -64,6 +64,51 @@ class FinancePeriodCloseTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.context["period_close_integrity"])
         self.assertContains(response, "контрольна сума не збігається")
+
+    def test_period_close_snapshot_includes_period_pnl_and_excludes_voided_entries(self):
+        from django.utils import timezone
+
+        product = Product.objects.create(
+            company=self.company, name="Snapshot item", sku="SNAP-001",
+            price=Decimal("50.00"), cost_price=Decimal("30.00"),
+            current_stock=Decimal("4.000"),
+        )
+        sale = Sale.objects.create(
+            company=self.company, number="SNAP-SALE-001", status=Sale.DONE,
+            cashier=self.user, total=Decimal("50.00"),
+        )
+        SaleItem.objects.create(
+            company=self.company, sale=sale, product=product,
+            quantity=Decimal("1.000"), original_price=Decimal("50.00"),
+            price=Decimal("50.00"), cost_price=Decimal("30.00"),
+            earned_at=timezone.now(),
+        )
+        FinanceEntry.objects.create(
+            company=self.company, entry_type=FinanceEntry.INCOME,
+            category="Other income", amount=Decimal("2.00"), created_by=self.user,
+        )
+        FinanceEntry.objects.create(
+            company=self.company, entry_type=FinanceEntry.EXPENSE,
+            category="Operating expense", amount=Decimal("7.00"), created_by=self.user,
+        )
+        voided = FinanceEntry.objects.create(
+            company=self.company, entry_type=FinanceEntry.EXPENSE,
+            category="Voided expense", amount=Decimal("100.00"), created_by=self.user,
+            is_void=True,
+        )
+
+        self._close()
+        snapshot = FinancePeriodClose.objects.get(company=self.company).snapshot
+        metrics = snapshot["metrics"]
+        self.assertEqual(metrics["gross_revenue"], "50")
+        self.assertEqual(metrics["net_revenue"], "50")
+        self.assertEqual(metrics["gross_cost_of_goods_sold"], "30")
+        self.assertEqual(metrics["gross_profit"], "20")
+        self.assertEqual(metrics["other_income"], "2")
+        self.assertEqual(metrics["operating_expenses"], "7")
+        self.assertEqual(metrics["operating_result"], "15")
+        self.assertEqual(metrics["sold_units"], "1")
+        self.assertEqual(voided.is_void, True)
 
     def test_period_close_model_rejects_mutation_and_deletion(self):
         self._close()
