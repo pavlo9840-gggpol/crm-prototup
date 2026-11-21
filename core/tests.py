@@ -105,13 +105,19 @@ class CashTest(TestCase):
         self.assertEqual(self.cs.get("/designer/").status_code, 403)
         self.assertEqual(self.cs.get("/settings/company/").status_code, 403)
         self.assertEqual(self.cs.get(f"/sales/{sale['id']}/print/").status_code, 302)   # legacy URL redirects
-        r = self.adm.post("/settings/company/", {"name": "Тест-Маркет", "receipt_footer": "Дякуємо", "auto_print": "on",
+        from core.tests_tenant_helpers import create_test_company
+        foreign_owner = get_user_model().objects.create_user("foreign-settings-owner", password="x")
+        foreign_company = create_test_company(foreign_owner, "Foreign settings shop")
+        r = self.adm.post("/settings/company/", {"company": foreign_company.pk, "name": "Тест-Маркет", "receipt_footer": "Дякуємо", "auto_print": "on",
             "auto_print_format": "html", "vat_rate": "20",
             "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "0", "form-MIN_NUM_FORMS": "0", "form-MAX_NUM_FORMS": "1000",
             "form-0-bank_name": "ПриватБанк", "form-0-iban": "UA123", "form-0-currency": "UAH", "form-0-is_default": "on"})
         self.assertEqual(r.status_code, 302, getattr(r, "content", b"")[:300])
         from core.models import BankAccount, CompanySettings
-        self.assertEqual(BankAccount.objects.count(), 1); self.assertEqual(CompanySettings.get(self.company).name, "Тест-Маркет")
+        self.assertEqual(BankAccount.objects.count(), 1)
+        self.assertEqual(BankAccount.objects.get().company_id, self.company.pk)
+        self.assertEqual(CompanySettings.get(self.company).name, "Тест-Маркет")
+        self.assertEqual(CompanySettings.get(foreign_company).name, "Foreign settings shop")
         self.assertContains(self.adm.get(f"/print/sale_invoice/?ids={sale['id']}"), "Тест-Маркет")
         self.assertContains(self.adm.get(f"/print/sale_invoice/?ids={sale['id']}"), "у т.ч. ПДВ")
 
