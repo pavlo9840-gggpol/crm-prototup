@@ -81,6 +81,39 @@ class LocalLicenseEnforcementTests(TestCase):
             },
         )
 
+    def test_activation_view_accepts_valid_key_and_persists_claims(self):
+        client = Client()
+        client.force_login(self.user)
+        token = self.make_token(plan="pro", max_users=5, max_workstations=3)
+        response = client.post("/activate/", {"license_key": token})
+        self.assertEqual(response.status_code, 302)
+        activation = LicenseActivation.objects.get(pk=1)
+        self.assertEqual(activation.token, token)
+        self.assertEqual(activation.license_id, "license-enforcement-test")
+        self.assertEqual(activation.plan, "pro")
+        self.assertEqual(activation.max_users, 5)
+        self.assertEqual(activation.max_workstations, 3)
+
+    def test_activation_view_rejects_invalid_key_without_overwriting_existing_license(self):
+        client = Client()
+        client.force_login(self.user)
+        original = LicenseActivation.objects.get(pk=1).token
+        response = client.post("/activate/", {"license_key": "AZ1.invalid.invalid"})
+        self.assertEqual(response.status_code, 200)
+        activation = LicenseActivation.objects.get(pk=1)
+        self.assertEqual(activation.token, original)
+        self.assertContains(response, "Некоректний формат", status_code=200)
+
+    def test_activation_view_rejects_license_for_another_installation(self):
+        client = Client()
+        client.force_login(self.user)
+        token = self.make_token(installation_id=str(uuid.uuid4()))
+        response = client.post("/activate/", {"license_key": token})
+        self.assertEqual(response.status_code, 200)
+        activation = LicenseActivation.objects.get(pk=1)
+        self.assertNotEqual(activation.token, token)
+        self.assertContains(response, "іншої інсталяції", status_code=200)
+
     def test_start_plan_blocks_pro_supplier_prices_route(self):
         client = Client()
         client.force_login(self.user)
