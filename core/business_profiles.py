@@ -25,14 +25,18 @@ AUTO_PARTS_PATH_PATTERNS = (
 )
 
 
-def navigation_items_for_profile(items, business_type):
-    """Return menu entries valid for the selected business profile."""
-    if business_type == "auto_parts":
-        return list(items)
-    return [
-        item for item in items
-        if item[1] not in AUTO_PARTS_NAV_ITEMS
-    ]
+def navigation_items_for_profile(items, business_type, tracking_modes=None):
+    """Return menu entries valid for the selected profile and actual stock setup."""
+    visible = list(items)
+    if business_type != "auto_parts":
+        visible = [item for item in visible if item[1] not in AUTO_PARTS_NAV_ITEMS]
+    if tracking_modes is not None:
+        modes = set(tracking_modes)
+        if not modes.intersection({"batch", "expiry"}):
+            visible = [item for item in visible if item[1] != "stock_batches"]
+        if "serial" not in modes:
+            visible = [item for item in visible if item[1] != "stock_serials"]
+    return visible
 
 
 def required_profile_for_path(path):
