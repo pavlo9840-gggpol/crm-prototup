@@ -52,6 +52,25 @@ class CompanyContextMiddleware:
         return self.get_response(request)
 
 
+class BusinessProfileMiddleware:
+    """Block industry-specific URLs even when a user enters them manually."""
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        company = getattr(request, "company", None)
+        if company is not None:
+            from .business_profiles import required_profile_for_path
+            required = required_profile_for_path(request.path)
+            if required and company.business_type != required:
+                from django.shortcuts import render
+                return render(request, "core/business_profile_required.html", {
+                    "required_profile": "Автозапчастини",
+                    "current_profile": company.get_business_type_display(),
+                }, status=403)
+        return self.get_response(request)
+
+
 def company_queryset(queryset, request, *, include_unassigned=False):
     """Scope operational data to the one local store in this installation."""
     company_id = getattr(getattr(request, "company", None), "pk", None)
