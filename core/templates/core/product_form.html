@@ -11,7 +11,7 @@
 .actions{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(243,245,250,0),var(--bg) 30%);padding:18px 0 10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;z-index:5}
 details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more>summary::before{content:"▸ ";color:var(--mute)}details.more[open]>summary::before{content:"▾ "}
 </style>
-<h2>{% if obj %}Товар: {{ obj.brand }} {{ obj.sku }}{% else %}Новий товар{% endif %}</h2>
+<h2>{% if obj %}{% if is_auto_parts %}Запчастина: {{ obj.brand }} {{ obj.sku }}{% else %}Товар: {{ obj.name }}{% endif %}{% else %}{% if is_auto_parts %}Нова автозапчастина{% else %}Новий товар{% endif %}{% endif %}</h2>
 {% if form.non_field_errors %}<div class="msg error">{{ form.non_field_errors }}</div>{% endif %}
 <form method="post" enctype="multipart/form-data" id="pf" autocomplete="off">{% csrf_token %}
 <div class="grid2"><div>
@@ -50,7 +50,7 @@ details.more>summary{cursor:pointer;font-weight:600;list-style:none}details.more
 <div class="fld"><label for="id_photo">Завантажити фото з комп'ютера</label>{{ form.photo }}{{ form.photo.errors }}</div>
  <div class="fld"><label for="id_photo_url">Або посилання на фото (HTTPS)</label>{{ form.photo_url }}{{ form.photo_url.errors }}<span class="helptext">Використовуйте пряме посилання на зображення.</span></div>
  <div class="fld"><label>Попередній перегляд</label><div id="photo-preview" style="min-height:90px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);border-radius:8px;padding:8px;color:var(--mute)">Фото не вибрано</div></div>
- <details class="more"{% if form.errors.notes or form.errors.is_active %} open{% endif %}><summary>Додатково</summary><div style="margin-top:10px">
+ <details class="more"{% if form.errors.notes or form.errors.is_active or form.errors.brand %} open{% endif %}><summary>Додатково</summary><div style="margin-top:10px">
   {% if not is_auto_parts %}<div class="fld"><label for="id_brand">Бренд / виробник (необов’язково)</label>{{ form.brand }}{{ form.brand.errors }}</div>{% endif %}
   <div class="fld"><label style="display:flex;gap:8px;align-items:center;font-weight:500">{{ form.is_favorite }} Швидка кнопка на касі</label></div>
   <div class="fld"><label style="display:flex;gap:8px;align-items:center;font-weight:500">{{ form.allow_price_change }} Дозволити змінювати ціну на касі</label></div>
