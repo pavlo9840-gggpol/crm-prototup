@@ -21,7 +21,7 @@ on_exit() {
     if [[ "$INSTALL_COMPLETE" -eq 1 || "$exit_code" -eq 0 ]]; then
         exit "$exit_code"
     fi
-    printf '\\nІнсталяція завершилася помилкою (код %s). Виконую безпечне очищення служби.\\n' "$exit_code" >&2
+    printf '\nІнсталяція завершилася помилкою (код %s). Виконую безпечне очищення служби.\n' "$exit_code" >&2
     if [[ "$SERVICE_STARTED" -eq 1 ]]; then
         systemctl stop autozapaz.service >/dev/null 2>&1 || true
     fi
@@ -30,7 +30,7 @@ on_exit() {
         rm -f -- "$SERVICE_FILE"
         systemctl daemon-reload >/dev/null 2>&1 || true
     fi
-    printf 'Каталог програми, конфігурація та дані збережені для діагностики/повторного запуску.\\n' >&2
+    printf 'Каталог програми, конфігурація та дані збережені для діагностики/повторного запуску.\n' >&2
     exit "$exit_code"
 }
 trap on_exit EXIT
