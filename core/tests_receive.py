@@ -240,6 +240,7 @@ class ReceivingTest(TestCase):
         shift = Shift.objects.get(company=self.company, cashier_id=sale.cashier_id)
         self.assertIsNotNone(shift.closed_at)
         self.assertEqual(shift.discrepancy, D("0.00"))
+        from core import cash as cashlib
         self.assertEqual(cashlib.total(shift.drawer), 6500)
         self.assertEqual(CashOperation.objects.filter(company=self.company, shift=shift).count(), 0)
 
