@@ -109,7 +109,7 @@ class CashTest(TestCase):
             "form-0-bank_name": "ПриватБанк", "form-0-iban": "UA123", "form-0-currency": "UAH", "form-0-is_default": "on"})
         self.assertEqual(r.status_code, 302, getattr(r, "content", b"")[:300])
         from core.models import BankAccount, CompanySettings
-        self.assertEqual(BankAccount.objects.count(), 1); self.assertEqual(CompanySettings.get().name, "Тест-Маркет")
+        self.assertEqual(BankAccount.objects.count(), 1); self.assertEqual(CompanySettings.get(self.company).name, "Тест-Маркет")
         self.assertContains(self.adm.get(f"/print/sale_invoice/?ids={sale['id']}"), "Тест-Маркет")
         self.assertContains(self.adm.get(f"/print/sale_invoice/?ids={sale['id']}"), "у т.ч. ПДВ")
 
@@ -336,6 +336,7 @@ class HardeningTest(DesignerTest):
             "product": [str(product.pk), str(product.pk)],
             "qty": ["2", "1"],
             "cost": ["10", "-1"],
+            "batch_number": ["", ""], "expiry_date": ["", ""], "serial_numbers": ["", ""],
         })
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "закупівельна ціна")
@@ -352,7 +353,8 @@ class HardeningTest(DesignerTest):
             self.assertIn(r.status_code, (200, 400), url)
         from core.models import Supplier as S
         n = S.objects.count()
-        r = self.adm.post("/purchases/new/", {"new_supplier": "Ghost", "product": [""], "qty": [""], "cost": [""]})
+        r = self.adm.post("/purchases/new/", {"new_supplier": "Ghost", "product": [""], "qty": [""], "cost": [""],
+            "batch_number": [""], "expiry_date": [""], "serial_numbers": [""]})
         self.assertEqual(S.objects.count(), n); self.assertContains(r, "Додайте хоча б один товар")
 
 
@@ -397,7 +399,7 @@ class V4Test(TestCase):
     # ---- legacy templates -> designer
     def test_legacy_conversion(self):
         from core.models import DocTemplate
-        old = DocTemplate.objects.create(kind="receipt", paper="80mm", body=(
+        old = DocTemplate.objects.create(company=self.company, kind="receipt", paper="80mm", body=(
             '<div class="c"><b>{{ company.name }}</b><br>{% if company.phone %}Тел.: {{ company.phone }}<br>{% endif %}</div><hr>'
             'Чек № <b>{{ doc.number }}</b><br>Касир: {{ doc.user }}<hr><table>{% for i in items %}<tr><td>{{ i.name }}</td>'
             '<td>{{ i.qty }}</td><td class="r">{{ i.total }}</td></tr>{% endfor %}</table><div class="tot">РАЗОМ: {{ doc.total }}</div>'))
@@ -445,7 +447,11 @@ class V4Test(TestCase):
         self.assertEqual(c.get("/", follow=True).redirect_chain[-1][0], "/shift/")        # cashier lands in POS flow
         # edit: promote, change password, deactivate
         self.adm.post(f"/users/{u.pk}/edit/", {"username": "ola", "role": "admin", "is_active": "on", "password": ""})
-        u.refresh_from_db(); self.assertTrue(u.is_superuser and u.is_staff and u.check_password("secret1"))
+        u.refresh_from_db()
+        from core.models import StaffMembership
+        self.assertEqual(StaffMembership.objects.get(company=self.company, user=u).role, "admin")
+        self.assertFalse(u.is_superuser or u.is_staff)
+        self.assertTrue(u.check_password("secret1"))
         self.adm.post(f"/users/{u.pk}/edit/", {"username": "ola", "role": "cashier", "password": "newpass1"})
         u.refresh_from_db(); self.assertFalse(u.is_active); self.assertTrue(u.check_password("newpass1")); self.assertFalse(u.is_superuser)
         self.assertFalse(self.client_class().login(username="ola", password="newpass1"))
