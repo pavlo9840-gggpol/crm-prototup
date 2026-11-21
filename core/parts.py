@@ -27,7 +27,7 @@ def part_card(request):
         return redirect("pos")
     prods = list(Product.objects.filter(company=request.company, sku_norm=sn, brand__iexact=brand))
     offers = list(SupplierItem.objects.filter(company=request.company, sku_norm=sn, brand=brand).select_related("supplier__currency").order_by("-available", "cost"))
-    info = PartInfo.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import"), brand=brand, sku_norm=sn).order_by("company_id").first()
+    info = PartInfo.objects.filter(company=request.company, brand=brand, sku_norm=sn).first() or PartInfo.objects.filter(company__isnull=True, source="import", brand=brand, sku_norm=sn).first()
     oes = list(PartOe.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import"), brand=brand, sku_norm=sn).order_by("oe_brand", "oe_raw"))
     if not (prods or offers or info or oes):
         messages.error(request, "Такої деталі не знайдено")
