@@ -33,6 +33,27 @@ class BusinessProfileNavigationTests(SimpleTestCase):
                     self.assertTrue(AUTO_PARTS_NAV_ITEMS.isdisjoint(visible_names))
                 self.assertIn("product_list", visible_names)
 
+    def test_tracking_tabs_appear_only_when_products_use_that_tracking(self):
+        items = [
+            ("Залишки", "inventory"),
+            ("Партії та терміни", "stock_batches"),
+            ("Серійні номери / IMEI", "stock_serials"),
+        ]
+        without_tracking = {name for _label, name in navigation_items_for_profile(
+            items, "electronics", tracking_modes=["none"]
+        )}
+        self.assertEqual(without_tracking, {"inventory"})
+
+        batch_tracking = {name for _label, name in navigation_items_for_profile(
+            items, "grocery", tracking_modes=["expiry"]
+        )}
+        self.assertEqual(batch_tracking, {"inventory", "stock_batches"})
+
+        serial_tracking = {name for _label, name in navigation_items_for_profile(
+            items, "electronics", tracking_modes=["serial"]
+        )}
+        self.assertEqual(serial_tracking, {"inventory", "stock_serials"})
+
     def test_automotive_paths_are_classified(self):
         paths = (
             "/car-parts/",
