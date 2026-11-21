@@ -174,10 +174,10 @@ def describe_structure(obj, limit=70):
 
 
 # ------------------------------------------------------------------ збереження
-def save_info(brand, sku, info, source):
+def save_info(brand, sku, info, source, company=None):
     brand, sn = (brand or "").upper(), norm_sku(sku)
     with transaction.atomic():
-        pi, created = PartInfo.objects.get_or_create(brand=brand, sku_norm=sn, defaults={"sku": sku, "source": source})
+        pi, created = PartInfo.objects.get_or_create(company=company, brand=brand, sku_norm=sn, defaults={"sku": sku, "source": source})
         for f in ("description", "attrs", "cars", "image_url"):
             new = info.get(f) or ""
             if new and (created or pi.source != "manual" or not getattr(pi, f)):      # ручні правки мають пріоритет
@@ -186,9 +186,9 @@ def save_info(brand, sku, info, source):
             pi.source = source
         pi.save()
         if info.get("oe"):
-            PartOe.objects.filter(brand=brand, sku_norm=sn, source=source).delete()
-            have = set(PartOe.objects.filter(brand=brand, sku_norm=sn).values_list("oe_norm", flat=True))
-            PartOe.objects.bulk_create([PartOe(brand=brand, sku_norm=sn, sku=sku, oe_norm=n, oe_raw=c, oe_brand=b, source=source)
+            PartOe.objects.filter(company=company, brand=brand, sku_norm=sn, source=source).delete()
+            have = set(PartOe.objects.filter(company=company, brand=brand, sku_norm=sn).values_list("oe_norm", flat=True))
+            PartOe.objects.bulk_create([PartOe(company=company, brand=brand, sku_norm=sn, sku=sku, oe_norm=n, oe_raw=c, oe_brand=b, source=source)
                                         for c, n, b in info["oe"] if n not in have], ignore_conflicts=True)
     if info.get("analogs"):                                    # кроси від постачальника: джерело «api»
         mine, rows = sn, []
@@ -196,7 +196,7 @@ def save_info(brand, sku, info, source):
             other = norm_sku(code)
             if other and other != mine:
                 x, y = sorted((mine, other))
-                rows.append(CrossRef(a=x, b=y, a_raw=sku if x == mine else code, b_raw=code if x == mine else sku, source="api"))
+                rows.append(CrossRef(company=company, a=x, b=y, a_raw=sku if x == mine else code, b_raw=code if x == mine else sku, source="api"))
         CrossRef.objects.bulk_create(rows, ignore_conflicts=True)
     return pi
 
@@ -230,7 +230,7 @@ def enrich_item(si, fetch=None):
         raise SyncError("Для постачальника не налаштовано API")
     obj = fetch_card(cfg, si.ext_id, fetch)
     info = extract_info(obj, cfg)
-    save_info(si.brand, si.sku, info, "api")
+    save_info(si.brand, si.sku, info, "api", company=si.company)
     return info
 
 
@@ -240,7 +240,7 @@ def enrich_batch(sup, limit=200, fetch=None, on_progress=None):
     if cfg is None or not cfg.det_url:
         raise SyncError("Не налаштовано посилання на картку товару")
     qs = (SupplierItem.objects.filter(supplier=sup, available=True).exclude(ext_id="")
-          .annotate(has=Exists(PartInfo.objects.filter(brand=OuterRef("brand"), sku_norm=OuterRef("sku_norm"))))
+          .annotate(has=Exists(PartInfo.objects.filter(company_id=OuterRef("company_id"), brand=OuterRef("brand"), sku_norm=OuterRef("sku_norm"))))
           .filter(has=False).select_related("supplier__api").order_by(F("product_id").desc(nulls_last=True), "pk")[:limit])
     done = errors = streak = 0
     for si in qs:
@@ -256,7 +256,7 @@ def enrich_batch(sup, limit=200, fetch=None, on_progress=None):
             if streak >= 20:
                 raise SyncError(f"Забагато помилок підряд, зупинено. Остання: {e}")
             if "404" in str(e):                                   # картки немає: не питати щоразу
-                PartInfo.objects.get_or_create(brand=si.brand, sku_norm=si.sku_norm, defaults={"sku": si.sku, "source": "api"})
+                PartInfo.objects.get_or_create(company=si.company, brand=si.brand, sku_norm=si.sku_norm, defaults={"sku": si.sku, "source": "api"})
         if on_progress:
             on_progress(done, errors)
     return done, errors
