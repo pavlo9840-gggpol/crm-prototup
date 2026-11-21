@@ -2,7 +2,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
@@ -27,8 +27,8 @@ def part_card(request):
         return redirect("pos")
     prods = list(Product.objects.filter(company=request.company, sku_norm=sn, brand__iexact=brand))
     offers = list(SupplierItem.objects.filter(company=request.company, sku_norm=sn, brand=brand).select_related("supplier__currency").order_by("-available", "cost"))
-    info = PartInfo.objects.filter(brand=brand, sku_norm=sn).first()
-    oes = list(PartOe.objects.filter(brand=brand, sku_norm=sn).order_by("oe_brand", "oe_raw"))
+    info = PartInfo.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import"), brand=brand, sku_norm=sn).order_by("company_id").first()
+    oes = list(PartOe.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import"), brand=brand, sku_norm=sn).order_by("oe_brand", "oe_raw"))
     if not (prods or offers or info or oes):
         messages.error(request, "Такої деталі не знайдено")
         return redirect("pos")
@@ -66,22 +66,22 @@ def part_edit(request):
     brand, sn = _key(request)
     sku = request.POST.get("sku", sn)[:80]
     with transaction.atomic():
-        pi, _ = PartInfo.objects.get_or_create(brand=brand, sku_norm=sn, defaults={"sku": sku})
+        pi, _ = PartInfo.objects.get_or_create(company=request.company, brand=brand, sku_norm=sn, defaults={"sku": sku})
         pi.description = request.POST.get("description", "").strip()[:5000]
         pi.attrs = request.POST.get("attrs", "").strip()[:5000]
         pi.cars = request.POST.get("cars", "").strip()[:8000]
         pi.image_url = request.POST.get("image_url", "").strip()[:400]
         pi.source = "manual"
         pi.save()
-        PartOe.objects.filter(brand=brand, sku_norm=sn, source="manual").delete()
-        have = set(PartOe.objects.filter(brand=brand, sku_norm=sn).values_list("oe_norm", flat=True))
+        PartOe.objects.filter(company=request.company, brand=brand, sku_norm=sn, source="manual").delete()
+        have = set(PartOe.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import"), brand=brand, sku_norm=sn).values_list("oe_norm", flat=True))
         rows = []
         for line in request.POST.get("oe", "").splitlines():
             code, _, ob = line.partition(";")
             n = norm_sku(code)
             if n and n not in have and len(code.strip()) <= 80:
                 have.add(n)
-                rows.append(PartOe(brand=brand, sku_norm=sn, sku=sku, oe_norm=n, oe_raw=code.strip(), oe_brand=ob.strip().upper()[:60], source="manual"))
+                rows.append(PartOe(company=request.company, brand=brand, sku_norm=sn, sku=sku, oe_norm=n, oe_raw=code.strip(), oe_brand=ob.strip().upper()[:60], source="manual"))
         PartOe.objects.bulk_create(rows)
     messages.success(request, "Дані про деталь збережено")
     return redirect(f"/part/?b={brand}&s={sn}")
@@ -98,23 +98,23 @@ def parts_import(request):
                 raise TableError("Оберіть файл .xlsx або .csv (до 30 МБ)")
             rows = read_table(f.read(), f.name)[1 if request.POST.get("has_header") else 0:]
             if kind == "oe":
-                n_oe = _import_oe(rows)
+                n_oe = _import_oe(rows, company=request.company)
                 messages.success(request, f"Імпортовано зв'язків «деталь ↔ OE»: {n_oe}")
             elif kind == "fitment":
                 n_fit = _import_fitments(rows)
                 messages.success(request, f"Імпортовано зв'язків застосовності авто ↔ деталь: {n_fit}")
             else:
-                n_inf = _import_desc(rows)
+                n_inf = _import_desc(rows, company=request.company)
                 messages.success(request, f"Оновлено описів: {n_inf}")
         except TableError as e:
             messages.error(request, str(e))
         return redirect("parts_import")
-    return render(request, "core/parts_import.html", {"n_oe": PartOe.objects.count(), "n_info": PartInfo.objects.exclude(description="").count(),
+    return render(request, "core/parts_import.html", {"n_oe": PartOe.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import")).count(), "n_info": PartInfo.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import")).exclude(description="").count(),
                                                       "n_parts": PartOe.objects.values("brand", "sku_norm").distinct().count(),
                                                       "n_fitments": PartFitment.objects.count()})
 
 
-def _import_oe(rows):
+def _import_oe(rows, company=None):
     """Колонки: Бренд; Артикул; OE-номер; Бренд OE (необов'язково)."""
     new, seen = [], set()
     for r in rows:
@@ -123,10 +123,10 @@ def _import_oe(rows):
         sn, on = norm_sku(sku), norm_sku(oe)
         if brand and sn and on and (brand, sn, on) not in seen:
             seen.add((brand, sn, on))
-            new.append(PartOe(brand=brand, sku_norm=sn, sku=sku, oe_norm=on, oe_raw=oe, oe_brand=ob, source="import"))
-    before = PartOe.objects.count()
+            new.append(PartOe(company=company, brand=brand, sku_norm=sn, sku=sku, oe_norm=on, oe_raw=oe, oe_brand=ob, source="import"))
+    before = PartOe.objects.filter(company=company).count()
     PartOe.objects.bulk_create(new, ignore_conflicts=True, batch_size=500)
-    return PartOe.objects.count() - before
+    return PartOe.objects.filter(company=company).count() - before
 
 
 
@@ -181,7 +181,7 @@ def _import_fitments(rows):
     return imported
 
 
-def _import_desc(rows):
+def _import_desc(rows, company=None):
     """Колонки: Бренд; Артикул; Опис; Характеристики (необов'язково); Застосовність (необов'язково)."""
     n = 0
     for r in rows:
@@ -190,7 +190,7 @@ def _import_desc(rows):
         sn = norm_sku(sku)
         if not (brand and sn and (desc or attrs or cars)):
             continue
-        pi, _ = PartInfo.objects.get_or_create(brand=brand, sku_norm=sn, defaults={"sku": sku, "source": "import"})
+        pi, _ = PartInfo.objects.get_or_create(company=company, brand=brand, sku_norm=sn, defaults={"sku": sku, "source": "import"})
         for fld, v in (("description", desc), ("attrs", attrs.replace("|", "\n")), ("cars", cars.replace("|", "\n"))):
             if v and (pi.source != "manual" or not getattr(pi, fld)):
                 setattr(pi, fld, v[:8000])
@@ -210,10 +210,10 @@ def analog_action(request):
     if not (sn and other and sn != other):
         messages.error(request, "Некоректна пара")
     elif act == "confirm":
-        crosses.confirm_pair(request.user, sn, other)
+        crosses.confirm_pair(request.user, sn, other, company=request.company)
         messages.success(request, "Аналог підтверджено: тепер він має найвищу довіру")
     elif act == "reject" and request.user.is_superuser:
-        crosses.reject_pair(request.user, sn, other)
+        crosses.reject_pair(request.user, sn, other, company=request.company)
         messages.success(request, "Позначено «не аналог»: пару приховано з усіх джерел")
     else:
         messages.error(request, "Дія недоступна")
