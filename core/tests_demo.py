@@ -33,7 +33,7 @@ class DemoDataTest(TestCase):
         buf = StringIO()
         call_command("load_demo_data", out=self.out, stdout=buf)
         self.assertIn("вже створено", buf.getvalue())
-        self.assertEqual((Product.objects.count(), SupplierItem.objects.count()), before)
+        self.assertEqual((Product.objects.filter(company=self.company).count(), SupplierItem.objects.filter(company=self.company).count()), before)
 
     def test_exact_analogs_by_oe_and_name_inference_on_demo_parts(self):
         o = PartOe.objects.filter(company=self.company, brand="BILSTEIN").first()
@@ -84,10 +84,10 @@ class DemoDataTest(TestCase):
         self.assertFalse(Supplier.objects.filter(company=self.company).exists())
         call_command("load_demo_data", reset=True, stdout=StringIO())                       # повторно безпечно
         call_command("load_demo_data", out=self.out, stdout=StringIO())                      # і можна створити знову
-        self.assertGreater(SupplierItem.objects.count(), 200)
+        self.assertGreater(SupplierItem.objects.filter(company=self.company).count(), 200)
 
     def test_reset_after_receiving_keeps_protected_data_without_crashing(self):
-        bm = Supplier.objects.get(name="Busmarket (демо)")
+        bm = Supplier.objects.get(company=self.company, name="Busmarket (демо)")
         with open(self.out, "rb") as f:
             r = self.c.post("/receive/preview/", {"supplier": bm.pk, "file": SimpleUploadedFile("inv.csv", f.read())})
         ctx = r.context
