@@ -67,7 +67,7 @@ class CarPartsTest(TestCase):
         row = {x["sku"]: x for g in r.context["groups"] for x in g["rows"]}
         self.assertEqual(row["315849"]["offer_price"], D("920.00"))         # 800 +15% (умови СТО), не +30%
         self.assertEqual(row["GDB1833"]["offer_price"], D("690.00"))
-        PriceRule.objects.create(name="мін.маржа", min_margin_pct=40, rounding=10)
+        PriceRule.objects.create(company=self.company, name="мін.маржа", min_margin_pct=40, rounding=10)
         row = {x["sku"]: x for g in self.get(car=self.car.pk).context["groups"] for x in g["rows"]}
         self.assertEqual(row["315849"]["offer_price"], D("1340.00"))        # 800 / 0.6 = 1333.33 → до 10 вгору
         self.assertContains(self.get(car=self.car.pk), "для клієнта <b>СТО Вікторія</b>")
@@ -86,7 +86,9 @@ class CarPartsTest(TestCase):
 
     def test_links_from_customer_card_and_pos_and_login_required(self):
         adm = self.client_class()
-        get_user_model().objects.create_superuser("admin", "", "x")
+        admin_user = get_user_model().objects.create_superuser("carparts-manager", "", "x")
+        from core.models import StaffMembership
+        StaffMembership.objects.create(company=self.company, user=admin_user, role="manager")
         adm.login(username="admin", password="x")
         self.assertContains(adm.get(f"/customers/{self.cust.pk}/"), f"/car-parts/?car={self.car.pk}")
         self.c.post("/shift/", {"action": "open", "cash": "0"})
