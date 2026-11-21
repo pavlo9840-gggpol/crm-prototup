@@ -483,6 +483,49 @@ def finance_controls(request):
         bank_transaction__transaction_date__lte=date_to,
     ).count()
 
+    # Period P&L is recognized on actual handover (earned_at); returns are
+    # recognized on their processing date. Voided manual entries are excluded.
+    decimal_amount = DecimalField(max_digits=18, decimal_places=2)
+    period_sales = SaleItem.objects.filter(
+        company=request.company, sale__company=request.company,
+        sale__status=Sale.DONE, earned_at__date__gte=date_from,
+        earned_at__date__lte=date_to,
+    )
+    sales_pnl = period_sales.aggregate(
+        revenue=Sum(ExpressionWrapper(F("quantity") * F("price"), output_field=decimal_amount)),
+        cost=Sum(ExpressionWrapper(F("quantity") * F("cost_price"), output_field=decimal_amount)),
+        units=Sum("quantity"),
+    )
+    period_returns = SaleReturnItem.objects.filter(
+        company=request.company, sale_return__company=request.company,
+        sale_return__sale__company=request.company,
+        sale_return__sale__status=Sale.DONE,
+        sale_return__created_at__date__gte=date_from,
+        sale_return__created_at__date__lte=date_to,
+        sale_item__company=request.company, sale_item__earned_at__isnull=False,
+    )
+    returns_pnl = period_returns.aggregate(
+        revenue=Sum(ExpressionWrapper(F("quantity") * F("price"), output_field=decimal_amount)),
+        cost=Sum(ExpressionWrapper(F("quantity") * F("sale_item__cost_price"), output_field=decimal_amount)),
+        units=Sum("quantity"),
+    )
+    gross_revenue = sales_pnl["revenue"] or zero
+    returned_revenue = returns_pnl["revenue"] or zero
+    gross_cost = sales_pnl["cost"] or zero
+    returned_cost = returns_pnl["cost"] or zero
+    net_revenue = gross_revenue - returned_revenue
+    net_cost = gross_cost - returned_cost
+    gross_profit = net_revenue - net_cost
+    period_entries = FinanceEntry.objects.filter(
+        company=request.company, is_void=False,
+        created_at__date__gte=date_from, created_at__date__lte=date_to,
+    )
+    entry_totals = period_entries.values("entry_type").annotate(total=Sum("amount"))
+    entry_amounts = {row["entry_type"]: row["total"] or zero for row in entry_totals}
+    other_income = entry_amounts.get(FinanceEntry.INCOME, zero)
+    operating_expenses = entry_amounts.get(FinanceEntry.EXPENSE, zero)
+    operating_result = gross_profit + other_income - operating_expenses
+
     # This is a frozen management-control snapshot, not a posting lock or a
     # substitute for statutory accounting statements.
     period_snapshot = {
@@ -509,6 +552,18 @@ def finance_controls(request):
             "bank_expense": str(bank_period_out),
             "bank_net_movement": str(period_bank_net),
             "combined_net_movement": str(period_cash_net + period_bank_net),
+            "gross_revenue": str(gross_revenue),
+            "returned_revenue": str(returned_revenue),
+            "net_revenue": str(net_revenue),
+            "gross_cost_of_goods_sold": str(gross_cost),
+            "returned_cost_of_goods_sold": str(returned_cost),
+            "net_cost_of_goods_sold": str(net_cost),
+            "gross_profit": str(gross_profit),
+            "other_income": str(other_income),
+            "operating_expenses": str(operating_expenses),
+            "operating_result": str(operating_result),
+            "sold_units": str(sales_pnl["units"] or zero),
+            "returned_units": str(returns_pnl["units"] or zero),
             "shift_opening_cash": str(shift_opening_total),
             "shift_expected_cash": str(shift_expected_total),
             "shift_counted_cash": str(shift_counted_total),
