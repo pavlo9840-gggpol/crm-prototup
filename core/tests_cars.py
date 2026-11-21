@@ -16,7 +16,7 @@ class CarsTest(TestCase):
         from core.tests_tenant_helpers import create_test_company
         self.company = create_test_company(owner, "Cars test shop", [(anna, "cashier")])
         self.adm, self.anna = self.client, self.client_class()
-        self.adm.login(username="admin", password="x")
+        self.adm.login(username="cars-admin", password="x")
         self.anna.login(username="anna", password="x")
         self.anna.post("/shift/", {"action": "open", "cash": "0"})
         self.ivan = Customer.objects.create(company=self.company, name="Іван Петренко", phone="0501112233")
