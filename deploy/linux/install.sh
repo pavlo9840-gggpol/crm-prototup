@@ -107,10 +107,39 @@ runuser -u "$SERVICE_USER" -- env \
     AUTOZAPAZ_REQUIRE_LICENSE="$AUTOZAPAZ_REQUIRE_LICENSE" \
     "$VENV_DIR/bin/python" "$APP_DIR/manage.py" collectstatic --noinput
 
+health_check() {
+    local attempt
+    for attempt in $(seq 1 30); do
+        if systemctl is-active --quiet autozapaz.service && python3 - "http://127.0.0.1:8000/login/" <<'PY'
+import sys
+import urllib.error
+import urllib.request
+
+try:
+    request = urllib.request.Request(sys.argv[1], headers={"User-Agent": "AutoZapaz-Installer/1"})
+    with urllib.request.urlopen(request, timeout=3) as response:
+        if 200 <= response.status < 400:
+            raise SystemExit(0)
+except (urllib.error.URLError, TimeoutError, OSError):
+    pass
+raise SystemExit(1)
+PY
+        then
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+
 info "Встановлення systemd-служби"
 install -o root -g root -m 0644 "$SERVICE_SOURCE" "$SERVICE_FILE"
 systemctl daemon-reload
 systemctl enable --now autozapaz.service
+if ! health_check; then
+    systemctl stop autozapaz.service || true
+    fail "Служба не пройшла HTTP health-check. Перевірте журнал: journalctl -u autozapaz.service -n 100"
+fi
 systemctl --no-pager --full status autozapaz.service || true
 
 printf '\nАвтоЗапас встановлено як локальну службу. Адреса: http://127.0.0.1:8000/\n'
