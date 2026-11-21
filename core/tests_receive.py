@@ -209,6 +209,24 @@ class ReceivingTest(TestCase):
         self.assertEqual(returned.cash_amount, D("0.00"))
         self.assertEqual(returned.card_amount, D("0.00"))
 
+        # 4a) Make a real cash sale so shift close reconciles a non-empty drawer.
+        cash_checkout = self.anna.post(
+            "/pos/checkout/",
+            json.dumps({
+                "items": [{"id": product.pk, "qty": 1}],
+                "payment": "cash",
+                "received": "65.00",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(cash_checkout.status_code, 200, cash_checkout.content)
+        self.assertTrue(cash_checkout.json()["ok"], cash_checkout.json())
+        cash_sale = Sale.objects.get(company=self.company, pk=cash_checkout.json()["id"])
+        self.assertEqual(cash_sale.total, D("65.00"))
+        self.assertEqual(cash_sale.cash_amount, D("65.00"))
+        product.refresh_from_db()
+        self.assertEqual(product.current_stock, D("2.000"))
+
         # 5) Verify both account balances after payment and return.
         from core.settlement_views import _balance_for
         purchase.refresh_from_db()
@@ -222,6 +240,7 @@ class ReceivingTest(TestCase):
         shift = Shift.objects.get(company=self.company, cashier_id=sale.cashier_id)
         self.assertIsNotNone(shift.closed_at)
         self.assertEqual(shift.discrepancy, D("0.00"))
+        self.assertEqual(cashlib.total(shift.drawer), 6500)
         self.assertEqual(CashOperation.objects.filter(company=self.company, shift=shift).count(), 0)
 
         # 7) Close the current finance period and validate the frozen result.
@@ -235,12 +254,14 @@ class ReceivingTest(TestCase):
         self.assertEqual(response.status_code, 302)
         close = FinancePeriodClose.objects.get(company=self.company, date_from=first_day, date_to=today)
         metrics = close.snapshot["metrics"]
-        self.assertEqual(metrics["gross_revenue"], "130.00")
+        self.assertEqual(metrics["gross_revenue"], "195.00")
         self.assertEqual(metrics["returned_revenue"], "65.00")
-        self.assertEqual(metrics["net_revenue"], "65.00")
-        self.assertEqual(metrics["gross_cost_of_goods_sold"], "100.00")
+        self.assertEqual(metrics["net_revenue"], "130.00")
+        self.assertEqual(metrics["gross_cost_of_goods_sold"], "150.00")
         self.assertEqual(metrics["returned_cost_of_goods_sold"], "50.00")
-        self.assertEqual(metrics["gross_profit"], "15.00")
+        self.assertEqual(metrics["gross_profit"], "30.00")
+        self.assertEqual(metrics["sold_units"], "3.000")
+        self.assertEqual(metrics["returned_units"], "1.000")
         self.assertEqual(metrics["customer_debt"], "15.00")
         self.assertEqual(metrics["supplier_debt"], "160.00")
         self.assertEqual(close.snapshot["counts"]["active_bank_matches"], 2)
