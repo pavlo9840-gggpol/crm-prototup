@@ -223,7 +223,7 @@ class EnrichTest(TestCase):
 
     # ---------------- картка запчастини, редагування, імпорт, каса
     def build_catalog(self):
-        SupplierItem.objects.create(supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000,
+        SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000,
                                     name="Амортизатор задній Trafic", ext_id="U1")
         SupplierItem.objects.create(supplier=self.sup, brand="SACHS", sku="315 849", sku_norm="315849", cost=800, name="Амортизатор")
         Product.objects.create(company=self.company, name="Амортизатор SACHS", sku="315 849", brand="SACHS", price=1100, current_stock=2)
