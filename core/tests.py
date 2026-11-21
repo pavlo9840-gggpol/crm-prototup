@@ -466,7 +466,9 @@ class V4Test(TestCase):
         self.assertFalse(StaffMembership.objects.get(company=self.company, user=u).is_active)
         self.assertTrue(u.check_password("newpass1"))
         self.assertFalse(u.is_superuser)
-        self.assertFalse(self.client_class().login(username="ola", password="newpass1"))
+        inactive_staff_client = self.client_class()
+        self.assertTrue(inactive_staff_client.login(username="ola", password="newpass1"))
+        self.assertEqual(inactive_staff_client.get("/").status_code, 403)  # пароль чинний, але локальну роль деактивовано
         # cannot change own role / lock out last admin
         self.adm.post(f"/users/{self.admin.pk}/edit/", {"username": "a", "role": "cashier", "password": ""})
         self.admin.refresh_from_db(); self.assertTrue(self.admin.is_superuser and self.admin.is_active)
