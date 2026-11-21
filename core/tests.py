@@ -30,7 +30,7 @@ class AcceptanceTest(TestCase):
         r = cash.post("/pos/checkout/", json.dumps({"items": [{"id": p.pk, "qty": 999}]}), content_type="application/json")
         self.assertEqual(r.status_code, 400); print(r.json()["error"])
         adm.post("/purchases/new/", dict(purchase_payload, qty=["50"]))
-        adm.post("/inventory/adjust/", {"product": p.pk, "kind": "writeoff", "quantity": "2", "reason": "damaged"})
+        adm.post("/inventory/adjust/", {"product": p.pk, "kind": "writeoff", "quantity": "2", "reason": "damaged", "note": "Пошкоджено"})
         p.refresh_from_db(); self.assertEqual(p.current_stock, 145)
         self.assertEqual(StockMovement.objects.filter(product=p).count(), 4)
         self.assertEqual(sum(m.quantity_change for m in StockMovement.objects.filter(product=p)), 145)
@@ -280,7 +280,7 @@ class DesignerTest(TestCase):
         r = self.adm.get(f"/print/pricetag/?ids={self.p.pk}&copies=2"); self.assertContains(r, "Сторінок: 2")
         self.assertContains(self.adm.get("/print/stock_report/"), "Кола")
         self.assertContains(self.adm.get("/print/movement_report/?from=2020-01-01"), "NK-")
-        self.adm.post("/inventory/adjust/", {"product": self.p.pk, "kind": "writeoff", "quantity": "2", "reason": "damaged"})
+        self.adm.post("/inventory/adjust/", {"product": self.p.pk, "kind": "writeoff", "quantity": "2", "reason": "damaged", "note": "Пошкоджено"})
         from core.models import StockAdjustment
         a = StockAdjustment.objects.get(); self.assertContains(self.adm.get(f"/print/writeoff/?ids={a.pk}"), "ADJ-")
         self.assertContains(self.adm.get("/inventory/adjustments/"), "ADJ-")
