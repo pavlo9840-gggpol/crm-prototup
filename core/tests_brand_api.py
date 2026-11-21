@@ -52,7 +52,7 @@ class BrandFormTest(TestCase):
         # той самий товар, інакше записаний артикул: відхиляється
         r = self.adm.post("/products/new/", dict(self.FORM, brand="Bilstein", sku="19 152615"))
         self.assertContains(r, "Такий товар уже є в базі")
-        self.assertEqual(Product.objects.count(), 1)
+        self.assertEqual(Product.objects.filter(company=self.company).count(), 1)
         # той самий артикул в ІНШОГО бренду: це інший товар, дозволено
         self.assertEqual(self.adm.post("/products/new/", dict(self.FORM, brand="SACHS", name="Інший")).status_code, 302)
         self.assertEqual(Product.objects.filter(company=self.company, sku="19-152615").count(), 2)
@@ -139,9 +139,9 @@ class SupplierApiTest(TestCase):
         self.assertEqual(net.calls[0][1]["Authorization"], "Bearer SECRET-KEY-123")
         a = SupplierItem.objects.get(company=self.company, sku="19-152615")
         self.assertEqual((a.brand, a.cost, a.qty_avail, a.available), ("BILSTEIN", D("1000.50"), D("4"), True))
-        self.assertEqual(SupplierItem.objects.get(sku="112021").cost, D("500.00"))
-        self.assertEqual(SupplierItem.objects.get(sku="112021").qty_avail, D("10"))     # «>10» → 10
-        self.assertFalse(SupplierItem.objects.get(sku="NOSTOCK").available)
+        self.assertEqual(SupplierItem.objects.get(company=self.company, sku="112021").cost, D("500.00"))
+        self.assertEqual(SupplierItem.objects.get(company=self.company, sku="112021").qty_avail, D("10"))     # «>10» → 10
+        self.assertFalse(SupplierItem.objects.get(company=self.company, sku="NOSTOCK").available)
         self.assertFalse(SupplierItem.objects.filter(company=self.company, sku="BAD").exists())             # без ціни не імпортується
         self.assertTrue(SupplierItem.objects.filter(sku="777", brand="MEYLE").exists())
         self.cfg.refresh_from_db()
@@ -176,8 +176,8 @@ class SupplierApiTest(TestCase):
                '<offer available="0"><vendorCode>AB-2</vendorCode><vendor>Febi</vendor><name>Свічка</name><price>20</price></offer>'
                '</offers></shop></yml_catalog>').encode()
         apisync.sync_supplier(self.sup_(), None, fetch=FakeNet(xml))
-        self.assertEqual(SupplierItem.objects.get(sku="AB-1").qty_avail, D("12"))
-        self.assertFalse(SupplierItem.objects.get(sku="AB-2").available)
+        self.assertEqual(SupplierItem.objects.get(company=self.company, sku="AB-1").qty_avail, D("12"))
+        self.assertFalse(SupplierItem.objects.get(company=self.company, sku="AB-2").available)
         # XML-бомба з ENTITY відхиляється
         bomb = b'<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa">]><r><offer/></r>'
         with self.assertRaises(apisync.SyncError):
@@ -187,7 +187,7 @@ class SupplierApiTest(TestCase):
         self.cfg.save()
         csv_ = "Артикул;Бренд;Назва;Ціна;Залишок\nQ-1;Mann;Фільтр;77,5;3\n".encode("utf-8")
         apisync.sync_supplier(self.sup_(), None, fetch=FakeNet(csv_))
-        self.assertEqual(SupplierItem.objects.get(sku="Q-1").cost, D("77.50"))          # «d» = четверта колонка (Ціна)
+        self.assertEqual(SupplierItem.objects.get(company=self.company, sku="Q-1").cost, D("77.50"))          # «d» = четверта колонка (Ціна)
 
     # ---------------- запобіжники
     def test_empty_or_suspicious_response_never_wipes_catalog(self):
@@ -200,11 +200,11 @@ class SupplierApiTest(TestCase):
         with self.assertRaises(apisync.SyncError) as cm:                  # 1 позиція замість 60
             apisync.sync_supplier(self.sup_(), None, fetch=FakeNet(self.PAGE2))
         self.assertIn("підозріло мало", str(cm.exception))
-        self.assertEqual(SupplierItem.objects.filter(available=True).count(), 60)
+        self.assertEqual(SupplierItem.objects.filter(company=self.company, available=True).count(), 60)
         self.cfg.refresh_from_db()
         self.assertIn("помилка", self.cfg.last_result)
         apisync.sync_supplier(self.sup_(), None, force=True, fetch=FakeNet(self.PAGE2))     # явне підтвердження
-        self.assertEqual(SupplierItem.objects.filter(available=True).count(), 1)
+        self.assertEqual(SupplierItem.objects.filter(company=self.company, available=True).count(), 1)
 
     def test_key_never_leaks_into_errors(self):
         self.cfg.auth_mode, self.cfg.auth_name = "query", "key"
@@ -273,14 +273,14 @@ class SupplierApiTest(TestCase):
             r = self.adm.post(f"/suppliers/{self.sup.pk}/api/", {"act": "test"})
             self.assertContains(r, "Приклад прочитаних позицій")
             self.assertContains(r, "19-152615")
-            self.assertEqual(SupplierItem.objects.count(), 0)
+            self.assertEqual(SupplierItem.objects.filter(company=self.company).count(), 0)
             r = self.adm.post(f"/suppliers/{self.sup.pk}/api/", {"act": "sync", "next": "supplier_prices"}, follow=True)
             self.assertContains(r, "отримано 3")
-            self.assertEqual(SupplierItem.objects.count(), 3)
+            self.assertEqual(SupplierItem.objects.filter(company=self.company).count(), 3)
         with mock.patch("core.apisync.fetch_bytes", FakeNet(apisync.SyncError("Постачальник відповів HTTP 401: ключ відхилено"))):
             r = self.adm.post(f"/suppliers/{self.sup.pk}/api/", {"act": "sync", "next": "supplier_prices"}, follow=True)
             self.assertContains(r, "HTTP 401")
-            self.assertEqual(SupplierItem.objects.filter(available=True).count(), 2)         # каталог цілий
+            self.assertEqual(SupplierItem.objects.filter(company=self.company, available=True).count(), 2)         # каталог цілий
 
     def test_management_command(self):
         from unittest import mock
@@ -288,7 +288,7 @@ class SupplierApiTest(TestCase):
         with mock.patch("core.apisync.fetch_bytes", FakeNet(self.PAGE1)):
             call_command("sync_prices", stdout=out)
         self.assertIn("Busmarket: ", out.getvalue())
-        self.assertEqual(SupplierItem.objects.count(), 3)
+        self.assertEqual(SupplierItem.objects.filter(company=self.company).count(), 3)
         with mock.patch("core.apisync.fetch_bytes", FakeNet(apisync.SyncError("boom"))):
             with self.assertRaises(SystemExit):
                 call_command("sync_prices", stdout=StringIO(), stderr=StringIO())
