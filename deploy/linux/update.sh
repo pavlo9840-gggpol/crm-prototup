@@ -53,6 +53,9 @@ RESTORE_DIR="$DATA_DIR/.rollback-restore-$STAMP"
 BACKUP_PATH=""
 APP_SWITCHED=0
 VENV_SWITCHED=0
+SERVICE_STOPPED=0
+UPDATE_COMPLETE=0
+ROLLBACK_ATTEMPTED=0
 [[ ! -e "$NEW_APP" && ! -e "$NEW_VENV" ]] || fail "Каталог версії вже існує."
 mkdir -p "$RELEASES_DIR" "$VENVS_DIR"
 
@@ -103,6 +106,7 @@ PY
 }
 rollback_update() {
     local reason="$1"
+    ROLLBACK_ATTEMPTED=1
     printf '\nПОМИЛКА: %s\nПовертаю попередню версію.\n' "$reason" >&2
     systemctl stop "$SERVICE" >/dev/null 2>&1 || true
     if [[ "$APP_SWITCHED" -eq 1 || "$VENV_SWITCHED" -eq 1 ]]; then
@@ -142,6 +146,29 @@ rollback_update() {
     fi
     printf 'Попередню версію та дані відновлено. Backup: %s\n' "$BACKUP_PATH"
 }
+on_exit() {
+    local exit_code="$?"
+    trap - EXIT
+    if [[ "$UPDATE_COMPLETE" -eq 1 || "$exit_code" -eq 0 ]]; then
+        exit "$exit_code"
+    fi
+    if [[ "$ROLLBACK_ATTEMPTED" -eq 1 ]]; then
+        exit "$exit_code"
+    fi
+    if [[ "$APP_SWITCHED" -eq 1 || "$VENV_SWITCHED" -eq 1 ]]; then
+        rollback_update "Неочікувана помилка (код $exit_code) під час оновлення." || true
+    elif [[ "$SERVICE_STOPPED" -eq 1 ]]; then
+        printf '\nНеочікувана помилка (код %s). Запускаю чинну службу.\n' "$exit_code" >&2
+        if systemctl start "$SERVICE"; then
+            SERVICE_STOPPED=0
+            health_check || printf 'Служба запущена, але HTTP health-check не пройшов. Перевірте journalctl -u %s.\n' "$SERVICE" >&2
+        else
+            printf 'Не вдалося запустити службу. Перевірте journalctl -u %s.\n' "$SERVICE" >&2
+        fi
+    fi
+    exit "$exit_code"
+}
+trap on_exit EXIT
 
 info "Підготовка релізу $VERSION"
 cp -a "$RELEASE_SOURCE" "$NEW_APP"
@@ -162,26 +189,31 @@ as_service "$NEW_VENV/bin/python" "$NEW_APP/manage.py" collectstatic --noinput
 
 info "Зупинка служби та резервне копіювання"
 systemctl stop "$SERVICE"
+SERVICE_STOPPED=1
 if ! BACKUP_OUTPUT="$(as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" backup --keep 30 2>&1)"; then
     systemctl start "$SERVICE" || true
+    SERVICE_STOPPED=0
     fail "Не вдалося створити резервну копію; оновлення скасовано. $BACKUP_OUTPUT"
 fi
 printf '%s\n' "$BACKUP_OUTPUT"
 BACKUP_PATH="$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Saved //p' | tail -n 1)"
 [[ -n "$BACKUP_PATH" && -f "$BACKUP_PATH" ]] || {
     systemctl start "$SERVICE" || true
+    SERVICE_STOPPED=0
     fail "Команда backup не повернула шлях до архіву."
 }
 case "$(realpath -e -- "$BACKUP_PATH")" in
     "$(realpath -e -- "$BACKUP_DIR")"/*) ;;
-    *) systemctl start "$SERVICE" || true; fail "Backup створено поза каталогом резервних копій." ;;
+    *) systemctl start "$SERVICE" || true; SERVICE_STOPPED=0; fail "Backup створено поза каталогом резервних копій." ;;
 esac
 if ! as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" verify_backup "$BACKUP_PATH"; then
     systemctl start "$SERVICE" || true
+    SERVICE_STOPPED=0
     fail "Перевірка резервної копії не пройшла; оновлення скасовано."
 fi
 if ! as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" restore_backup "$BACKUP_PATH" "$RESTORE_DIR" --apply; then
     systemctl start "$SERVICE" || true
+    SERVICE_STOPPED=0
     fail "Не вдалося підготувати каталог відкату; оновлення скасовано."
 fi
 
@@ -212,7 +244,9 @@ if ! systemctl start "$SERVICE" || ! health_check; then
     rollback_update "Нова версія не запустилася або не відповідає на HTTP." || true
     fail "Оновлення скасовано."
 fi
+SERVICE_STOPPED=0
 rm -rf -- "$RESTORE_DIR"
+UPDATE_COMPLETE=1
 printf '\nОновлення до %s успішне.\n' "$VERSION"
 printf 'Backup перед оновленням: %s\n' "$BACKUP_PATH"
 printf 'Попередній код і venv збережені: %s ; %s\n' "$OLD_APP_REAL" "$OLD_VENV_REAL"
