@@ -27,6 +27,7 @@ from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
 from .business_profiles import dashboard_profile_config
+from .license_entitlements import feature_is_enabled
 
 D0 = Decimal("0")
 DEC = DecimalField(max_digits=14, decimal_places=2)
@@ -157,9 +158,9 @@ def dashboard(request):
         "last_moves": company_queryset(StockMovement.objects.select_related("product"), request)[:10],
         "bars": bars,
         "business_profile": dashboard_profile_config(request.company.business_type),
-        "dashboard_can_car_parts": not getattr(request, "active_license", None) or __import__("core.license_entitlements", fromlist=["feature_is_enabled"]).feature_is_enabled(request.active_license, "vehicle_catalogue"),
-        "dashboard_can_supplier_prices": not getattr(request, "active_license", None) or __import__("core.license_entitlements", fromlist=["feature_is_enabled"]).feature_is_enabled(request.active_license, "supplier_prices"),
-        "dashboard_can_shipments": not getattr(request, "active_license", None) or __import__("core.license_entitlements", fromlist=["feature_is_enabled"]).feature_is_enabled(request.active_license, "nova_poshta"),
+        "dashboard_can_car_parts": not getattr(request, "active_license", None) or feature_is_enabled(request.active_license, "vehicle_catalogue"),
+        "dashboard_can_supplier_prices": not getattr(request, "active_license", None) or feature_is_enabled(request.active_license, "supplier_prices"),
+        "dashboard_can_shipments": not getattr(request, "active_license", None) or feature_is_enabled(request.active_license, "nova_poshta"),
         "business_type": request.company.business_type,
         "has_batch_tracking": Product.objects.filter(company=request.company, is_active=True, tracking_mode__in=["batch", "expiry"]).exists(),
         "has_serial_tracking": Product.objects.filter(company=request.company, is_active=True, tracking_mode="serial").exists(),
