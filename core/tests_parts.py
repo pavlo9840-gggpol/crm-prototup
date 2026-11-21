@@ -225,7 +225,7 @@ class EnrichTest(TestCase):
     def build_catalog(self):
         SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="BILSTEIN", sku="19-152615", sku_norm="19152615", cost=1000,
                                     name="Амортизатор задній Trafic", ext_id="U1")
-        SupplierItem.objects.create(supplier=self.sup, brand="SACHS", sku="315 849", sku_norm="315849", cost=800, name="Амортизатор")
+        SupplierItem.objects.create(company=self.company, supplier=self.sup, brand="SACHS", sku="315 849", sku_norm="315849", cost=800, name="Амортизатор")
         Product.objects.create(company=self.company, name="Амортизатор SACHS", sku="315 849", brand="SACHS", price=1100, current_stock=2)
         PartOe.objects.create(company=self.company, brand="BILSTEIN", sku_norm="19152615", oe_norm="1K0411105AB", oe_raw="1K0 411 105 AB", oe_brand="VAG", source="api")
         PartOe.objects.create(company=self.company, brand="SACHS", sku_norm="315849", oe_norm="1K0411105AB", oe_raw="1K0411105AB", source="import")
