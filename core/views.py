@@ -160,6 +160,7 @@ def dashboard(request):
         "business_profile": dashboard_profile_config(request.company.business_type),
         "dashboard_can_car_parts": not getattr(request, "active_license", None) or feature_is_enabled(request.active_license, "vehicle_catalogue"),
         "dashboard_can_supplier_prices": not getattr(request, "active_license", None) or feature_is_enabled(request.active_license, "supplier_prices"),
+        "dashboard_can_price_review": not getattr(request, "active_license", None) or feature_is_enabled(request.active_license, "advanced_pricing"),
         "dashboard_can_shipments": not getattr(request, "active_license", None) or feature_is_enabled(request.active_license, "nova_poshta"),
         "business_type": request.company.business_type,
         "has_batch_tracking": Product.objects.filter(company=request.company, is_active=True, tracking_mode__in=["batch", "expiry"]).exists(),
