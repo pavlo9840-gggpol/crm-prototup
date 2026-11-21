@@ -272,14 +272,14 @@ def product_lookup(request):
                "qty": float(o.qty_avail) if o.qty_avail is not None else None, "available": o.available,
                "price": float(services.markup_price(o.cost, pct))} for o in offers_qs[:8]]
     ib = brand or (offers[0]["brand"] if offers else "")
-    info = PartInfo.objects.filter(brand=ib, sku_norm=sn).first() if is_auto_parts else None
+    info = PartInfo.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import"), brand=ib, sku_norm=sn).order_by("-company_id").first() if is_auto_parts else None
     card = reverse("part_card") + "?" + urlencode({"b": ib, "s": sn})
     data = {"dup": {"name": dup.name, "brand": dup.brand, "sku": dup.sku, "stock": float(dup.current_stock),
                     "url": reverse("product_edit", args=[dup.pk])} if dup else None,
             "others": others, "offers": offers, "card": card}
-    if is_auto_parts and (info or PartOe.objects.filter(brand=ib, sku_norm=sn).exists() or offers):
+    if is_auto_parts and (info or PartOe.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import"), brand=ib, sku_norm=sn).exists() or offers):
         data["info"] = {"description": (info.description[:260] if info else ""), "image": info.image_url if info else "",
-                        "oe": PartOe.objects.filter(brand=ib, sku_norm=sn).count(),
+                        "oe": PartOe.objects.filter(Q(company=request.company) | Q(company__isnull=True, source="import"), brand=ib, sku_norm=sn).count(),
                         "analogs": len(crosses.analogs(ib, sn, limit=50, company=request.company))}
     return JsonResponse(data)
 
