@@ -163,7 +163,7 @@ class DesignerTest(TestCase):
         # print: default is the standard, chosen is mine
         self.cs.post("/shift/", {"action": "open"})
         from core.models import Sale
-        sale = Sale.objects.create(cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30, number="CH-1")
+        sale = Sale.objects.create(company=self.company, cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30, number="CH-1")
         from core.models import SaleItem
         SaleItem.objects.create(sale=sale, product=self.p, quantity=1, original_price=30, price=30)
         r = self.adm.get(f"/print/sale_invoice/?ids={sale.pk}"); self.assertNotContains(r, "МІЙ ШАБЛОН ТЕКСТ")
