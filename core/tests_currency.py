@@ -210,7 +210,7 @@ class RatesPageTest(TestCase):
         self.assertEqual(self.anna.get("/rates/").status_code, 403)
         self.assertEqual(self.anna.post("/rates/", {"act": "manual", "code": "EUR", "rate": "50"}).status_code, 403)
         self.assertContains(self.adm.get("/rates/"), "немає курсу")
-        self.assertNotContains(self.adm.get("/"), 'class="rate"')
+        self.assertNotContains(self.adm.get("/", follow=True), 'class="rate"')
         post = lambda **kw: self.adm.post("/rates/", dict({"act": "manual", "code": "EUR", "rate": "50,80", "date": TODAY().isoformat()}, **kw), follow=True)
         self.assertContains(post(), "Курс EUR збережено: 50.8")
         self.assertEqual(ExchangeRate.objects.get().rate, D("50.8"))
