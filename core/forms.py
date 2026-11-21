@@ -256,7 +256,7 @@ class AdjustForm(forms.ModelForm):
 class CompanyForm(forms.ModelForm):
     class Meta:
         model = CompanySettings
-        fields = "__all__"
+        exclude = ["company"]  # магазин визначається сервером із поточної StaffMembership
         widgets = {"receipt_header": forms.Textarea(attrs={"rows": 2}), "receipt_footer": forms.Textarea(attrs={"rows": 2})}
 
     def __init__(self, *a, **k):
