@@ -87,7 +87,7 @@ class BusinessProfileMiddlewareTests(SimpleTestCase):
 
     def test_non_automotive_profile_cannot_open_automotive_url_directly(self):
         request = self.factory.get("/car-parts/")
-        request.company = SimpleNamespace(business_type="grocery")
+        request.company = SimpleNamespace(business_type="grocery", get_business_type_display=lambda: "Продуктовий магазин")
         request.user = AnonymousUser()
         response = BusinessProfileMiddleware(lambda _request: HttpResponse("ok"))(request)
         self.assertEqual(response.status_code, 403)
