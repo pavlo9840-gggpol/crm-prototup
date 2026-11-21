@@ -3,12 +3,39 @@
 {% block content %}
 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px">
   <div>
-    <h2 style="margin-bottom:4px">Операційний центр</h2>
-    <div class="muted">Продажі, склад, замовлення та закупівлі — в одному робочому просторі.</div>
+    <h2 style="margin-bottom:4px">{{ business_profile.title }} · огляд</h2>
+    <div class="muted">{{ business_profile.subtitle }}</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <a class="btn" href="{% url 'pos' %}">＋ Новий продаж</a>
     <a class="btn gray" href="{% url 'receive_home' %}">Приймання накладної</a>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <h3>Швидкий доступ для вашого типу магазину</h3>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% if business_type == "auto_parts" %}
+      <a class="btn" href="{% url 'car_parts' %}">Підбір за автомобілем</a>
+      <a class="btn gray" href="{% url 'supplier_prices' %}">Прайси постачальників</a>
+      <a class="btn gray" href="{% url 'catalogue_home' %}">Каталог запчастин</a>
+    {% elif business_type == "grocery" %}
+      <a class="btn" href="{% url 'pos' %}">Продаж продуктів</a>
+      <a class="btn gray" href="{% url 'receive_home' %}">Приймання поставки</a>
+      {% if has_batch_tracking %}<a class="btn gray" href="{% url 'stock_batches' %}">Партії та терміни</a>{% endif %}
+    {% elif business_type == "electronics" %}
+      <a class="btn" href="{% url 'pos' %}">Продаж техніки</a>
+      {% if has_serial_tracking %}<a class="btn gray" href="{% url 'stock_serials' %}">Серійні номери / IMEI</a>{% endif %}
+      <a class="btn gray" href="{% url 'shipment_list' %}">Відправлення</a>
+    {% elif business_type == "online_store" %}
+      <a class="btn" href="{% url 'orders' %}">Замовлення клієнтів</a>
+      <a class="btn gray" href="{% url 'shipment_list' %}">Відправлення</a>
+      <a class="btn gray" href="{% url 'product_list' %}">Каталог товарів</a>
+    {% else %}
+      <a class="btn" href="{% url 'pos' %}">Новий продаж</a>
+      <a class="btn gray" href="{% url 'inventory' %}">Контроль залишків</a>
+      <a class="btn gray" href="{% url 'product_list' %}">Каталог товарів</a>
+    {% endif %}
   </div>
 </div>
 
