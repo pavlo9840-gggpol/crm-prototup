@@ -29,6 +29,10 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('systemctl enable --now autozapaz.service', script)
         self.assertIn('migrate --noinput', script)
         self.assertIn('collectstatic --noinput', script)
+        self.assertIn('health_check() {', script)
+        self.assertIn('http://127.0.0.1:8000/login/', script)
+        self.assertIn('if ! health_check; then', script)
+        self.assertIn('journalctl -u autozapaz.service -n 100', script)
         self.assertNotIn("rm -rf", script)
 
 
