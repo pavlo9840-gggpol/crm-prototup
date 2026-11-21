@@ -9,6 +9,7 @@ import json
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Sum, ExpressionWrapper, DecimalField, Q
+from django.db.models.functions import Abs
 from django.shortcuts import redirect, render
 from django.http import HttpResponse
 from django.utils import timezone
@@ -137,7 +138,7 @@ def cashflow_report(request):
     ).select_related("account", "created_by")
 
     cash_in = cash_operations.filter(kind="in").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
-    cash_out = cash_operations.filter(kind="out").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+    cash_out = cash_operations.filter(kind="out").aggregate(total=Sum(Abs("amount")))["total"] or Decimal("0.00")
     cash_adjust = cash_operations.filter(kind="adjust").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
     bank_in = bank_operations.filter(direction=BankTransaction.INCOME).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
     bank_out = bank_operations.filter(direction=BankTransaction.EXPENSE).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
