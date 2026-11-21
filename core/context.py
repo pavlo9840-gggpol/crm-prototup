@@ -165,6 +165,7 @@ def layout(request):
         "can_manage_company": can_manage_company,
         "cur_url": cur,
         "company_name": CompanySettings.get(active_company).name if active_company else "",
+        "rates_chip": chip,
         "installation_conflict": bool(getattr(request, "company_conflict", False)),
         "active_license_plan": active_license["plan"].upper() if active_license else "",
         "active_license_max_workstations": active_license["max_workstations"] if active_license else None,
