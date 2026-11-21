@@ -26,6 +26,7 @@ from .models import (BankAccount, CashOperation, CompanySettings, Category, Cust
 from .models import norm_plate, norm_sku
 from .services import StockError
 from .tenant_context import company_queryset, company_required
+from .business_profiles import dashboard_profile_config
 
 D0 = Decimal("0")
 DEC = DecimalField(max_digits=14, decimal_places=2)
@@ -155,6 +156,10 @@ def dashboard(request):
         "last_sales": done_sales(request.company).select_related("cashier")[:10],
         "last_moves": company_queryset(StockMovement.objects.select_related("product"), request)[:10],
         "bars": bars,
+        "business_profile": dashboard_profile_config(request.company.business_type),
+        "business_type": request.company.business_type,
+        "has_batch_tracking": Product.objects.filter(company=request.company, is_active=True, tracking_mode__in=["batch", "expiry"]).exists(),
+        "has_serial_tracking": Product.objects.filter(company=request.company, is_active=True, tracking_mode="serial").exists(),
         "waiting_orders": company_queryset(SaleItem.objects.filter(company=request.company, sale__company=request.company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE), request).filter(
             fulfil_status__in=[SaleItem.ORDERED, SaleItem.ARRIVED]).count(),
         "overdue_orders": company_queryset(SaleItem.objects.filter(company=request.company, sale__company=request.company, source=SaleItem.SUPPLIER, sale__status=Sale.DONE,
