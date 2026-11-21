@@ -573,7 +573,7 @@ class BankImportTests(TestCase):
     def test_cashflow_report_sums_bank_transactions_and_cash_operations_by_period(self):
         shift = Shift.objects.create(company=self.company, cashier=self.owner, opening_cash=Decimal("100.00"))
         CashOperation.objects.create(company=self.company, shift=shift, user=self.owner, kind="in", amount=Decimal("50.00"), note="Внесення")
-        CashOperation.objects.create(company=self.company, shift=shift, user=self.owner, kind="out", amount=Decimal("20.00"), note="Інкасація")
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.owner, kind="out", amount=Decimal("-20.00"), note="Інкасація")
         BankTransaction.objects.create(company=self.company, account=self.account, transaction_date=self.today.isoformat(),
             direction="income", category="Оплата", amount=Decimal("300.00"), created_by=self.owner)
         BankTransaction.objects.create(company=self.company, account=self.account, transaction_date=self.today.isoformat(),
