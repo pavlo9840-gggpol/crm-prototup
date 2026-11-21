@@ -23,11 +23,11 @@
       {% if dashboard_can_supplier_prices %}<a class="btn gray" href="{% url 'supplier_prices' %}">Прайси постачальників</a>{% endif %}
       <a class="btn gray" href="{% url 'inventory' %}">Залишки запчастин</a>
     {% elif business_type == "grocery" %}
-      <a class="btn" href="{% url 'pos' %}">Продаж продуктів</a>
-      <a class="btn gray" href="{% url 'receive_home' %}">Приймання поставки</a>
+      <a class="btn" href="{% url 'product_list' %}">Асортимент і ціни</a>
       {% if has_batch_tracking %}<a class="btn gray" href="{% url 'stock_batches' %}">Партії та терміни</a>{% endif %}
+      <a class="btn gray" href="{% url 'inventory' %}">Залишки</a>
     {% elif business_type == "electronics" %}
-      <a class="btn" href="{% url 'pos' %}">Продаж техніки</a>
+      <a class="btn" href="{% url 'product_list' %}">Каталог техніки</a>
       {% if has_serial_tracking %}<a class="btn gray" href="{% url 'stock_serials' %}">Серійні номери / IMEI</a>{% endif %}
       {% if dashboard_can_shipments %}<a class="btn gray" href="{% url 'shipment_list' %}">Відправлення</a>{% endif %}
     {% elif business_type == "online_store" %}
@@ -35,7 +35,7 @@
       {% if dashboard_can_shipments %}<a class="btn gray" href="{% url 'shipment_list' %}">Відправлення</a>{% endif %}
       <a class="btn gray" href="{% url 'product_list' %}">Каталог товарів</a>
     {% else %}
-      <a class="btn" href="{% url 'pos' %}">Новий продаж</a>
+      <a class="btn" href="{% url 'product_list' %}">Каталог товарів</a>
       <a class="btn gray" href="{% url 'inventory' %}">Контроль залишків</a>
       <a class="btn gray" href="{% url 'product_list' %}">Каталог товарів</a>
     {% endif %}
@@ -69,15 +69,19 @@
         <a href="{% url 'orders' %}" style="display:block;padding:14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:#fff">
           <div style="font-size:22px;margin-bottom:6px">🚚</div><b>Замовлення в дорозі</b><div class="muted" style="font-size:13px">Контролювати прибуття та видачу замовлень</div>
         </a>
+        {% if business_type != "auto_parts" and dashboard_can_supplier_prices %}
         <a href="{% url 'supplier_prices' %}" style="display:block;padding:14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:#fff">
-          <div style="font-size:22px;margin-bottom:6px">🔎</div><b>Прайси постачальників</b><div class="muted" style="font-size:13px">Знайти артикул і порівняти закупівельні пропозиції</div>
+          <div style="font-size:22px;margin-bottom:6px">🔎</div><b>Прайси постачальників</b><div class="muted" style="font-size:13px">Знайти товар і порівняти закупівельні пропозиції</div>
         </a>
+        {% endif %}
         <a href="{% url 'inventory' %}" style="display:block;padding:14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:#fff">
           <div style="font-size:22px;margin-bottom:6px">🗃️</div><b>Склад</b><div class="muted" style="font-size:13px">Залишки, дефіцит і рух товарів</div>
         </a>
+        {% if dashboard_can_price_review %}
         <a href="{% url 'price_review' %}" style="display:block;padding:14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:#fff">
           <div style="font-size:22px;margin-bottom:6px">💹</div><b>Контроль цін і маржі</b><div class="muted" style="font-size:13px">Перевірити ціни перед продажем і зміну маржі</div>
         </a>
+        {% endif %}
       </div>
     </div>
     <div class="card">
