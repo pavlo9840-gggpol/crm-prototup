@@ -143,7 +143,7 @@ class SupplierApiTest(TestCase):
         self.assertEqual(SupplierItem.objects.get(company=self.company, sku="112021").qty_avail, D("10"))     # «>10» → 10
         self.assertFalse(SupplierItem.objects.get(company=self.company, sku="NOSTOCK").available)
         self.assertFalse(SupplierItem.objects.filter(company=self.company, sku="BAD").exists())             # без ціни не імпортується
-        self.assertTrue(SupplierItem.objects.filter(sku="777", brand="MEYLE").exists())
+        self.assertTrue(SupplierItem.objects.filter(company=self.company, sku="777", brand="MEYLE").exists())
         self.cfg.refresh_from_db()
         self.assertIn("отримано 4", self.cfg.last_result)
         self.assertIsNotNone(self.cfg.last_sync_at)
