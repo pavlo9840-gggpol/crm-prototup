@@ -239,7 +239,7 @@ def enrich_batch(sup, limit=200, fetch=None, on_progress=None):
     cfg = getattr(sup, "api", None)
     if cfg is None or not cfg.det_url:
         raise SyncError("Не налаштовано посилання на картку товару")
-    qs = (SupplierItem.objects.filter(supplier=sup, available=True).exclude(ext_id="")
+    qs = (SupplierItem.objects.filter(company=sup.company, supplier=sup, available=True).exclude(ext_id="")
           .annotate(has=Exists(PartInfo.objects.filter(company_id=OuterRef("company_id"), brand=OuterRef("brand"), sku_norm=OuterRef("sku_norm"))))
           .filter(has=False).select_related("supplier__api").order_by(F("product_id").desc(nulls_last=True), "pk")[:limit])
     done = errors = streak = 0
