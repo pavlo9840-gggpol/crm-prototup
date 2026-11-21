@@ -12,19 +12,21 @@ D = Decimal
 class AutoCrossTest(TestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
-        U.objects.create_user("cash", password="x")
+        admin = U.objects.create_superuser("admin", "", "x")
+        cashier = U.objects.create_user("cash", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(admin, "Analogue test shop", [(cashier, "cashier")])
         self.adm, self.cash = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.cash.login(username="cash", password="x")
-        self.sup = Supplier.objects.create(name="S")
+        self.sup = Supplier.objects.create(company=self.company, name="S")
 
     def oe(self, brand, sku, oe):
-        PartOe.objects.create(brand=brand, sku_norm="".join(c for c in sku if c.isalnum()).upper(), sku=sku,
+        PartOe.objects.create(company=self.company, brand=brand, sku_norm="".join(c for c in sku if c.isalnum()).upper(), sku=sku,
                               oe_norm="".join(c for c in oe if c.isalnum()).upper(), oe_raw=oe, source="api")
 
     def item(self, brand, sku, name):
-        return SupplierItem.objects.create(supplier=self.sup, brand=brand, sku=sku, sku_norm="".join(c for c in sku if c.isalnum()).upper(),
+        return SupplierItem.objects.create(company=self.company, supplier=self.sup, brand=brand, sku=sku, sku_norm="".join(c for c in sku if c.isalnum()).upper(),
                                            name=name, cost=100)
 
     # ---- довіра зростає, коли джерела незалежно збігаються
@@ -32,9 +34,9 @@ class AutoCrossTest(TestCase):
         self.oe("A", "X1", "OE-1")
         self.oe("B", "ONLYOE", "OE-1")
         self.oe("B", "OEPLUSAPI", "OE-1")
-        CrossRef.objects.create(a="OEPLUSAPI", b="X1", source="api")
+        CrossRef.objects.create(company=self.company, a="OEPLUSAPI", b="X1", source="api")
         CrossRef.objects.create(a="FILE1", b="X1", source="import")
-        res = {r["sku_norm"]: r for r in crosses.analogs("A", "X1")}
+        res = {r["sku_norm"]: r for r in crosses.analogs("A", "X1", company=self.company)}
         self.assertEqual((res["ONLYOE"]["level"], res["ONLYOE"]["score"]), ("oe", 70))
         self.assertGreater(res["OEPLUSAPI"]["score"], res["ONLYOE"]["score"])            # OE + кросс від постачальника
         self.assertEqual(res["OEPLUSAPI"]["score"], 75)
@@ -51,11 +53,11 @@ class AutoCrossTest(TestCase):
         self.item("MEYLE", "M-FRONT", "Амортизатор передній Renault Trafic II 01-")              # інша позиція
         self.item("KYB", "K-OTHERCAR", "Амортизатор задній Opel Vivaro 01-")                      # інше авто
         self.item("NGK", "N-1", "Свічка запалювання Renault Trafic II")                          # інший тип
-        res = crosses.analogs("BILSTEIN", "19152615", with_names=True)
+        res = crosses.analogs("BILSTEIN", "19152615", with_names=True, company=self.company)
         self.assertEqual([(r["brand"], r["level"]) for r in res], [("SACHS", "name")])
         self.assertLessEqual(res[0]["score"], 40)
         self.assertIn("Збіг за назвою", res[0]["evidence"][0])
-        self.assertEqual(crosses.analogs("BILSTEIN", "19152615"), [])                            # на касі (без назв) не підміняє точних
+        self.assertEqual(crosses.analogs("BILSTEIN", "19152615", company=self.company), [])                            # на касі (без назв) не підміняє точних
         # якщо є і OE, назва лише додає довіри
         self.oe("BILSTEIN", "19-152615", "OE-9")
         self.oe("SACHS", "315 849", "OE-9")
@@ -75,19 +77,19 @@ class AutoCrossTest(TestCase):
         self.oe("A", "X1", "OE-1")
         self.oe("B", "P2", "OE-1")
         CrossRef.objects.create(a="P3", b="X1", source="import")
-        self.assertEqual(crosses.analog_levels("X1"), {"P2": "oe", "P3": "cross"})
-        crosses.reject_pair(None, "X1", "P2")
+        self.assertEqual(crosses.analog_levels("X1", company=self.company), {"P2": "oe", "P3": "cross"})
+        crosses.reject_pair(None, "X1", "P2", company=self.company)
         self.assertEqual(crosses.analog_levels("X1"), {"P3": "cross"})                           # відхилена OE-пара прихована
         self.assertEqual([r["sku_norm"] for r in crosses.analogs("A", "X1")], ["P3"])
-        self.assertEqual(crosses.analog_levels("P2"), {})
-        crosses.confirm_pair(None, "X1", "P2")                                                    # передумали: підтвердили
-        self.assertFalse(CrossReject.objects.exists())
+        self.assertEqual(crosses.analog_levels("P2", company=self.company), {})
+        crosses.confirm_pair(None, "X1", "P2", company=self.company)                                                    # передумали: підтвердили
+        self.assertFalse(CrossReject.objects.filter(company=self.company).exists())
         lv = crosses.analog_levels("X1")
         self.assertEqual(lv["P2"], "manual")
         r = {x["sku_norm"]: x for x in crosses.analogs("A", "X1")}
         self.assertEqual((r["P2"]["level"], r["P2"]["score"]), ("manual", 100))
-        crosses.confirm_pair(None, "X1", "P3")
-        self.assertEqual(CrossRef.objects.get(a="P3", b="X1").source, "manual")
+        crosses.confirm_pair(None, "X1", "P3", company=self.company)
+        self.assertEqual(CrossRef.objects.get(company=self.company, a="P3", b="X1").source, "manual")
 
     def test_card_actions_permissions(self):
         self.oe("A", "X1", "OE-1")
@@ -96,13 +98,13 @@ class AutoCrossTest(TestCase):
         self.assertContains(self.cash.get("/part/?b=A&s=X1"), 'value="confirm"')
         self.assertNotContains(self.cash.get("/part/?b=A&s=X1"), 'value="reject"')               # відхиляти може лише адмін
         self.cash.post("/part/analog/", dict(base, act="reject"))
-        self.assertFalse(CrossReject.objects.exists())
+        self.assertFalse(CrossReject.objects.filter(company=self.company).exists())
         self.cash.post("/part/analog/", dict(base, act="confirm"))
-        self.assertEqual(CrossRef.objects.get().source, "manual")
+        self.assertEqual(CrossRef.objects.get(company=self.company).source, "manual")
         self.assertContains(self.adm.get("/part/?b=A&s=X1"), "Підтверджено вручну")
         self.adm.post("/part/analog/", dict(base, act="reject"))
         self.assertTrue(CrossReject.objects.exists())
-        self.assertFalse(CrossRef.objects.filter(source="manual").exists())                       # підтвердження скасовано
+        self.assertFalse(CrossRef.objects.filter(company=self.company, source="manual").exists())                       # підтвердження скасовано
         self.assertContains(self.adm.get("/part/?b=A&s=X1"), "Аналогів не знайдено")
         # відхилена пара зникає і з пошуку на касі
         self.item("B", "P2", "Деталь")
@@ -110,15 +112,15 @@ class AutoCrossTest(TestCase):
 
     # ---- безкоштовне джерело: кроси з картки постачальника
     def test_analogs_from_supplier_card_become_api_crosses(self):
-        cfg = SupplierApi(supplier=self.sup, url="https://x", det_url="https://x/{id}")
+        cfg = SupplierApi(company=self.company, supplier=self.sup, url="https://x", det_url="https://x/{id}")
         card = {"data": {"analogs": [{"article": "SACHS 315-849", "brand": "SACHS"}, "KYB 332 600", {"code": "19-152615"}]}}
         info = enrich.extract_info(card, cfg)
         self.assertEqual(info["analogs"], ["SACHS 315-849", "KYB 332 600", "19-152615"])
-        enrich.save_info("BILSTEIN", "19-152615", info, "api")
-        pairs = {(c.a, c.b, c.source) for c in CrossRef.objects.all()}
+        enrich.save_info("BILSTEIN", "19-152615", info, "api", company=self.company)
+        pairs = {(c.a, c.b, c.source) for c in CrossRef.objects.filter(company=self.company)}
         self.assertEqual(pairs, {("19152615", "SACHS315849", "api"), ("19152615", "KYB332600", "api")})   # себе не додано
         enrich.save_info("BILSTEIN", "19-152615", info, "api")                                       # повторно без дублікатів
-        self.assertEqual(CrossRef.objects.count(), 2)
+        self.assertEqual(CrossRef.objects.filter(company=self.company).count(), 2)
         r = {x["sku_norm"]: x for x in crosses.analogs("BILSTEIN", "19152615")}
         self.assertEqual((r["SACHS315849"]["level"], r["SACHS315849"]["score"]), ("cross", 55))
         self.assertIn("Кросс із API постачальника", r["SACHS315849"]["evidence"])
