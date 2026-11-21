@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import BankAccount, BankTransaction, BankReconciliation, CashOperation, FinanceEntry, SettlementPayment, Shift, Sale, Customer
+from core.models import BankAccount, BankTransaction, BankReconciliation, CashOperation, FinanceEntry, SettlementPayment, Shift, Sale, Customer, Supplier
 from core.tests_tenant_helpers import create_test_company
 
 
@@ -388,7 +388,7 @@ class BankLedgerTests(TestCase):
             transaction_date=self.today.isoformat(), direction="income", category="Оплата продажу",
             amount=Decimal("450.00"), created_by=self.owner)
         self.client.force_login(self.owner)
-        self.client.post(reverse("bank_reconcile", args=[entry.pk]), {"payment_id": payment.pk})
+        self.client.post(reverse("bank_reconcile", args=[entry.pk]), {"match_ref": f"payment:{payment.pk}"})
         reconciliation = BankReconciliation.objects.get(bank_transaction=entry, is_void=False)
         self.assertEqual(reconciliation.settlement_payment_id, payment.pk)
         self.client.post(reverse("settlement_payment_void", args=[payment.pk]), {"reason": "Try void while reconciled"})
@@ -594,7 +594,8 @@ class BankImportTests(TestCase):
 
     def test_cashier_cannot_import_statement(self):
         cashier = get_user_model().objects.create_user(username="bank-import-cashier", password="secret")
-        create_test_company(self.owner, "Other bank import", [(cashier, "cashier")])
+        from core.models import StaffMembership
+        StaffMembership.objects.create(company=self.company, user=cashier, role="cashier")
         self.client.force_login(cashier)
         response = self.client.get(reverse("bank_import"))
         self.assertEqual(response.status_code, 403)
