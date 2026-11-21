@@ -72,6 +72,19 @@ class AutoCrossTest(TestCase):
         self.assertTrue({"renault", "trafic"} <= p["veh"])
         self.assertEqual(crosses.name_candidates("X", "Y", "Деталь"), {})                      # замало даних: нічого не вигадуємо
 
+    def test_analogue_data_isolated_between_companies(self):
+        other_user = get_user_model().objects.create_superuser("other-admin", "", "x")
+        from core.tests_tenant_helpers import create_test_company
+        other_company = create_test_company(other_user, "Other analogue shop")
+        PartOe.objects.create(company=other_company, brand="A", sku_norm="X1", sku="X1",
+                              oe_norm="SHARED-OE", oe_raw="SHARED-OE", source="api")
+        PartOe.objects.create(company=other_company, brand="B", sku_norm="OTHER", sku="OTHER",
+                              oe_norm="SHARED-OE", oe_raw="SHARED-OE", source="api")
+        CrossRef.objects.create(company=other_company, a="X1", b="FOREIGN", source="api")
+        CrossReject.objects.create(company=other_company, a="X1", b="P2")
+        self.assertEqual(crosses.analog_levels("X1", company=self.company), {})
+        self.assertEqual(crosses.analogs("A", "X1", company=self.company), [])
+
     # ---- навчання з рішень людей
     def test_confirm_and_reject_override_every_source(self):
         self.oe("A", "X1", "OE-1")
