@@ -158,7 +158,8 @@ class ReceivingTest(TestCase):
         sale = Sale.objects.get(company=self.company, pk=checkout.json()["id"])
         sale_item = sale.items.get()
         self.assertEqual(sale.total, D("130.00"))
-        self.assertEqual(product.current_stock - D("2.000"), D("2.000"))
+        product.refresh_from_db()
+        self.assertEqual(product.current_stock, D("2.000"))
 
         sale_payment_url = reverse("settlement_payment_new", args=["sale", sale.pk])
         response = self.adm.post(sale_payment_url, {
