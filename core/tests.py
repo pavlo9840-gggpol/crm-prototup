@@ -472,8 +472,11 @@ class V4Test(TestCase):
         # cannot change own role / lock out last admin
         self.adm.post(f"/users/{self.admin.pk}/edit/", {"username": "a", "role": "cashier", "password": ""})
         self.admin.refresh_from_db(); self.assertTrue(self.admin.is_superuser and self.admin.is_active)
-        other = U.objects.create_superuser("b", "", "x"); self.adm.post(f"/users/{other.pk}/edit/", {"username": "b", "role": "cashier"})
-        other.refresh_from_db(); self.assertFalse(other.is_superuser)       # allowed: another admin (a) remains
+        other = U.objects.create_superuser("b", "", "x")
+        response = self.adm.post(f"/users/{other.pk}/edit/", {"username": "b", "role": "cashier"})
+        self.assertEqual(response.status_code, 404)  # глобальний recovery-admin не є учасником цього магазину
+        other.refresh_from_db()
+        self.assertTrue(other.is_superuser)  # чужий глобальний обліковий запис не можна перетворити на касира
         b = self.client_class(); b.login(username="a", password="x")
         U.objects.filter(pk=u.pk).update(is_active=True)
 
