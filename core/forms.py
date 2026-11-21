@@ -28,7 +28,7 @@ class ProductForm(forms.ModelForm):
         self.company = company
         if company is not None:
             self.fields["category"].queryset = Category.objects.filter(company=company)
-        self.fields["brand"].required = False
+        self.fields["brand"].required = bool(company and company.business_type == "auto_parts")
         # Нові універсальні поля мають безпечні значення за замовчуванням.
         # Старі клієнти/API та наявні форми, які ще не надсилають ці поля,
         # не повинні раптово ставати невалідними.
