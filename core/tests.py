@@ -211,7 +211,7 @@ class DesignerTest(TestCase):
         self.assertEqual([e["type"] for e in c["elements"]], ["image", "text", "field"])
         self.assertEqual(c["elements"][0]["src"], ""); self.assertTrue(w)
         with self.assertRaises(ValueError): designer.sanitize({"elements": "x"}, "receipt")
-        r = self.adm.post(f"/designer/save/{self.PT.objects.create(doc_type='receipt', name='t', layout={}).pk}/",
+        r = self.adm.post(f"/designer/save/{self.PT.objects.create(company=self.company, doc_type='receipt', name='t', layout={}).pk}/",
                           json.dumps({"name": "t", "layout": {"elements": "bad"}}), content_type="application/json")
         self.assertEqual(r.status_code, 400)
 
@@ -295,7 +295,7 @@ class HardeningTest(DesignerTest):
     def test_txt_receipt_and_zip_backup(self):
         self.cs.post("/shift/", {"action": "open"})
         from core.models import Sale, SaleItem
-        sale = Sale.objects.create(cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30,
+        sale = Sale.objects.create(company=self.company, cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30,
                                    cash_received=50, change_given=20, number="CH-7")
         SaleItem.objects.create(sale=sale, product=self.p, quantity=1, original_price=30, price=30)
         r = self.cs.get(f"/print/receipt/?ids={sale.pk}&fmt=txt&cols=32")
@@ -317,18 +317,18 @@ class HardeningTest(DesignerTest):
         self.assertContains(r, "ZIP")
 
     def test_corrupted_template_does_not_crash(self):
-        bad = self.PT.objects.create(doc_type="receipt", name="bad", layout={"elements": "oops"})
+        bad = self.PT.objects.create(company=self.company, doc_type="receipt", name="bad", layout={"elements": "oops"})
         self.assertEqual(self.adm.get(f"/designer/edit/{bad.pk}/").status_code, 404)
         self.cs.post("/shift/", {"action": "open"})
         from core.models import Sale, SaleItem
-        sale = Sale.objects.create(cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30, number="CH-8")
+        sale = Sale.objects.create(company=self.company, cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30, number="CH-8")
         SaleItem.objects.create(sale=sale, product=self.p, quantity=1, original_price=30, price=30)
         self.assertEqual(self.cs.get(f"/print/receipt/?ids={sale.pk}&template={bad.pk}").status_code, 400)
 
     def test_purchase_rejects_invalid_line_without_partial_post_or_orphan_supplier(self):
         from core.models import Purchase as PurchaseModel
-        product = Product.objects.create(name="Фільтр", sku="F-1", cost_price=Decimal("10"), current_stock=5)
-        supplier = Supplier.objects.create(name="Постачальник")
+        product = Product.objects.create(company=self.company, name="Фільтр", sku="F-1", cost_price=Decimal("10"), current_stock=5)
+        supplier = Supplier.objects.create(company=self.company, name="Постачальник")
         purchase_count = PurchaseModel.objects.count()
         movement_count = StockMovement.objects.count()
         response = self.adm.post("/purchases/new/", {
