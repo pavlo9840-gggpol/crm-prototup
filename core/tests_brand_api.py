@@ -26,7 +26,7 @@ class BrandFormTest(TestCase):
         self.adm.login(username="admin", password="x")
 
     FORM = {"brand": "bilstein", "sku": "19-152615", "name": "Амортизатор задній", "unit": "шт", "cost_price": "1000",
-            "price": "1300", "min_stock": "0", "initial_stock": "2", "is_active": "on"}
+            "price": "1300", "min_stock": "0", "initial_stock": "2", "condition": "new", "is_active": "on"}
 
     def test_form_shows_brand_first_with_suggestions(self):
         Product.objects.create(company=self.company, name="X", sku="1", brand="SACHS")
@@ -39,7 +39,7 @@ class BrandFormTest(TestCase):
         self.assertIn('list="brand-list"', html)
         self.assertIn('<option value="SACHS">', html)
         self.assertIn('<option value="MEYLE">', html)                   # бренди з прайсів теж підказуються
-        self.assertIn("Що це за деталь", html)
+        self.assertIn("Введіть код або назву", html)
 
     def test_brand_required_normalized_and_duplicates(self):
         r = self.adm.post("/products/new/", dict(self.FORM, brand=""))
