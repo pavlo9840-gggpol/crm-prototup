@@ -102,12 +102,12 @@ class CarsTest(TestCase):
         for brand, sku in (("SACHS", "315849"), ("MEYLE", "MEY001"), ("KYB", "KYB001")):
             SupplierItem.objects.create(company=self.company, supplier=s, brand=brand, sku=sku, sku_norm=sku, cost=10, name="Амортизатор")
         PartInfo.objects.create(company=self.company, brand="SACHS", sku_norm="315849", cars="Renault Trafic II 2001-2014\nOpel Vivaro 2001-")
-        PartInfo.objects.create(brand="MEYLE", sku_norm="MEY001", cars="Fiat Ducato 2006-")
+        PartInfo.objects.create(company=self.company, brand="MEYLE", sku_norm="MEY001", cars="Fiat Ducato 2006-")
         fit = lambda q, car=None: {x["sku"]: x["fit"] for x in self.anna.get("/pos/lookup/", {"q": q, "car": car or ""}).json()["suppliers"]}
         self.assertEqual(fit("315849", self.car.pk), {"315849": True})                      # Renault Trafic є в застосовності
         self.assertEqual(fit("MEY001", self.car.pk), {"MEY001": False})                             # дані є, а цього авто в них немає
         self.assertEqual(fit("KYB001", self.car.pk), {"KYB001": None})                              # даних немає: не вгадуємо
         self.assertEqual(fit("315849"), {"315849": None})                                   # авто не вибрано
         self.assertEqual(fit("315849", "9999"), {"315849": None})                           # неіснуюче авто
-        noname = CustomerCar.objects.create(customer=self.ivan, plate="XX0000XX")
+        noname = CustomerCar.objects.create(company=self.company, customer=self.ivan, plate="XX0000XX")
         self.assertEqual(fit("315849", noname.pk), {"315849": None})                        # у авто немає марки/моделі
