@@ -503,7 +503,7 @@ class V4Test(TestCase):
     def test_new_pages_and_nav(self):
         for url in ("/users/", "/users/new/", f"/users/{self.admin.pk}/edit/", "/backup/", "/products/import/", "/products/", "/designer/"):
             self.assertEqual(self.adm.get(url).status_code, 200, url)
-        r = self.adm.get("/users/"); self.assertContains(r, 'data-g="Налаштування"'); self.assertContains(r, "Резервні копії")
+        r = self.adm.get("/users/"); self.assertContains(r, 'data-g="Система"'); self.assertContains(r, "Резервні копії")
 
 
 from django.test import TransactionTestCase
