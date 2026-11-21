@@ -64,6 +64,26 @@ class BackupArchiveTests(TransactionTestCase):
         with self.assertRaisesRegex(ValueError, "Небезпечний шлях"):
             admin_tools.verify_backup_archive(malicious.getvalue())
 
+    def test_restore_rejects_unexpected_archive_members_without_creating_target(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        with zipfile.ZipFile(io.BytesIO(data), "r") as source:
+            database = source.read("db.sqlite3")
+            manifest = source.read("manifest.json")
+            readme = source.read("README.txt")
+        malicious = io.BytesIO()
+        with zipfile.ZipFile(malicious, "w") as archive:
+            archive.writestr("db.sqlite3", database)
+            archive.writestr("manifest.json", manifest)
+            archive.writestr("README.txt", readme)
+            archive.writestr("unexpected.txt", "should not be restored")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "restore"
+            with self.assertRaisesRegex(ValueError, "Непідтримуваний файл"):
+                admin_tools.restore_backup_archive(malicious.getvalue(), target)
+            self.assertFalse(target.exists())
+            self.assertEqual(list(Path(temp_dir).glob(".autozapaz-restore-*")), [])
+
     def test_save_backup_is_atomic_and_retention_keeps_latest_requested_count(self):
         data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(admin_tools, "BACKUP_DIR", Path(temp_dir)), patch.object(
@@ -146,7 +166,7 @@ class BackupArchiveTests(TransactionTestCase):
         data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "restore-link"
-            target.symlink_to(Path(temp_dir) / "missing-target")
+            target.symlink_to(Path(tempfile.gettempdir()) / "missing-target")
             with self.assertRaisesRegex(ValueError, "вже існує"):
                 admin_tools.restore_backup_archive(data, target)
 
