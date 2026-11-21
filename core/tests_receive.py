@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import (CashOperation, Customer, FinancePeriodClose, MarkupTier, Product, Purchase, Receipt, Sale, SaleItem, SettlementPayment, Shift, StockMovement, Supplier, SupplierItem)
+from core.models import (BankAccount, BankReconciliation, BankTransaction, CashOperation, Customer, FinancePeriodClose, MarkupTier, Product, Purchase, Receipt, Sale, SaleItem, SettlementPayment, Shift, StockMovement, Supplier, SupplierItem)
 from core.tests_transit import xlsx_bytes
 from core.tests_tenant_helpers import create_test_company
 
@@ -169,6 +169,35 @@ class ReceivingTest(TestCase):
         customer_payment = SettlementPayment.objects.get(company=self.company, sale=sale, is_void=False)
         self.assertEqual(customer_payment.amount, D("50.00"))
 
+        # 3a) Match both bank statement rows one-to-one with their settlement documents.
+        account = BankAccount.objects.create(
+            company=self.company, bank_name="E2E Bank",
+            iban="UA123456789012345678901234567",
+        )
+        supplier_bank_row = BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.EXPENSE, category="Оплата постачальнику",
+            amount=D("40.00"), created_by=self.admin_user,
+        )
+        customer_bank_row = BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.INCOME, category="Оплата клієнта",
+            amount=D("50.00"), created_by=self.admin_user,
+        )
+        response = self.adm.post(
+            f"/bank/{supplier_bank_row.pk}/reconcile/",
+            {"match_ref": f"payment:{supplier_payment.pk}"},
+        )
+        self.assertEqual(response.status_code, 302)
+        response = self.adm.post(
+            f"/bank/{customer_bank_row.pk}/reconcile/",
+            {"match_ref": f"payment:{customer_payment.pk}"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            BankReconciliation.objects.filter(company=self.company, is_void=False).count(), 2,
+        )
+
         # 4) Return one unit without falsely recording a cash refund.
         returned = create_return(
             self.admin_user, sale, {sale_item.pk: D("1.000")},
@@ -215,6 +244,7 @@ class ReceivingTest(TestCase):
         self.assertEqual(metrics["gross_profit"], "15.00")
         self.assertEqual(metrics["customer_debt"], "15.00")
         self.assertEqual(metrics["supplier_debt"], "160.00")
+        self.assertEqual(metrics["counts"]["active_bank_matches"], 2)
         self.assertEqual(metrics["counts"]["closed_shifts"], 1)
         self.assertTrue(close.verify_checksum())
 
