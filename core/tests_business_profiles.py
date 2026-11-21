@@ -6,6 +6,7 @@ from django.test import RequestFactory, SimpleTestCase
 
 from core.business_profiles import (
     AUTO_PARTS_NAV_ITEMS,
+    dashboard_profile_config,
     navigation_items_for_profile,
     profile_allows_path,
     required_profile_for_path,
@@ -15,6 +16,12 @@ from core.tenant_context import BusinessProfileMiddleware
 
 class BusinessProfileNavigationTests(SimpleTestCase):
     PROFILES = ("general_retail", "grocery", "auto_parts", "electronics", "online_store")
+
+    def test_each_supported_profile_has_distinct_dashboard_identity(self):
+        configs = {profile: dashboard_profile_config(profile) for profile in self.PROFILES}
+        self.assertEqual(set(configs), set(self.PROFILES))
+        self.assertEqual(len({item["title"] for item in configs.values()}), len(self.PROFILES))
+        self.assertEqual(dashboard_profile_config("unknown")["title"], configs["general_retail"]["title"])
 
     def test_automotive_navigation_is_visible_only_for_auto_parts(self):
         items = [
