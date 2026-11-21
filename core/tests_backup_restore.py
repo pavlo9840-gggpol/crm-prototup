@@ -64,6 +64,30 @@ class BackupArchiveTests(TransactionTestCase):
         with self.assertRaisesRegex(ValueError, "Небезпечний шлях"):
             admin_tools.verify_backup_archive(malicious.getvalue())
 
+
+    def test_manifest_rejects_boolean_version_and_size(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        with zipfile.ZipFile(io.BytesIO(data), "r") as source:
+            files = {name: source.read(name) for name in source.namelist()}
+
+        for field, invalid_value in (("format_version", True), ("size", True)):
+            with self.subTest(field=field):
+                manifest = json.loads(files["manifest.json"])
+                if field == "format_version":
+                    manifest[field] = invalid_value
+                else:
+                    manifest["files"]["db.sqlite3"][field] = invalid_value
+                malicious = io.BytesIO()
+                with zipfile.ZipFile(malicious, "w") as archive:
+                    for name, payload in files.items():
+                        archive.writestr(
+                            name,
+                            json.dumps(manifest, ensure_ascii=False).encode("utf-8")
+                            if name == "manifest.json" else payload,
+                        )
+                with self.assertRaises(ValueError):
+                    admin_tools.verify_backup_archive(malicious.getvalue())
+
     def test_manifest_must_cover_every_payload_file(self):
         data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
         forged = io.BytesIO()
