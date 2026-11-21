@@ -84,9 +84,9 @@ class AutoCrossTest(TestCase):
         self.assertEqual(crosses.analog_levels("P2", company=self.company), {})
         crosses.confirm_pair(None, "X1", "P2", company=self.company)                                                    # передумали: підтвердили
         self.assertFalse(CrossReject.objects.filter(company=self.company).exists())
-        lv = crosses.analog_levels("X1")
+        lv = crosses.analog_levels("X1", company=self.company)
         self.assertEqual(lv["P2"], "manual")
-        r = {x["sku_norm"]: x for x in crosses.analogs("A", "X1")}
+        r = {x["sku_norm"]: x for x in crosses.analogs("A", "X1", company=self.company)}
         self.assertEqual((r["P2"]["level"], r["P2"]["score"]), ("manual", 100))
         crosses.confirm_pair(None, "X1", "P3", company=self.company)
         self.assertEqual(CrossRef.objects.get(company=self.company, a="P3", b="X1").source, "manual")
