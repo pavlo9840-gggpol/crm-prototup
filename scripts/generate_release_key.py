@@ -45,7 +45,7 @@ def main():
     private_path.write_bytes(private_bytes)
     private_path.chmod(0o600)
     public_value = base64.urlsafe_b64encode(public_raw).decode("ascii").rstrip("=")
-    public_path.write_text(public_value + "\\n", encoding="ascii")
+    public_path.write_text(public_value + "\n", encoding="ascii")
     public_path.chmod(0o644)
     print("Private key:", private_path)
     print("Public key:", public_path)
