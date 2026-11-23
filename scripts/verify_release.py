@@ -10,11 +10,11 @@ def load_key(v):
  v=v.strip(); key=serialization.load_pem_public_key(v.encode()) if v.startswith("-----BEGIN") else Ed25519PublicKey.from_public_bytes(decode_b64(v))
  if not isinstance(key,Ed25519PublicKey): raise ValueError("release public key must be Ed25519")
  return key
-def verify_release(root, public_key, expected_version=None):
+def reject_duplicate_keys(pairs):\n result={}\n for key,value in pairs:\n  if key in result: raise ValueError("duplicate manifest key: "+key)\n  result[key]=value\n return result\ndef verify_release(root, public_key, expected_version=None):
  root=Path(root).resolve(); mp=root/MANIFEST; sp=root/SIGNATURE
  if not mp.is_file() or not sp.is_file(): raise ValueError("signed release manifest or signature missing")
  payload=mp.read_bytes().strip(); sig=decode_b64(sp.read_text(encoding="ascii").strip()); load_key(public_key).verify(sig,payload)
- m=json.loads(payload)
+ m=json.loads(payload,object_pairs_hook=reject_duplicate_keys)
  if type(m.get("format_version")) is not int or m["format_version"]!=1: raise ValueError("unsupported manifest format")
  version=m.get("version")
  if not isinstance(version,str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}",version): raise ValueError("invalid release version")
