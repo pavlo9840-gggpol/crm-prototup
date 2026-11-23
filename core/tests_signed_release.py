@@ -61,4 +61,25 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             Path(temp, "extra.py").write_text("unexpected", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "file list mismatch"):
                 verify_release(temp, public, "1.2.3")
-\n    def test_duplicate_manifest_keys_are_rejected(self):\n        with tempfile.TemporaryDirectory() as temp:\n            public = self._signed_release(temp)\n            private = Ed25519PrivateKey.generate()\n            public_bytes = private.public_key().public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw)\n            public = base64.urlsafe_b64encode(public_bytes).decode().rstrip("=")\n            payload = b'{"format_version":1,"format_version":1,"version":"1.2.3","files":{"manage.py":{"size":12,"sha256":"' + hashlib.sha256(b"safe release").hexdigest().encode() + b'"}}'\n            Path(temp, "release-manifest.json").write_bytes(payload + b"\\n")\n            Path(temp, "release-manifest.sig").write_text(base64.urlsafe_b64encode(private.sign(payload)).decode().rstrip("="), encoding="ascii")\n            with self.assertRaisesRegex(ValueError, "duplicate manifest key"):\n                verify_release(temp, public, "1.2.3")\n
+\n    def test_duplicate_manifest_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "manage.py").write_text("safe release", encoding="utf-8")
+            private = Ed25519PrivateKey.generate()
+            public_bytes = private.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+            public = base64.urlsafe_b64encode(public_bytes).decode().rstrip("=")
+            digest = hashlib.sha256(b"safe release").hexdigest()
+            payload = (
+                '{"format_version":1,"format_version":1,"version":"1.2.3",'
+                '"files":{"manage.py":{"size":12,"sha256":"' + digest + '"}}}'
+            ).encode()
+            (root / "release-manifest.json").write_bytes(payload + b"\\n")
+            (root / "release-manifest.sig").write_text(
+                base64.urlsafe_b64encode(private.sign(payload)).decode().rstrip("="),
+                encoding="ascii",
+            )
+            with self.assertRaisesRegex(ValueError, "duplicate manifest key"):
+                verify_release(root, public, "1.2.3")
