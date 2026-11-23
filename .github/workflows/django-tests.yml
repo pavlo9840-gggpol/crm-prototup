@@ -30,6 +30,12 @@ jobs:
         run: python manage.py collectstatic --noinput
       - name: Check publisher license CLI
         run: python scripts/issue_license.py --help > /dev/null
+      - name: Validate release tooling syntax and CLI
+        run: |
+          python -m py_compile scripts/generate_release_key.py scripts/sign_release.py scripts/verify_release.py
+          python scripts/generate_release_key.py --help > /dev/null
+          python scripts/sign_release.py --help > /dev/null
+          python scripts/verify_release.py --help > /dev/null
       - name: Check migration model state
         run: python manage.py makemigrations --check --dry-run
       - name: Validate Linux installer shell syntax
