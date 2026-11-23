@@ -61,7 +61,8 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             Path(temp, "extra.py").write_text("unexpected", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "file list mismatch"):
                 verify_release(temp, public, "1.2.3")
-\n    def test_duplicate_manifest_keys_are_rejected(self):
+
+    def test_duplicate_manifest_keys_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "manage.py").write_text("safe release", encoding="utf-8")
@@ -76,7 +77,7 @@ class SignedReleaseVerificationTests(SimpleTestCase):
                 '{"format_version":1,"format_version":1,"version":"1.2.3",'
                 '"files":{"manage.py":{"size":12,"sha256":"' + digest + '"}}}'
             ).encode()
-            (root / "release-manifest.json").write_bytes(payload + b"\\n")
+            (root / "release-manifest.json").write_bytes(payload + b"\n")
             (root / "release-manifest.sig").write_text(
                 base64.urlsafe_b64encode(private.sign(payload)).decode().rstrip("="),
                 encoding="ascii",
