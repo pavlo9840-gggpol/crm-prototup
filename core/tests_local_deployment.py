@@ -77,6 +77,28 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('systemctl start "$SERVICE"', script)
         self.assertIn('Старі релізи не видаляються автоматично', script)
 
+    def test_updater_verifies_signed_release_before_copying_or_stopping_service(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        verify = script.index('verify_release.py" --release')
+        copy = script.index('cp -a "$RELEASE_SOURCE" "$NEW_APP"')
+        stop = script.index('systemctl stop "$SERVICE"')
+        self.assertLess(verify, copy)
+        self.assertLess(verify, stop)
+        self.assertIn('AUTOZAPAZ_RELEASE_PUBLIC_KEY', script)
+        self.assertIn('--version "$VERSION"', script)
+        self.assertIn('Підпис або контрольні суми релізу не пройшли перевірку', script)
+
+    def test_signed_release_tools_exist_and_validate_manifest(self):
+        signer = (ROOT / "scripts/sign_release.py").read_text(encoding="utf-8")
+        verifier = (ROOT / "scripts/verify_release.py").read_text(encoding="utf-8")
+        self.assertIn("Ed25519PrivateKey", signer)
+        self.assertIn("release-manifest.json", signer)
+        self.assertIn("release-manifest.sig", signer)
+        self.assertIn("Ed25519PublicKey", verifier)
+        self.assertIn("verify_release", verifier)
+        self.assertIn("file list mismatch", verifier)
+        self.assertIn("digest mismatch", verifier)
+
     def test_updater_rejects_symlinks_and_invalid_release_version(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         self.assertIn('VERSION" =~ ^[A-Za-z0-9]', script)
