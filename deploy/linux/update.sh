@@ -83,7 +83,7 @@ as_service() {
         "AUTOZAPAZ_SECURE_COOKIES=${AUTOZAPAZ_SECURE_COOKIES:-0}" "$@"
 }
 atomic_link() {
-    local link_path="$1" target_path="$2" temporary_link="\${1}.next-$STAMP"
+    local link_path="$1" target_path="$2" temporary_link="${1}.next-$STAMP"
     if ! ln -s "$target_path" "$temporary_link"; then
         return 1
     fi
