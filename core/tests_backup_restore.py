@@ -280,9 +280,9 @@ class BackupArchiveTests(TransactionTestCase):
             target = root / "restored"
 
             with patch.object(
-                admin_tools.io,
-                "BytesIO",
-                side_effect=AssertionError("restore must not rebuild the database in memory"),
+                admin_tools,
+                "_bytes_to_backup_stream",
+                side_effect=AssertionError("path-based restore must not wrap archive bytes in memory"),
             ):
                 report = admin_tools.restore_backup_archive(archive_path, target)
 
