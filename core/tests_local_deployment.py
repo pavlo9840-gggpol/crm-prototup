@@ -36,6 +36,8 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('AUTOZAPAZ_LICENSE_PUBLIC_KEY', script)
         self.assertIn('AUTOZAPAZ_RELEASE_PUBLIC_KEY', script)
         self.assertIn('/usr/local/lib/autozapaz/verify_release.py', script)
+        self.assertIn('TRUSTED_VERIFIER_DIR', script)
+        self.assertIn('Каталог bootstrap verifier має належати root', script)
         self.assertIn('validate_env_file', script)
         self.assertIn('python3 "$TRUSTED_VERIFIER" --release "$APP_DIR"', script)
         self.assertIn('chmod 0640 "$ENV_FILE"', script)
