@@ -226,13 +226,8 @@ on_exit() {
     if [[ "$APP_SWITCHED" -eq 1 || "$VENV_SWITCHED" -eq 1 ]]; then
         rollback_update "Неочікувана помилка (код $exit_code) під час оновлення." || true
     elif [[ "$SERVICE_STOPPED" -eq 1 ]]; then
-        printf '\nНеочікувана помилка (код %s). Запускаю чинну службу.\n' "$exit_code" >&2
-        if systemctl start "$SERVICE"; then
-            SERVICE_STOPPED=0
-            health_check || printf 'Служба запущена, але HTTP health-check не пройшов. Перевірте journalctl -u %s.\n' "$SERVICE" >&2
-        else
-            printf 'Не вдалося запустити службу. Перевірте journalctl -u %s.\n' "$SERVICE" >&2
-        fi
+        printf '\nНеочікувана помилка (код %s). Перевіряю відновлення чинної служби.\n' "$exit_code" >&2
+        resume_service || printf 'Не вдалося безпечно відновити службу; перевірте journalctl -u %s.\n' "$SERVICE" >&2
     fi
     exit "$exit_code"
 }
