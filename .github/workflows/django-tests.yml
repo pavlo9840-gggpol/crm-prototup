@@ -50,7 +50,7 @@ jobs:
           grep -F 'AUTOZAPAZ_REQUIRE_LICENSE:-' deploy/linux/install.sh
           grep -F 'AUTOZAPAZ_LICENSE_PUBLIC_KEY:-' deploy/linux/install.sh
           grep -F 'AUTOZAPAZ_RELEASE_PUBLIC_KEY:-' deploy/linux/install.sh
-          grep -F '/usr/local/lib/autozapaz/verify_release.py' deploy/linux/install.sh
+          grep -F 'TRUSTED_VERIFIER_DIR="/usr/local/lib/autozapaz"' deploy/linux/install.sh
       - name: Validate Linux service uses Waitress on loopback
         run: |
           grep -F 'ExecStart=/opt/autozapaz/venv/bin/waitress-serve --listen=127.0.0.1:8000 --threads=8 config.wsgi:application' deploy/linux/autozapaz.service
