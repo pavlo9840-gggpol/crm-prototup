@@ -143,7 +143,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('не може бути всередині чинної програми', script)
 
 
-    def _execute_updater_rollback(self, fail_media_restore=False, fail_health_check=False):
+    def _execute_updater_rollback(self, fail_media_restore=False, fail_health_check=False, fail_initial_stop=False):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("rollback_update() {")
         end = script.index("\non_exit() {", start)
@@ -183,6 +183,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
             "CALL_LOG": call_log,
             "FAIL_MEDIA_RESTORE": "1" if fail_media_restore else "0",
             "FAIL_HEALTH_CHECK": "1" if fail_health_check else "0",
+            "FAIL_INITIAL_STOP": "1" if fail_initial_stop else "0",
             "APP_SWITCHED": "1",
             "VENV_SWITCHED": "1",
             "ROLLBACK_ATTEMPTED": "0",
@@ -194,7 +195,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
 {assignments}
 systemctl() {{
     printf 'systemctl %s\\n' "$*" >> "$CALL_LOG"
-    return 0
+    [[ "$1" != stop || "$FAIL_INITIAL_STOP" != 1 ]]
 }}
 chown() {{ return 0; }}
 chmod() {{ return 0; }}
@@ -256,6 +257,20 @@ rollback_update "integration test"
         start_index = calls.index("systemctl start autozapaz.service")
         self.assertIn("systemctl stop autozapaz.service", calls[start_index + 1:])
         self.assertIn("health-check; службу зупинено", completed.stderr)
+
+
+    def test_updater_rollback_does_not_touch_data_if_service_cannot_stop(self):
+        temporary, completed, data, restore, old_app, old_venv, call_log = self._execute_updater_rollback(
+            fail_initial_stop=True
+        )
+        self.addCleanup(temporary.cleanup)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual((data / "db.sqlite3").read_text(encoding="utf-8"), "new database")
+        self.assertTrue((data / "media" / "new.txt").exists())
+        self.assertEqual((data.parent / "current").resolve(), data.parent / "releases" / "new")
+        calls = call_log.read_text(encoding="utf-8")
+        self.assertIn("systemctl stop autozapaz.service", calls)
+        self.assertNotIn("systemctl start autozapaz.service", calls)
 
 
 class SignedReleaseVerificationTests(SimpleTestCase):
