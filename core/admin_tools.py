@@ -409,7 +409,7 @@ def _write_backup_zip(output):
             archive.writestr(
                 "README.txt",
                 "Резервна копія АвтоЗапас. Перед відновленням зупиніть застосунок. "
-                "Спочатку перевірте архів командою: python manage.py verify_backup <архів.zip>.\\n",
+                "Спочатку перевірте архів командою: python manage.py verify_backup <архів.zip>.\n",
             )
 
 
