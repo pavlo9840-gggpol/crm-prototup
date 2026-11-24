@@ -192,7 +192,11 @@ rollback_update() {
         return 1
     fi
     if ! health_check; then
-        printf 'Попередня версія не пройшла health-check. Backup: %s\n' "$BACKUP_PATH" >&2
+        if ! systemctl stop "$SERVICE"; then
+            printf 'Попередня версія не пройшла health-check, і службу не вдалося зупинити автоматично. Негайно перевірте systemd та journalctl -u %s. Backup: %s\\n' "$SERVICE" "$BACKUP_PATH" >&2
+        else
+            printf 'Попередня версія не пройшла health-check; службу зупинено. Backup: %s\\n' "$BACKUP_PATH" >&2
+        fi
         return 1
     fi
     printf 'Попередню версію та дані відновлено. Backup: %s\n' "$BACKUP_PATH"
