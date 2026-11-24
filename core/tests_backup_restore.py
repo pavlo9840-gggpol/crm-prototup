@@ -106,7 +106,7 @@ class BackupArchiveTests(TransactionTestCase):
     def test_verifier_rejects_oversized_manifest_before_parsing(self):
         data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
         with patch.object(admin_tools, "MAX_BACKUP_MANIFEST_SIZE", 1):
-            with self.assertRaisesRegex(ValueError, "Маніфест.*ліміт"):
+            with self.assertRaisesRegex(ValueError, "Маніфест.*дозволений розмір"):
                 admin_tools.verify_backup_archive(data)
 
     def test_manifest_rejects_duplicate_json_keys(self):
