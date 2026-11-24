@@ -115,7 +115,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
     def test_updater_exit_trap_uses_health_checked_service_recovery(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("on_exit() {")
-        end = script.index("\\ntrap on_exit EXIT", start)
+        end = script.index("\ntrap on_exit EXIT", start)
         exit_handler = script[start:end]
         self.assertIn("resume_service || printf", exit_handler)
         self.assertNotIn("SERVICE_STOPPED=0", exit_handler)
