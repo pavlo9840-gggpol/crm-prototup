@@ -108,6 +108,8 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('if ! chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/media"', rollback)
         self.assertIn('if ! systemctl start "$SERVICE"; then', rollback)
         self.assertIn('if ! health_check; then', rollback)
+        self.assertIn(r'Backup: %s\n', rollback)
+        self.assertNotIn(r'Backup: %s\\n', rollback)
         self.assertNotIn('systemctl start "$SERVICE" || true', rollback)
 
     def test_updater_verifies_signed_release_before_copying_or_stopping_service(self):
