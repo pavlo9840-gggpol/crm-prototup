@@ -117,40 +117,80 @@ PY
 }
 rollback_update() {
     local reason="$1"
+    local temporary_db="$DATA_DIR/db.sqlite3.rollback-$STAMP"
     ROLLBACK_ATTEMPTED=1
     printf '\nПОМИЛКА: %s\nПовертаю попередню версію.\n' "$reason" >&2
-    systemctl stop "$SERVICE" >/dev/null 2>&1 || true
-    if [[ "$APP_SWITCHED" -eq 1 || "$VENV_SWITCHED" -eq 1 ]]; then
-        if [[ "$APP_SWITCHED" -eq 1 ]]; then
-            ln -s "$OLD_APP_REAL" "${APP_LINK}.rollback-$STAMP"
-            mv -Tf "${APP_LINK}.rollback-$STAMP" "$APP_LINK"
-        fi
-        if [[ "$VENV_SWITCHED" -eq 1 ]]; then
-            ln -s "$OLD_VENV_REAL" "${VENV_LINK}.rollback-$STAMP"
-            mv -Tf "${VENV_LINK}.rollback-$STAMP" "$VENV_LINK"
-        fi
-        if [[ -d "$RESTORE_DIR" && -f "$RESTORE_DIR/db.sqlite3" ]]; then
-            [[ ! -e "$DATA_DIR/db.sqlite3" ]] || mv "$DATA_DIR/db.sqlite3" "$DATA_DIR/db.sqlite3.failed-$STAMP"
-            [[ ! -e "$DATA_DIR/db.sqlite3-wal" ]] || mv "$DATA_DIR/db.sqlite3-wal" "$DATA_DIR/db.sqlite3-wal.failed-$STAMP"
-            [[ ! -e "$DATA_DIR/db.sqlite3-shm" ]] || mv "$DATA_DIR/db.sqlite3-shm" "$DATA_DIR/db.sqlite3-shm.failed-$STAMP"
-            cp "$RESTORE_DIR/db.sqlite3" "$DATA_DIR/db.sqlite3.rollback-$STAMP"
-            chown "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/db.sqlite3.rollback-$STAMP"
-            chmod 0600 "$DATA_DIR/db.sqlite3.rollback-$STAMP"
-            mv "$DATA_DIR/db.sqlite3.rollback-$STAMP" "$DATA_DIR/db.sqlite3"
-            [[ ! -e "$DATA_DIR/media" ]] || mv "$DATA_DIR/media" "$DATA_DIR/media.failed-$STAMP"
-            if [[ -d "$RESTORE_DIR/media" ]]; then
-                mv "$RESTORE_DIR/media" "$DATA_DIR/media"
-            else
-                install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 "$DATA_DIR/media"
-            fi
-            chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/media"
-            chmod 0700 "$DATA_DIR/media"
+
+    if ! systemctl stop "$SERVICE"; then
+        printf 'Не вдалося зупинити службу; дані не змінювалися. Backup: %s\n' "$BACKUP_PATH" >&2
+        return 1
+    fi
+
+    if [[ "$APP_SWITCHED" -eq 1 ]]; then
+        if ! ln -s "$OLD_APP_REAL" "${APP_LINK}.rollback-$STAMP" ||
+           ! mv -Tf "${APP_LINK}.rollback-$STAMP" "$APP_LINK"; then
+            printf 'Не вдалося повернути попередній код. Служба залишена зупиненою. Backup: %s\n' "$BACKUP_PATH" >&2
+            return 1
         fi
     fi
-    systemctl start "$SERVICE" || {
-        printf 'Попередній код повернуто, але служба не стартувала. Дивіться journalctl -u %s.\n' "$SERVICE" >&2
+    if [[ "$VENV_SWITCHED" -eq 1 ]]; then
+        if ! ln -s "$OLD_VENV_REAL" "${VENV_LINK}.rollback-$STAMP" ||
+           ! mv -Tf "${VENV_LINK}.rollback-$STAMP" "$VENV_LINK"; then
+            printf 'Не вдалося повернути попереднє Python-середовище. Служба залишена зупиненою. Backup: %s\n' "$BACKUP_PATH" >&2
+            return 1
+        fi
+    fi
+
+    if [[ "$APP_SWITCHED" -eq 1 || "$VENV_SWITCHED" -eq 1 ]]; then
+        if [[ ! -d "$RESTORE_DIR" || ! -f "$RESTORE_DIR/db.sqlite3" ]]; then
+            printf 'Каталог перевіреного відкату відсутній або не містить db.sqlite3. Служба залишена зупиненою. Backup: %s\n' "$BACKUP_PATH" >&2
+            return 1
+        fi
+
+        for suffix in "" "-wal" "-shm"; do
+            if [[ -e "$DATA_DIR/db.sqlite3$suffix" ]]; then
+                if ! mv "$DATA_DIR/db.sqlite3$suffix" "$DATA_DIR/db.sqlite3$suffix.failed-$STAMP"; then
+                    printf 'Не вдалося зберегти поточний файл db.sqlite3%s. Служба залишена зупиненою. Backup: %s\n' "$suffix" "$BACKUP_PATH" >&2
+                    return 1
+                fi
+            fi
+        done
+
+        if ! cp "$RESTORE_DIR/db.sqlite3" "$temporary_db" ||
+           ! chown "$SERVICE_USER:$SERVICE_USER" "$temporary_db" ||
+           ! chmod 0600 "$temporary_db" ||
+           ! mv "$temporary_db" "$DATA_DIR/db.sqlite3"; then
+            rm -f -- "$temporary_db"
+            printf 'Не вдалося відновити SQLite-базу. Служба залишена зупиненою. Backup: %s\n' "$BACKUP_PATH" >&2
+            return 1
+        fi
+
+        if [[ -e "$DATA_DIR/media" ]]; then
+            if ! mv "$DATA_DIR/media" "$DATA_DIR/media.failed-$STAMP"; then
+                printf 'Не вдалося зберегти медіафайли невдалої версії. Служба залишена зупиненою. Backup: %s\n' "$BACKUP_PATH" >&2
+                return 1
+            fi
+        fi
+        if [[ -d "$RESTORE_DIR/media" ]]; then
+            if ! mv "$RESTORE_DIR/media" "$DATA_DIR/media"; then
+                printf 'Не вдалося повернути медіафайли з резервної копії. Служба залишена зупиненою. Backup: %s\n' "$BACKUP_PATH" >&2
+                return 1
+            fi
+        elif ! install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 "$DATA_DIR/media"; then
+            printf 'Не вдалося створити каталог медіафайлів. Служба залишена зупиненою. Backup: %s\n' "$BACKUP_PATH" >&2
+            return 1
+        fi
+        if ! chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/media" ||
+           ! chmod 0700 "$DATA_DIR/media"; then
+            printf 'Не вдалося встановити права на відновлені медіафайли. Служба залишена зупиненою. Backup: %s\n' "$BACKUP_PATH" >&2
+            return 1
+        fi
+    fi
+
+    if ! systemctl start "$SERVICE"; then
+        printf 'Попередній код і дані повернуто, але служба не стартувала. Дивіться journalctl -u %s. Backup: %s\n' "$SERVICE" "$BACKUP_PATH" >&2
         return 1
-    }
+    fi
     if ! health_check; then
         printf 'Попередня версія не пройшла health-check. Backup: %s\n' "$BACKUP_PATH" >&2
         return 1
