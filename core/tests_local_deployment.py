@@ -96,6 +96,18 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('systemctl start "$SERVICE"', script)
         self.assertIn('Старі релізи не видаляються автоматично', script)
 
+    def test_updater_rollback_fails_closed_when_restore_steps_fail(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        rollback = script[script.index("rollback_update() {"):script.index("\non_exit() {")]
+        self.assertIn('if ! systemctl stop "$SERVICE"; then', rollback)
+        self.assertIn('if ! cp "$RESTORE_DIR/db.sqlite3" "$temporary_db"', rollback)
+        self.assertIn('if ! mv "$RESTORE_DIR/media" "$DATA_DIR/media"; then', rollback)
+        self.assertIn('Служба залишена зупиненою', rollback)
+        self.assertIn('if ! chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/media"', rollback)
+        self.assertIn('if ! systemctl start "$SERVICE"; then', rollback)
+        self.assertIn('if ! health_check; then', rollback)
+        self.assertNotIn('systemctl start "$SERVICE" || true', rollback)
+
     def test_updater_verifies_signed_release_before_copying_or_stopping_service(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         verify = script.index('"$VENV_LINK/bin/python" "$TRUSTED_VERIFIER" --release')
