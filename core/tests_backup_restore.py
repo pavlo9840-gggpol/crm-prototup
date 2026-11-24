@@ -17,6 +17,37 @@ class BackupArchiveTests(TransactionTestCase):
         with override_settings(MEDIA_ROOT=media_root):
             return admin_tools.make_backup_zip()
 
+    def test_backup_includes_committed_wal_database_pages(self):
+        database_name = connection.settings_dict.get("NAME")
+        if not database_name or str(database_name) == ":memory:":
+            self.skipTest("WAL snapshot test requires a file-backed SQLite test database")
+
+        table_name = "backup_wal_snapshot_fixture"
+        with connection.cursor() as cursor:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute(f"CREATE TABLE {table_name} (value TEXT NOT NULL)")
+            cursor.execute(f"INSERT INTO {table_name} (value) VALUES (%s)", ["committed-in-wal"])
+
+        try:
+            data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+            with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+                snapshot = Path(tempfile.gettempdir()) / f"autozapaz-wal-snapshot-{os.getpid()}.sqlite3"
+                try:
+                    snapshot.write_bytes(archive.read("db.sqlite3"))
+                    import sqlite3
+                    with sqlite3.connect(snapshot) as backup_db:
+                        value = backup_db.execute(
+                            f"SELECT value FROM {table_name}"
+                        ).fetchone()[0]
+                    self.assertEqual(value, "committed-in-wal")
+                finally:
+                    snapshot.unlink(missing_ok=True)
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+                cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                cursor.execute("PRAGMA journal_mode=DELETE")
+
     def test_backup_contains_database_media_and_verified_sha256_manifest(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             media_root = Path(temp_dir) / "media"
