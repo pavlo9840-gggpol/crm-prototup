@@ -222,6 +222,18 @@ class BackupArchiveTests(TransactionTestCase):
             self.assertEqual(len(saved), 2)
             self.assertFalse(any(path.name.startswith(".autozapaz-backup-") for path in Path(temp_dir).iterdir()))
 
+    def test_save_backup_streams_archive_without_building_full_bytes_payload(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            admin_tools, "BACKUP_DIR", Path(temp_dir)
+        ), patch.object(
+            admin_tools, "make_backup_zip", side_effect=AssertionError("in-memory path must not be used")
+        ):
+            created = admin_tools.save_backup(keep=1)
+            self.assertTrue(created.is_file())
+            report = admin_tools.verify_backup_archive(created)
+            self.assertEqual(report["integrity"], "ok")
+            self.assertTrue(report["manifest"])
+
     def test_save_backup_rejects_zero_retention(self):
         with self.assertRaisesRegex(ValueError, "не меншою за 1"):
             admin_tools.save_backup(keep=0)

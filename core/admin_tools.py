@@ -364,8 +364,8 @@ def _zip_directory_for_validation(directory):
     return buffer
 
 
-def make_backup_zip():
-    """Create a consistent SQLite + media archive with SHA-256 manifest."""
+def _write_backup_zip(output):
+    """Write a consistent SQLite + media archive to a binary file-like object."""
     if connection.vendor != "sqlite":
         raise RuntimeError("Автоматична резервна копія підтримується лише для SQLite")
     with tempfile.TemporaryDirectory(prefix="autozapaz-backup-") as temp_dir:
@@ -386,8 +386,7 @@ def make_backup_zip():
 
         files = {"db.sqlite3": {"sha256": _sha256_file(snap), "size": snap.stat().st_size}}
         media = Path(settings.MEDIA_ROOT)
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.write(snap, "db.sqlite3")
             if media.exists():
                 media_root = media.resolve()
@@ -410,15 +409,20 @@ def make_backup_zip():
             archive.writestr(
                 "README.txt",
                 "Резервна копія АвтоЗапас. Перед відновленням зупиніть застосунок. "
-                "Спочатку перевірте архів командою: python manage.py verify_backup <архів.zip>.\n",
+                "Спочатку перевірте архів командою: python manage.py verify_backup <архів.zip>.\\n",
             )
-        data = buf.getvalue()
-        try:
-            verify_backup_archive(data)
-        except ValueError as exc:
-            raise RuntimeError(f"Створена резервна копія не пройшла перевірку: {exc}") from exc
-        return data
 
+
+def make_backup_zip():
+    """Create and return a verified in-memory archive for browser downloads."""
+    buffer = io.BytesIO()
+    _write_backup_zip(buffer)
+    data = buffer.getvalue()
+    try:
+        verify_backup_archive(data)
+    except ValueError as exc:
+        raise RuntimeError(f"Створена резервна копія не пройшла перевірку: {exc}") from exc
+    return data
 
 def save_backup(keep=14):
     if keep < 1:
@@ -436,7 +440,7 @@ def save_backup(keep=14):
     try:
         with tempfile.NamedTemporaryFile(prefix=".autozapaz-backup-", suffix=".tmp", dir=BACKUP_DIR, delete=False) as output:
             temporary_path = Path(output.name)
-            output.write(make_backup_zip())
+            _write_backup_zip(output)
             output.flush()
             os.fsync(output.fileno())
         verify_backup_archive(temporary_path)
