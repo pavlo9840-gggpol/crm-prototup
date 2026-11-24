@@ -39,7 +39,10 @@ fail() { printf 'Помилка: %s\n' "$*" >&2; exit 1; }
 info() { printf '\n==> %s\n' "$*"; }
 
 [[ "$(id -u)" -eq 0 ]] || fail "Запустіть інсталятор від root: sudo bash deploy/linux/install.sh"
-[[ -f "$APP_DIR/manage.py" && -f "$APP_DIR/requirements.txt" ]] || fail "Спочатку розпакуйте реліз у $APP_DIR."
+[[ -d "$APP_DIR" && ! -L "$APP_DIR" && -f "$APP_DIR/manage.py" && -f "$APP_DIR/requirements.txt" ]] || fail "Спочатку розпакуйте реліз у звичайний каталог $APP_DIR."
+[[ "$(stat -c '%u' -- "$APP_DIR")" == "0" ]] || fail "Каталог початкового релізу має належати root."
+[[ "$(find "$APP_DIR" -type l -print -quit)" == "" ]] || fail "Початковий реліз містить символічні посилання."
+[[ "$(find "$APP_DIR" \( -type f -o -type d \) \( ! -user root -o -perm /022 \) -print -quit)" == "" ]] || fail "Усі файли/каталоги релізу мають належати root і не бути доступними для запису групі/іншим."
 [[ -f "$SERVICE_SOURCE" ]] || fail "Не знайдено systemd unit: $SERVICE_SOURCE"
 command -v python3 >/dev/null 2>&1 || fail "Потрібен Python 3."
 command -v runuser >/dev/null 2>&1 || fail "Потрібна команда runuser (util-linux)."
