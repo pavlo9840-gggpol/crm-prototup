@@ -4,6 +4,8 @@ import json
 import tempfile
 from pathlib import Path
 
+from cryptography.hazmat.primitives import serialization
+
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from django.test import SimpleTestCase
 
@@ -92,7 +94,8 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         verify = script.index('"$VENV_LINK/bin/python" "$TRUSTED_VERIFIER" --release')
         copy = script.index('cp -a "$RELEASE_SOURCE" "$NEW_APP"')
-        stop = script.index('systemctl stop "$SERVICE"')
+        stop_section = script.index('info "Зупинка служби та резервне копіювання"')
+        stop = script.index('systemctl stop "$SERVICE"', stop_section)
         self.assertLess(verify, copy)
         self.assertLess(verify, stop)
         self.assertIn('AUTOZAPAZ_RELEASE_PUBLIC_KEY', script)
@@ -144,7 +147,7 @@ class SignedReleaseVerificationTests(SimpleTestCase):
 
     def test_valid_ed25519_release_and_expected_version(self):
         private_key = Ed25519PrivateKey.generate()
-        public_key = private_key.public_key().public_bytes_raw()
+        public_key = private_key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
         encoded_key = base64.urlsafe_b64encode(public_key).decode("ascii").rstrip("=")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -153,7 +156,7 @@ class SignedReleaseVerificationTests(SimpleTestCase):
 
     def test_tampered_file_is_rejected(self):
         private_key = Ed25519PrivateKey.generate()
-        public_key = private_key.public_key().public_bytes_raw()
+        public_key = private_key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
         encoded_key = base64.urlsafe_b64encode(public_key).decode("ascii").rstrip("=")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -164,7 +167,7 @@ class SignedReleaseVerificationTests(SimpleTestCase):
 
     def test_wrong_version_is_rejected(self):
         private_key = Ed25519PrivateKey.generate()
-        public_key = private_key.public_key().public_bytes_raw()
+        public_key = private_key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
         encoded_key = base64.urlsafe_b64encode(public_key).decode("ascii").rstrip("=")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
