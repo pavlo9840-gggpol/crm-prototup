@@ -334,11 +334,18 @@ def restore_backup_archive(source, target_dir):
 
         if not (temporary_root / "db.sqlite3").is_file():
             raise ValueError("Після відновлення не знайдено db.sqlite3.")
-        validation_archive = _zip_directory_for_validation(temporary_root)
+        restored_database = sqlite3.connect(str(temporary_root / "db.sqlite3"))
         try:
-            verify_backup_archive(validation_archive)
+            integrity = restored_database.execute("PRAGMA integrity_check").fetchone()
+        except sqlite3.DatabaseError as exc:
+            raise ValueError(f"Відновлений файл db.sqlite3 пошкоджений: {exc}") from exc
         finally:
-            validation_archive.close()
+            restored_database.close()
+        if not integrity or integrity[0] != "ok":
+            raise ValueError(
+                "Перевірка відновленої SQLite-бази не пройдена: "
+                f"{integrity[0] if integrity else 'немає відповіді'}"
+            )
         if target.exists():
             raise ValueError(f"Каталог призначення з'явився під час відновлення; нічого не перезаписано: {target}")
         temporary_root.rename(target)
@@ -353,15 +360,6 @@ def restore_backup_archive(source, target_dir):
     finally:
         if temporary_root is not None:
             shutil.rmtree(temporary_root, ignore_errors=True)
-
-
-def _zip_directory_for_validation(directory):
-    """Build an in-memory ZIP from the extracted DB for a second SQLite check."""
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.write(Path(directory) / "db.sqlite3", "db.sqlite3")
-    buffer.seek(0)
-    return buffer
 
 
 def _write_backup_zip(output):

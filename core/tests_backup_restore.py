@@ -268,6 +268,28 @@ class BackupArchiveTests(TransactionTestCase):
             finally:
                 database.close()
 
+    def test_restore_from_path_validates_database_without_in_memory_zip_copy(self):
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            archive_path = root / "backup.zip"
+            archive_path.write_bytes(
+                self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+            )
+            target = root / "restored"
+
+            with patch.object(
+                admin_tools.io,
+                "BytesIO",
+                side_effect=AssertionError("restore must not rebuild the database in memory"),
+            ):
+                report = admin_tools.restore_backup_archive(archive_path, target)
+
+            self.assertEqual(report["directory"], target.resolve())
+            with sqlite3.connect(target / "db.sqlite3") as database:
+                self.assertEqual(database.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+
     def test_restore_never_overwrites_an_existing_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "existing"
