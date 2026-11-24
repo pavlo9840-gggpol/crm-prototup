@@ -91,7 +91,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('trap on_exit EXIT', script)
         self.assertIn('Неочікувана помилка', script)
         self.assertIn('rollback_update "Неочікувана помилка', script)
-        self.assertIn('db.sqlite3.failed-', script)
+        self.assertIn('"$DATA_DIR/db.sqlite3$suffix.failed-$STAMP"', script)
         self.assertIn('media.failed-', script)
         self.assertIn('OLD_APP_REAL', script)
         self.assertIn('OLD_VENV_REAL', script)
