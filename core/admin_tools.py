@@ -34,6 +34,13 @@ from .tenant_context import company_required
 User = get_user_model()
 D0 = Decimal("0")
 
+# Defensive limits for imported backup archives (uncompressed sizes).
+MAX_BACKUP_ARCHIVE_FILES = 20000
+MAX_BACKUP_TOTAL_SIZE = 8 * 1024 * 1024 * 1024
+MAX_BACKUP_MEMBER_SIZE = 4 * 1024 * 1024 * 1024
+MAX_BACKUP_MANIFEST_SIZE = 4 * 1024 * 1024
+
+
 
 def local_admin_only(view):
     """Allow the local store owner/admin; global superusers remain recovery admins."""
@@ -176,6 +183,14 @@ def _reject_duplicate_json_keys(pairs):
     return result
 
 
+def _sha256_zip_member(archive, name):
+    digest = hashlib.sha256()
+    with archive.open(name, "r") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def verify_backup_archive(source):
     """Validate ZIP structure, optional manifest hashes and SQLite integrity.
 
@@ -185,16 +200,28 @@ def verify_backup_archive(source):
     archive_source = io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source
     try:
         with zipfile.ZipFile(archive_source, "r") as archive:
-            names = archive.namelist()
+            infos = archive.infolist()
+            names = [info.filename for info in infos]
             if len(names) != len(set(names)):
                 raise ValueError("Архів містить повторювані імена файлів.")
-            for name in names:
+            file_infos = [info for info in infos if not info.is_dir()]
+            if len(file_infos) > MAX_BACKUP_ARCHIVE_FILES:
+                raise ValueError("Архів містить надто багато файлів.")
+            total_size = sum(info.file_size for info in file_infos)
+            if total_size > MAX_BACKUP_TOTAL_SIZE:
+                raise ValueError("Розпакований розмір архіву перевищує дозволений ліміт.")
+            for info in infos:
+                name = info.filename
                 member = Path(name)
-                if name.startswith(("/", "\\")) or "\\" in name or ".." in member.parts:
+                if name.startswith(("/", "\\\\")) or "\\\\" in name or ".." in member.parts:
                     raise ValueError(f"Небезпечний шлях у ZIP-архіві: {name}")
-                mode = (archive.getinfo(name).external_attr >> 16) & 0o170000
+                if info.file_size > MAX_BACKUP_MEMBER_SIZE:
+                    raise ValueError(f"Файл у ZIP-архіві перевищує дозволений розмір: {name}")
+                mode = (info.external_attr >> 16) & 0o170000
                 if stat.S_ISLNK(mode):
                     raise ValueError(f"Символічні посилання в ZIP-архіві заборонені: {name}")
+            if "manifest.json" in names and archive.getinfo("manifest.json").file_size > MAX_BACKUP_MANIFEST_SIZE:
+                raise ValueError("Маніфест резервної копії перевищує дозволений розмір.")
             if "db.sqlite3" not in names:
                 raise ValueError("В архіві немає обов'язкового файлу db.sqlite3.")
             if archive.testzip() is not None:
@@ -235,7 +262,7 @@ def verify_backup_archive(source):
                         info = archive.getinfo(name)
                         if info.file_size != metadata["size"]:
                             raise ValueError(f"Розмір файлу не збігається з маніфестом: {name}")
-                        actual = hashlib.sha256(archive.read(name)).hexdigest()
+                        actual = _sha256_zip_member(archive, name)
                         if actual != digest:
                             raise ValueError(f"Контрольна сума не збігається: {name}")
                 except (UnicodeDecodeError, json.JSONDecodeError) as exc:
