@@ -214,6 +214,8 @@ printf 'SERVICE_STOPPED=%s\\n' "$SERVICE_STOPPED"
         app_link.mkdir()
         (app_link / "old.txt").write_text("old release", encoding="utf-8")
         harness = f"""
+set -e
+trap 'printf "ROLLBACK_ATTEMPTED=%s\\n" "$ROLLBACK_ATTEMPTED"' EXIT
 STAMP=test
 APP_LINK={shlex.quote(str(app_link))}
 TARGET={shlex.quote(str(target))}
