@@ -167,6 +167,15 @@ def _sha256_file(path):
     return digest.hexdigest()
 
 
+def _reject_duplicate_json_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Маніфест містить повторюваний ключ: {key}")
+        result[key] = value
+    return result
+
+
 def verify_backup_archive(source):
     """Validate ZIP structure, optional manifest hashes and SQLite integrity.
 
@@ -193,7 +202,7 @@ def verify_backup_archive(source):
 
             if "manifest.json" in names:
                 try:
-                    manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                    manifest = json.loads(\n                        archive.read("manifest.json").decode("utf-8"),\n                        object_pairs_hook=_reject_duplicate_json_keys,\n                    )
                     if not isinstance(manifest, dict) or type(manifest.get("format_version")) is not int or manifest.get("format_version") != 1:
                         raise ValueError("Непідтримувана версія маніфесту резервної копії.")
                     if manifest.get("database_engine") != "sqlite":
