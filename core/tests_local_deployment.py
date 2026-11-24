@@ -81,6 +81,19 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('staticfiles" -prune', script)
         self.assertIn('Файли чинного Python-середовища мають належати root', script)
 
+    def test_uninstaller_preserves_data_by_default_and_requires_explicit_purge(self):
+        script = (ROOT / "deploy/linux/uninstall.sh").read_text(encoding="utf-8")
+        self.assertIn('PURGE_DATA=0', script)
+        self.assertIn('[[ "$1" == "--purge-data" ]]', script)
+        self.assertIn('if [[ "$PURGE_DATA" -eq 1 ]]; then', script)
+        self.assertIn('rm -rf --one-file-system -- "$INSTALL_ROOT"', script)
+        self.assertIn('rm -rf --one-file-system -- "$TRUSTED_VERIFIER_DIR"', script)
+        self.assertIn('rm -rf --one-file-system -- "$DATA_DIR"', script)
+        self.assertIn('rm -rf --one-file-system -- "$CONFIG_DIR"', script)
+        self.assertLess(script.index('systemctl stop "$SERVICE"'), script.index('rm -rf --one-file-system -- "$INSTALL_ROOT"'))
+        self.assertIn('Не вдалося зупинити службу; файли не видалялися', script)
+        self.assertIn('Каталог $directory є символічним посиланням', script)
+        self.assertIn('Дані, конфігурація та системний користувач збережені', script)
     def test_updater_creates_and_verifies_backup_before_switching_release(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         backup = script.index('backup --keep 30')
