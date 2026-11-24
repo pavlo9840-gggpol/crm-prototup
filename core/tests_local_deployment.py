@@ -114,7 +114,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
 
     def test_updater_restarts_old_service_only_after_health_check(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
-        resume = script[script.index("resume_service() {"):script.index("\\nrollback_update() {")]
+        resume = script[script.index("resume_service() {"):script.index("\nrollback_update() {")]
         self.assertIn('if ! systemctl start "$SERVICE"; then', resume)
         self.assertIn("if ! health_check; then", resume)
         self.assertIn("SERVICE_STOPPED=0", resume)
@@ -123,7 +123,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
 
     def test_updater_resume_service_preserves_stopped_flag_on_failures(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
-        resume = script[script.index("resume_service() {"):script.index("\\nrollback_update() {")]
+        resume = script[script.index("resume_service() {"):script.index("\nrollback_update() {")]
         scenarios = (
             ("start failure", "1", "0", 1, ["start"]),
             ("health failure", "0", "1", 1, ["start", "health", "stop"]),
