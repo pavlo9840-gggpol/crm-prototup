@@ -63,7 +63,12 @@ if [[ -e "$ENV_FILE" ]]; then
 fi
 [[ "${AUTOZAPAZ_LICENSE_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "Потрібен AUTOZAPAZ_LICENSE_PUBLIC_KEY (Ed25519 Base64URL, 43 символи)."
 [[ "${AUTOZAPAZ_RELEASE_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "Потрібен AUTOZAPAZ_RELEASE_PUBLIC_KEY (Ed25519 Base64URL, 43 символи)."
-TRUSTED_VERIFIER="/usr/local/lib/autozapaz/verify_release.py"
+TRUSTED_VERIFIER_DIR="/usr/local/lib/autozapaz"
+TRUSTED_VERIFIER="$TRUSTED_VERIFIER_DIR/verify_release.py"
+[[ -d "$TRUSTED_VERIFIER_DIR" && ! -L "$TRUSTED_VERIFIER_DIR" ]] || fail "Не знайдено окремий довірений каталог bootstrap verifier: $TRUSTED_VERIFIER_DIR"
+[[ "$(stat -c '%u' -- "$TRUSTED_VERIFIER_DIR")" == "0" ]] || fail "Каталог bootstrap verifier має належати root."
+VERIFIER_DIR_MODE="$(stat -c '%a' -- "$TRUSTED_VERIFIER_DIR")"
+(( (8#$VERIFIER_DIR_MODE & 0022) == 0 )) || fail "Каталог bootstrap verifier не повинен бути доступним для запису групі/іншим."
 [[ -f "$TRUSTED_VERIFIER" && ! -L "$TRUSTED_VERIFIER" ]] || fail "Не знайдено окремий довірений bootstrap verifier: $TRUSTED_VERIFIER"
 [[ "$(stat -c '%u' -- "$TRUSTED_VERIFIER")" == "0" ]] || fail "Bootstrap verifier має належати root."
 VERIFIER_MODE="$(stat -c '%a' -- "$TRUSTED_VERIFIER")"
