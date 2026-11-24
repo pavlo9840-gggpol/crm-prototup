@@ -42,6 +42,9 @@ jobs:
         run: bash -n deploy/linux/install.sh
       - name: Validate Linux updater shell syntax
         run: bash -n deploy/linux/update.sh
+
+      - name: Validate Linux uninstaller shell syntax
+        run: bash -n deploy/linux/uninstall.sh
       - name: Validate Linux installer production configuration guards
         run: |
           grep -F 'DJANGO_DEBUG:-' deploy/linux/install.sh
