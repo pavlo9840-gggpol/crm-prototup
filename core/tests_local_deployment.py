@@ -149,47 +149,47 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         end = script.index("\non_exit() {", start)
         rollback = script[start:end]
 
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            data = root / "data"
-            restore = root / "restore"
-            old_app = root / "releases" / "old"
-            new_app = root / "releases" / "new"
-            old_venv = root / "venvs" / "old"
-            new_venv = root / "venvs" / "new"
-            app_link = root / "current"
-            venv_link = root / "venv"
-            call_log = root / "calls.log"
-            for directory in (data, restore / "media", old_app, new_app, old_venv, new_venv, data / "media"):
-                directory.mkdir(parents=True, exist_ok=True)
-            (data / "db.sqlite3").write_text("new database", encoding="utf-8")
-            (restore / "db.sqlite3").write_text("previous database", encoding="utf-8")
-            (data / "media" / "new.txt").write_text("new media", encoding="utf-8")
-            (restore / "media" / "old.txt").write_text("previous media", encoding="utf-8")
-            app_link.symlink_to(new_app, target_is_directory=True)
-            venv_link.symlink_to(new_venv, target_is_directory=True)
+        temporary = tempfile.TemporaryDirectory()
+        root = Path(temporary.name)
+        data = root / "data"
+        restore = root / "restore"
+        old_app = root / "releases" / "old"
+        new_app = root / "releases" / "new"
+        old_venv = root / "venvs" / "old"
+        new_venv = root / "venvs" / "new"
+        app_link = root / "current"
+        venv_link = root / "venv"
+        call_log = root / "calls.log"
+        for directory in (data, restore / "media", old_app, new_app, old_venv, new_venv, data / "media"):
+            directory.mkdir(parents=True, exist_ok=True)
+        (data / "db.sqlite3").write_text("new database", encoding="utf-8")
+        (restore / "db.sqlite3").write_text("previous database", encoding="utf-8")
+        (data / "media" / "new.txt").write_text("new media", encoding="utf-8")
+        (restore / "media" / "old.txt").write_text("previous media", encoding="utf-8")
+        app_link.symlink_to(new_app, target_is_directory=True)
+        venv_link.symlink_to(new_venv, target_is_directory=True)
 
-            variables = {
-                "DATA_DIR": data,
-                "RESTORE_DIR": restore,
-                "OLD_APP_REAL": old_app,
-                "OLD_VENV_REAL": old_venv,
-                "APP_LINK": app_link,
-                "VENV_LINK": venv_link,
-                "SERVICE": "autozapaz.service",
-                "SERVICE_USER": "autozapaz",
-                "STAMP": "test",
-                "BACKUP_PATH": str(root / "backup.zip"),
-                "CALL_LOG": call_log,
-                "FAIL_MEDIA_RESTORE": "1" if fail_media_restore else "0",
-                "APP_SWITCHED": "1",
-                "VENV_SWITCHED": "1",
-                "ROLLBACK_ATTEMPTED": "0",
-            }
-            assignments = "\n".join(
-                f"{key}={shlex.quote(str(value))}" for key, value in variables.items()
-            )
-            harness = f"""
+        variables = {
+            "DATA_DIR": data,
+            "RESTORE_DIR": restore,
+            "OLD_APP_REAL": old_app,
+            "OLD_VENV_REAL": old_venv,
+            "APP_LINK": app_link,
+            "VENV_LINK": venv_link,
+            "SERVICE": "autozapaz.service",
+            "SERVICE_USER": "autozapaz",
+            "STAMP": "test",
+            "BACKUP_PATH": str(root / "backup.zip"),
+            "CALL_LOG": call_log,
+            "FAIL_MEDIA_RESTORE": "1" if fail_media_restore else "0",
+            "APP_SWITCHED": "1",
+            "VENV_SWITCHED": "1",
+            "ROLLBACK_ATTEMPTED": "0",
+        }
+        assignments = "\n".join(
+            f"{key}={shlex.quote(str(value))}" for key, value in variables.items()
+        )
+        harness = f"""
 {assignments}
 systemctl() {{
     printf 'systemctl %s\\n' "$*" >> "$CALL_LOG"
@@ -210,16 +210,17 @@ health_check() {{
 {rollback}
 rollback_update "integration test"
 """
-            completed = subprocess.run(
-                ["bash", "-c", harness],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            return completed, data, restore, old_app, old_venv, call_log
+        completed = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return temporary, completed, data, restore, old_app, old_venv, call_log
 
     def test_updater_rollback_executes_against_isolated_filesystem(self):
-        completed, data, restore, old_app, old_venv, call_log = self._execute_updater_rollback()
+        temporary, completed, data, restore, old_app, old_venv, call_log = self._execute_updater_rollback()
+        self.addCleanup(temporary.cleanup)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual((data / "db.sqlite3").read_text(encoding="utf-8"), "previous database")
         self.assertEqual((data / "media" / "old.txt").read_text(encoding="utf-8"), "previous media")
@@ -231,9 +232,10 @@ rollback_update "integration test"
         self.assertIn("health_check", calls)
 
     def test_updater_rollback_keeps_service_stopped_if_media_restore_fails(self):
-        completed, data, restore, old_app, old_venv, call_log = self._execute_updater_rollback(
+        temporary, completed, data, restore, old_app, old_venv, call_log = self._execute_updater_rollback(
             fail_media_restore=True
         )
+        self.addCleanup(temporary.cleanup)
         self.assertNotEqual(completed.returncode, 0)
         self.assertEqual((data / "db.sqlite3").read_text(encoding="utf-8"), "previous database")
         calls = call_log.read_text(encoding="utf-8")
