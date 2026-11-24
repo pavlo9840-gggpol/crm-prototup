@@ -1,6 +1,13 @@
+import base64
+import hashlib
+import json
+import tempfile
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from django.test import SimpleTestCase
+
+from scripts.verify_release import verify_release
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,6 +32,10 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         script = (ROOT / "deploy/linux/install.sh").read_text(encoding="utf-8")
         self.assertIn('if [[ ! -f "$ENV_FILE" ]]', script)
         self.assertIn('AUTOZAPAZ_LICENSE_PUBLIC_KEY', script)
+        self.assertIn('AUTOZAPAZ_RELEASE_PUBLIC_KEY', script)
+        self.assertIn('/usr/local/lib/autozapaz/verify_release.py', script)
+        self.assertIn('validate_env_file', script)
+        self.assertIn('python3 "$TRUSTED_VERIFIER" --release "$APP_DIR"', script)
         self.assertIn('chmod 0640 "$ENV_FILE"', script)
         self.assertIn('systemctl enable --now autozapaz.service', script)
         self.assertIn('migrate --noinput', script)
@@ -79,12 +90,14 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
 
     def test_updater_verifies_signed_release_before_copying_or_stopping_service(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
-        verify = script.index('verify_release.py" --release')
+        verify = script.index('"$VENV_LINK/bin/python" "$TRUSTED_VERIFIER" --release')
         copy = script.index('cp -a "$RELEASE_SOURCE" "$NEW_APP"')
         stop = script.index('systemctl stop "$SERVICE"')
         self.assertLess(verify, copy)
         self.assertLess(verify, stop)
         self.assertIn('AUTOZAPAZ_RELEASE_PUBLIC_KEY', script)
+        self.assertIn('TRUSTED_VERIFIER="$APP_LINK/scripts/verify_release.py"', script)
+        self.assertIn('Staging-копія релізу не пройшла повторну перевірку', script)
         self.assertIn('--version "$VERSION"', script)
         self.assertIn('Підпис або контрольні суми релізу не пройшли перевірку', script)
 
@@ -105,3 +118,56 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('find "$RELEASE_SOURCE" -type l', script)
         self.assertIn('find "$RELEASE_SOURCE" ! -type d ! -type f', script)
         self.assertIn('не може бути всередині чинної програми', script)
+
+
+class SignedReleaseVerificationTests(SimpleTestCase):
+    def _make_signed_release(self, root, private_key):
+        payload_file = root / "manage.py"
+        payload_file.write_text("print('safe')\\n", encoding="utf-8")
+        data = payload_file.read_bytes()
+        manifest = {
+            "format_version": 1,
+            "version": "1.2.3",
+            "files": {
+                "manage.py": {
+                    "size": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                }
+            },
+        }
+        payload = json.dumps(
+            manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        (root / "release-manifest.json").write_bytes(payload + b"\\n")
+        signature = base64.urlsafe_b64encode(private_key.sign(payload)).decode("ascii").rstrip("=")
+        (root / "release-manifest.sig").write_text(signature + "\\n", encoding="ascii")
+
+    def test_valid_ed25519_release_and_expected_version(self):
+        private_key = Ed25519PrivateKey.generate()
+        public_key = private_key.public_key().public_bytes_raw()
+        encoded_key = base64.urlsafe_b64encode(public_key).decode("ascii").rstrip("=")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._make_signed_release(root, private_key)
+            self.assertEqual(verify_release(root, encoded_key, "1.2.3"), "1.2.3")
+
+    def test_tampered_file_is_rejected(self):
+        private_key = Ed25519PrivateKey.generate()
+        public_key = private_key.public_key().public_bytes_raw()
+        encoded_key = base64.urlsafe_b64encode(public_key).decode("ascii").rstrip("=")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._make_signed_release(root, private_key)
+            (root / "manage.py").write_text("print('tampered')\\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "size mismatch|digest mismatch"):
+                verify_release(root, encoded_key, "1.2.3")
+
+    def test_wrong_version_is_rejected(self):
+        private_key = Ed25519PrivateKey.generate()
+        public_key = private_key.public_key().public_bytes_raw()
+        encoded_key = base64.urlsafe_b64encode(public_key).decode("ascii").rstrip("=")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._make_signed_release(root, private_key)
+            with self.assertRaisesRegex(ValueError, "version mismatch"):
+                verify_release(root, encoded_key, "9.9.9")
