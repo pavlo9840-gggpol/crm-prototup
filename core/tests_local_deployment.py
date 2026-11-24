@@ -126,7 +126,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
 class SignedReleaseVerificationTests(SimpleTestCase):
     def _make_signed_release(self, root, private_key):
         payload_file = root / "manage.py"
-        payload_file.write_text("print('safe')\\n", encoding="utf-8")
+        payload_file.write_text("print('safe')\n", encoding="utf-8")
         data = payload_file.read_bytes()
         manifest = {
             "format_version": 1,
@@ -141,9 +141,9 @@ class SignedReleaseVerificationTests(SimpleTestCase):
         payload = json.dumps(
             manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         ).encode("utf-8")
-        (root / "release-manifest.json").write_bytes(payload + b"\\n")
+        (root / "release-manifest.json").write_bytes(payload + b"\n")
         signature = base64.urlsafe_b64encode(private_key.sign(payload)).decode("ascii").rstrip("=")
-        (root / "release-manifest.sig").write_text(signature + "\\n", encoding="ascii")
+        (root / "release-manifest.sig").write_text(signature + "\n", encoding="ascii")
 
     def test_valid_ed25519_release_and_expected_version(self):
         private_key = Ed25519PrivateKey.generate()
@@ -161,7 +161,7 @@ class SignedReleaseVerificationTests(SimpleTestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self._make_signed_release(root, private_key)
-            (root / "manage.py").write_text("print('tampered')\\n", encoding="utf-8")
+            (root / "manage.py").write_text("print('tampered')\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "size mismatch|digest mismatch"):
                 verify_release(root, encoded_key, "1.2.3")
 
