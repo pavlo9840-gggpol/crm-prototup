@@ -146,7 +146,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
     def _execute_updater_rollback(self, fail_media_restore=False):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("rollback_update() {")
-        end = script.index("\\non_exit() {", start)
+        end = script.index("\non_exit() {", start)
         rollback = script[start:end]
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -186,7 +186,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
                 "VENV_SWITCHED": "1",
                 "ROLLBACK_ATTEMPTED": "0",
             }
-            assignments = "\\n".join(
+            assignments = "\n".join(
                 f"{key}={shlex.quote(str(value))}" for key, value in variables.items()
             )
             harness = f"""
