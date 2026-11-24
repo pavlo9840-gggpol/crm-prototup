@@ -202,7 +202,10 @@ def verify_backup_archive(source):
 
             if "manifest.json" in names:
                 try:
-                    manifest = json.loads(\n                        archive.read("manifest.json").decode("utf-8"),\n                        object_pairs_hook=_reject_duplicate_json_keys,\n                    )
+                    manifest = json.loads(
+                        archive.read("manifest.json").decode("utf-8"),
+                        object_pairs_hook=_reject_duplicate_json_keys,
+                    )
                     if not isinstance(manifest, dict) or type(manifest.get("format_version")) is not int or manifest.get("format_version") != 1:
                         raise ValueError("Непідтримувана версія маніфесту резервної копії.")
                     if manifest.get("database_engine") != "sqlite":
