@@ -199,6 +199,72 @@ printf 'SERVICE_STOPPED=%s\\n' "$SERVICE_STOPPED"
         self.assertIn('не може бути всередині чинної програми', script)
 
 
+    def _execute_updater_atomic_link(self, fail_switch=False, fail_restore=False):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        start = script.index("atomic_link() {")
+        end = script.index("\nhealth_check() {", start)
+        atomic_link = script[start:end]
+
+        temporary = tempfile.TemporaryDirectory()
+        root = Path(temporary.name)
+        app_link = root / "app"
+        target = root / "releases" / "new"
+        fallback = root / "releases" / "rollback"
+        target.mkdir(parents=True)
+        app_link.mkdir()
+        (app_link / "old.txt").write_text("old release", encoding="utf-8")
+        harness = f"""
+STAMP=test
+APP_LINK={shlex.quote(str(app_link))}
+TARGET={shlex.quote(str(target))}
+FALLBACK={shlex.quote(str(fallback))}
+ROLLBACK_ATTEMPTED=0
+FAIL_SWITCH={1 if fail_switch else 0}
+FAIL_RESTORE={1 if fail_restore else 0}
+mv() {{
+    if [[ "$1" == -Tf && "$2" == "$APP_LINK.next-$STAMP" && "$FAIL_SWITCH" == 1 ]]; then
+        return 1
+    fi
+    if [[ "$1" == "$FALLBACK" && "$2" == "$APP_LINK" && "$FAIL_RESTORE" == 1 ]]; then
+        return 1
+    fi
+    command mv "$@"
+}}
+fail() {{ printf '%s\\n' "$*" >&2; exit 9; }}
+{atomic_link}
+atomic_link "$APP_LINK" "$TARGET" "$FALLBACK"
+"""
+        completed = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, check=False)
+        return temporary, completed, app_link, target, fallback
+
+    def test_updater_atomic_link_preserves_previous_directory_on_switch_failure(self):
+        temporary, completed, app_link, target, fallback = self._execute_updater_atomic_link(fail_switch=True)
+        self.addCleanup(temporary.cleanup)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertTrue(app_link.is_dir())
+        self.assertFalse(app_link.is_symlink())
+        self.assertEqual((app_link / "old.txt").read_text(encoding="utf-8"), "old release")
+        self.assertFalse(fallback.exists())
+        self.assertFalse((app_link.parent / "app.next-test").exists())
+
+    def test_updater_atomic_link_uses_symlink_after_successful_directory_migration(self):
+        temporary, completed, app_link, target, fallback = self._execute_updater_atomic_link()
+        self.addCleanup(temporary.cleanup)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(app_link.is_symlink())
+        self.assertEqual(app_link.resolve(), target)
+        self.assertEqual((fallback / "old.txt").read_text(encoding="utf-8"), "old release")
+
+    def test_updater_atomic_link_marks_unrecoverable_directory_restore_as_unsafe(self):
+        temporary, completed, app_link, target, fallback = self._execute_updater_atomic_link(
+            fail_switch=True, fail_restore=True
+        )
+        self.addCleanup(temporary.cleanup)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual((fallback / "old.txt").read_text(encoding="utf-8"), "old release")
+        self.assertIn("ROLLBACK_ATTEMPTED=1", completed.stdout + completed.stderr)
+        self.assertIn("КРИТИЧНО", completed.stderr)
+
     def _execute_updater_rollback(self, fail_media_restore=False, fail_health_check=False, fail_initial_stop=False, fail_migration=False):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("rollback_update() {")
