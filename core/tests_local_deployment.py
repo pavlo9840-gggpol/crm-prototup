@@ -66,6 +66,21 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('INSTALL_COMPLETE=1', script)
 
 
+    def test_updater_validates_trusted_installation_paths_before_verifier(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        install_root = script.index('[[ -d "$INSTALL_ROOT" && ! -L "$INSTALL_ROOT" ]]')
+        app_tree = script.index('find "$CURRENT_APP_REAL" -path "$CURRENT_APP_REAL/staticfiles"')
+        venv_tree = script.index('find "$CURRENT_VENV_REAL"')
+        verifier = script.index('TRUSTED_VERIFIER="$APP_LINK/scripts/verify_release.py"')
+        self.assertLess(install_root, app_tree)
+        self.assertLess(app_tree, venv_tree)
+        self.assertLess(venv_tree, verifier)
+        self.assertIn('Кореневий каталог інсталяції має належати root', script)
+        self.assertIn('Чинний каталог програми знаходиться поза коренем інсталяції', script)
+        self.assertIn('Чинне Python-середовище знаходиться поза коренем інсталяції', script)
+        self.assertIn('staticfiles" -prune', script)
+        self.assertIn('Файли чинного Python-середовища мають належати root', script)
+
     def test_updater_creates_and_verifies_backup_before_switching_release(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         backup = script.index('backup --keep 30')
