@@ -88,6 +88,20 @@ class BackupArchiveTests(TransactionTestCase):
                 with self.assertRaises(ValueError):
                     admin_tools.verify_backup_archive(malicious.getvalue())
 
+    def test_manifest_rejects_duplicate_json_keys(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        forged = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(data), "r") as source, zipfile.ZipFile(forged, "w") as target:
+            for name in source.namelist():
+                payload = source.read(name)
+                if name == "manifest.json":
+                    # Duplicate a top-level key while keeping the document valid JSON.
+                    payload = b'{"format_version":1,' + payload[1:]
+                target.writestr(name, payload)
+
+        with self.assertRaisesRegex(ValueError, "повторюваний ключ: format_version"):
+            admin_tools.verify_backup_archive(forged.getvalue())
+
     def test_manifest_must_cover_every_payload_file(self):
         data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
         forged = io.BytesIO()
