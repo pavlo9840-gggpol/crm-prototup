@@ -61,6 +61,7 @@ if [[ -e "$ENV_FILE" ]]; then
     . "$ENV_FILE"
     set +a
 fi
+[[ "${AUTOZAPAZ_LICENSE_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "Потрібен AUTOZAPAZ_LICENSE_PUBLIC_KEY (Ed25519 Base64URL, 43 символи)."
 [[ "${AUTOZAPAZ_RELEASE_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "Потрібен AUTOZAPAZ_RELEASE_PUBLIC_KEY (Ed25519 Base64URL, 43 символи)."
 TRUSTED_VERIFIER="/usr/local/lib/autozapaz/verify_release.py"
 [[ -f "$TRUSTED_VERIFIER" && ! -L "$TRUSTED_VERIFIER" ]] || fail "Не знайдено окремий довірений bootstrap verifier: $TRUSTED_VERIFIER"
