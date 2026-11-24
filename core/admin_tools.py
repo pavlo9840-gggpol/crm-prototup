@@ -191,13 +191,20 @@ def _sha256_zip_member(archive, name):
     return digest.hexdigest()
 
 
+def _bytes_to_backup_stream(source):
+    """Wrap in-memory ZIP payloads without changing filesystem-path handling."""
+    return io.BytesIO(source)
+
+
 def verify_backup_archive(source):
     """Validate ZIP structure, optional manifest hashes and SQLite integrity.
 
     Accepts a filesystem path or ZIP bytes. Legacy archives without a manifest
     remain verifiable for backwards compatibility.
     """
-    archive_source = io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source
+    archive_source = source
+    if isinstance(source, (bytes, bytearray)):
+        archive_source = _bytes_to_backup_stream(source)
     try:
         with zipfile.ZipFile(archive_source, "r") as archive:
             infos = archive.infolist()
@@ -307,7 +314,9 @@ def restore_backup_archive(source, target_dir):
     target.parent.mkdir(parents=True, exist_ok=True)
     verify_backup_archive(source)
 
-    archive_source = io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source
+    archive_source = source
+    if isinstance(source, (bytes, bytearray)):
+        archive_source = _bytes_to_backup_stream(source)
     temporary_root = Path(tempfile.mkdtemp(prefix=".autozapaz-restore-", dir=target.parent))
     try:
         with zipfile.ZipFile(archive_source, "r") as archive:
