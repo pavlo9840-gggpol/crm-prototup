@@ -20,10 +20,22 @@ RELEASE_SOURCE="$(realpath -e -- "$1")"
 VERSION="$2"
 [[ "$VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || fail "Некоректний ідентифікатор версії."
 [[ -d "$RELEASE_SOURCE" && -f "$RELEASE_SOURCE/manage.py" && -f "$RELEASE_SOURCE/requirements.txt" ]] || fail "Каталог релізу має містити manage.py та requirements.txt."
-[[ -f "$RELEASE_SOURCE/scripts/verify_release.py" ]] || fail "У релізі відсутній verify_release.py."
+[[ -f "$ENV_FILE" && ! -L "$ENV_FILE" && -f "$APP_LINK/manage.py" && -x "$VENV_LINK/bin/python" ]] || fail "Не знайдено безпечну чинну інсталяцію АвтоЗапас."
+[[ "$(stat -c '%u' -- "$ENV_FILE")" == "0" ]] || fail "Файл конфігурації має належати root."
+ENV_MODE="$(stat -c '%a' -- "$ENV_FILE")"
+(( (8#$ENV_MODE & 0022) == 0 )) || fail "Груповий або загальний запис у конфігурації заборонений."
+set -a
+# shellcheck disable=SC1090
+. "$ENV_FILE"
+set +a
 : "${AUTOZAPAZ_RELEASE_PUBLIC_KEY:?У конфігурації немає AUTOZAPAZ_RELEASE_PUBLIC_KEY}"
-[[ -x "$VENV_LINK/bin/python" ]] || fail "Не знайдено Python-середовище чинної інсталяції для перевірки релізу."\n"$VENV_LINK/bin/python" "$RELEASE_SOURCE/scripts/verify_release.py" --release "$RELEASE_SOURCE" --public-key "$AUTOZAPAZ_RELEASE_PUBLIC_KEY" --version "$VERSION" || fail "Підпис або контрольні суми релізу не пройшли перевірку."
-[[ -f "$ENV_FILE" && -f "$APP_LINK/manage.py" && -x "$VENV_LINK/bin/python" ]] || fail "Не знайдено чинну інсталяцію АвтоЗапас."
+[[ -x "$VENV_LINK/bin/python" ]] || fail "Не знайдено Python-середовище чинної інсталяції."
+TRUSTED_VERIFIER="$APP_LINK/scripts/verify_release.py"
+[[ -f "$TRUSTED_VERIFIER" && ! -L "$TRUSTED_VERIFIER" ]] || fail "Не знайдено verifier у чинній довіреній інсталяції."
+[[ "$(stat -c '%u' -- "$TRUSTED_VERIFIER")" == "0" ]] || fail "Verifier чинної інсталяції має належати root."
+VERIFIER_MODE="$(stat -c '%a' -- "$TRUSTED_VERIFIER")"
+(( (8#$VERIFIER_MODE & 0022) == 0 )) || fail "Verifier не повинен бути доступним для запису групі/іншим."
+"$VENV_LINK/bin/python" "$TRUSTED_VERIFIER" --release "$RELEASE_SOURCE" --public-key "$AUTOZAPAZ_RELEASE_PUBLIC_KEY" --version "$VERSION" || fail "Підпис або контрольні суми релізу не пройшли перевірку."
 [[ -d "$DATA_DIR" ]] || fail "Не знайдено постійний каталог даних."
 id "$SERVICE_USER" >/dev/null 2>&1 || fail "Не знайдено системного користувача $SERVICE_USER."
 systemctl cat "$SERVICE" >/dev/null 2>&1 || fail "Службу $SERVICE не встановлено."
@@ -32,10 +44,6 @@ case "$RELEASE_SOURCE/" in "$CURRENT_APP_REAL/"*) fail "Новий реліз н
 [[ "$(find "$RELEASE_SOURCE" -type l -print -quit)" == "" ]] || fail "Реліз містить символічні посилання."
 [[ "$(find "$RELEASE_SOURCE" ! -type d ! -type f -print -quit)" == "" ]] || fail "Реліз містить спеціальні файли."
 
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
 [[ "$AUTOZAPAZ_DATA_DIR" == "$DATA_DIR" ]] || fail "Оновлювач підтримує стандартний AUTOZAPAZ_DATA_DIR=$DATA_DIR."
 BACKUP_DIR="$AUTOZAPAZ_BACKUP_DIR"
 [[ -d "$BACKUP_DIR" ]] || fail "Не знайдено каталог резервних копій: $BACKUP_DIR"
@@ -178,6 +186,7 @@ cp -a "$RELEASE_SOURCE" "$NEW_APP"
 chown -R "root:$SERVICE_USER" "$NEW_APP"
 find "$NEW_APP" -type d -exec chmod 0750 {} +
 find "$NEW_APP" -type f -exec chmod 0640 {} +
+"$VENV_LINK/bin/python" "$TRUSTED_VERIFIER" --release "$NEW_APP" --public-key "$AUTOZAPAZ_RELEASE_PUBLIC_KEY" --version "$VERSION" || fail "Staging-копія релізу не пройшла повторну перевірку."
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$NEW_APP/staticfiles"
 python3 -m venv "$NEW_VENV"
 "$NEW_VENV/bin/python" -m pip install --upgrade pip
