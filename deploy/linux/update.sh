@@ -31,8 +31,8 @@ CURRENT_VENV_REAL="$(readlink -f -- "$VENV_LINK")"
 case "$CURRENT_APP_REAL/" in "$INSTALL_ROOT/"*) ;; *) fail "Чинний каталог програми знаходиться поза коренем інсталяції." ;; esac
 case "$CURRENT_VENV_REAL/" in "$INSTALL_ROOT/"*) ;; *) fail "Чинне Python-середовище знаходиться поза коренем інсталяції." ;; esac
 [[ -d "$CURRENT_APP_REAL" && -d "$CURRENT_VENV_REAL" ]] || fail "Шляхи чинної програми або Python-середовища некоректні."
-[[ "$(find "$CURRENT_APP_REAL" -path "$CURRENT_APP_REAL/staticfiles" -prune -o \( -type f -o -type d \\) \( ! -user root -o -perm /022 \\) -print -quit)" == "" ]] || fail "Файли коду чинного релізу мають належати root і не бути доступними для запису групі/іншим."
-[[ "$(find "$CURRENT_VENV_REAL" \( -type f -o -type d \\) \( ! -user root -o -perm /022 \\) -print -quit)" == "" ]] || fail "Файли чинного Python-середовища мають належати root і не бути доступними для запису групі/іншим."
+[[ "$(find "$CURRENT_APP_REAL" -path "$CURRENT_APP_REAL/staticfiles" -prune -o \( -type f -o -type d \) \( ! -user root -o -perm /022 \) -print -quit)" == "" ]] || fail "Файли коду чинного релізу мають належати root і не бути доступними для запису групі/іншим."
+[[ "$(find "$CURRENT_VENV_REAL" \( -type f -o -type d \) \( ! -user root -o -perm /022 \) -print -quit)" == "" ]] || fail "Файли чинного Python-середовища мають належати root і не бути доступними для запису групі/іншим."
 [[ "$(stat -c '%u' -- "$ENV_FILE")" == "0" ]] || fail "Файл конфігурації має належати root."
 ENV_MODE="$(stat -c '%a' -- "$ENV_FILE")"
 (( (8#$ENV_MODE & 0022) == 0 )) || fail "Груповий або загальний запис у конфігурації заборонений."
