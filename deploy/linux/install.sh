@@ -39,19 +39,36 @@ fail() { printf 'Помилка: %s\n' "$*" >&2; exit 1; }
 info() { printf '\n==> %s\n' "$*"; }
 
 [[ "$(id -u)" -eq 0 ]] || fail "Запустіть інсталятор від root: sudo bash deploy/linux/install.sh"
-[[ -f "$APP_DIR/manage.py" && -f "$APP_DIR/requirements.txt" ]] || fail "Спочатку розпакуйте реліз у $APP_DIR; інсталятор не запускає програму з домашнього каталогу."
+[[ -f "$APP_DIR/manage.py" && -f "$APP_DIR/requirements.txt" ]] || fail "Спочатку розпакуйте реліз у $APP_DIR."
 [[ -f "$SERVICE_SOURCE" ]] || fail "Не знайдено systemd unit: $SERVICE_SOURCE"
 command -v python3 >/dev/null 2>&1 || fail "Потрібен Python 3."
 command -v runuser >/dev/null 2>&1 || fail "Потрібна команда runuser (util-linux)."
-[[ ! -e "$SERVICE_FILE" ]] || fail "Служба вже встановлена. Оновлення з автоматичним backup/rollback буде окремою процедурою; цей скрипт призначений лише для першої інсталяції."
+[[ ! -e "$SERVICE_FILE" ]] || fail "Служба вже встановлена. Для неї використовуйте update.sh."
 
-if [[ ! -f "$ENV_FILE" ]]; then
-    [[ "${AUTOZAPAZ_LICENSE_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "Передайте коректний відкритий Ed25519-ключ (43 символи Base64URL) через AUTOZAPAZ_LICENSE_PUBLIC_KEY."
-    python3 - <<'PY' >/dev/null || fail "Потрібен Python 3 із модулем secrets."
-import secrets
-print(secrets.token_urlsafe(64))
-PY
+validate_env_file() {
+    local owner mode
+    [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail "Конфігурація має бути звичайним файлом без символічного посилання: $ENV_FILE"
+    owner="$(stat -c '%u' -- "$ENV_FILE")"
+    mode="$(stat -c '%a' -- "$ENV_FILE")"
+    [[ "$owner" == "0" ]] || fail "Власником $ENV_FILE має бути root."
+    (( (8#$mode & 0022) == 0 )) || fail "Груповий або загальний запис у $ENV_FILE заборонений."
+}
+
+if [[ -e "$ENV_FILE" ]]; then
+    validate_env_file
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
 fi
+[[ "${AUTOZAPAZ_RELEASE_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "Потрібен AUTOZAPAZ_RELEASE_PUBLIC_KEY (Ed25519 Base64URL, 43 символи)."
+TRUSTED_VERIFIER="/usr/local/lib/autozapaz/verify_release.py"
+[[ -f "$TRUSTED_VERIFIER" && ! -L "$TRUSTED_VERIFIER" ]] || fail "Не знайдено окремий довірений bootstrap verifier: $TRUSTED_VERIFIER"
+[[ "$(stat -c '%u' -- "$TRUSTED_VERIFIER")" == "0" ]] || fail "Bootstrap verifier має належати root."
+VERIFIER_MODE="$(stat -c '%a' -- "$TRUSTED_VERIFIER")"
+(( (8#$VERIFIER_MODE & 0022) == 0 )) || fail "Bootstrap verifier не повинен бути доступним для запису групі/іншим."
+python3 -c 'import cryptography' >/dev/null 2>&1 || fail "Системному Python потрібен пакет python3-cryptography."
+python3 "$TRUSTED_VERIFIER" --release "$APP_DIR" --public-key "$AUTOZAPAZ_RELEASE_PUBLIC_KEY" || fail "Підпис або контрольні суми початкового релізу не пройшли перевірку."
 
 info "Створення системного користувача та каталогів"
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
@@ -75,17 +92,22 @@ if [[ ! -f "$ENV_FILE" ]]; then
         printf 'AUTOZAPAZ_DATA_DIR=%s\n' "$DATA_DIR"
         printf 'AUTOZAPAZ_BACKUP_DIR=%s/backups\n' "$DATA_DIR"
         printf 'AUTOZAPAZ_LICENSE_PUBLIC_KEY=%s\n' "$AUTOZAPAZ_LICENSE_PUBLIC_KEY"
+        printf 'AUTOZAPAZ_RELEASE_PUBLIC_KEY=%s\n' "$AUTOZAPAZ_RELEASE_PUBLIC_KEY"
         printf 'AUTOZAPAZ_REQUIRE_LICENSE=1\n'
         printf 'AUTOZAPAZ_SECURE_COOKIES=0\n'
     } > "$ENV_FILE"
     chown root:"$SERVICE_USER" "$ENV_FILE"
     chmod 0640 "$ENV_FILE"
 else
+    validate_env_file
     info "Наявний файл конфігурації збережено без змін: $ENV_FILE"
     grep -q '^DJANGO_SECRET_KEY=.' "$ENV_FILE" || fail "У $ENV_FILE відсутній DJANGO_SECRET_KEY."
     grep -q '^AUTOZAPAZ_LICENSE_PUBLIC_KEY=.' "$ENV_FILE" || fail "У $ENV_FILE не налаштовано AUTOZAPAZ_LICENSE_PUBLIC_KEY."
+    grep -q '^AUTOZAPAZ_RELEASE_PUBLIC_KEY=.' "$ENV_FILE" || fail "У $ENV_FILE не налаштовано AUTOZAPAZ_RELEASE_PUBLIC_KEY."
     PUBLIC_KEY_VALUE="$(sed -n 's/^AUTOZAPAZ_LICENSE_PUBLIC_KEY=//p' "$ENV_FILE")"
-    [[ "$PUBLIC_KEY_VALUE" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "У $ENV_FILE некоректний відкритий Ed25519-ключ."
+    RELEASE_KEY_VALUE="$(sed -n 's/^AUTOZAPAZ_RELEASE_PUBLIC_KEY=//p' "$ENV_FILE")"
+    [[ "$PUBLIC_KEY_VALUE" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "У $ENV_FILE некоректний відкритий Ed25519-ключ ліцензії."
+    [[ "$RELEASE_KEY_VALUE" == "$AUTOZAPAZ_RELEASE_PUBLIC_KEY" ]] || fail "Ключ підпису релізів у середовищі та конфігурації не збігається."
 fi
 
 info "Підготовка Python-середовища"
@@ -96,11 +118,7 @@ fi
 "$VENV_DIR/bin/python" -m pip install -r "$APP_DIR/requirements.txt"
 
 info "Підготовка конфігурації Django"
-# The env file is root-owned and mode 0640; only this trusted installer reads it.
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+# Configuration was validated and loaded before any package installation or migration.
 
 # Refuse unsafe or non-standard production configuration before migrations.
 [[ "${DJANGO_DEBUG:-}" == "0" ]] || fail "Для встановлення DEBUG має бути 0."
