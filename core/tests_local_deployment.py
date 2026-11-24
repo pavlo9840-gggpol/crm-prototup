@@ -112,6 +112,49 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertNotIn(r'Backup: %s\\n', rollback)
         self.assertNotIn('systemctl start "$SERVICE" || true', rollback)
 
+    def test_updater_restarts_old_service_only_after_health_check(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        resume = script[script.index("resume_service() {"):script.index("\\nrollback_update() {")]
+        self.assertIn('if ! systemctl start "$SERVICE"; then', resume)
+        self.assertIn("if ! health_check; then", resume)
+        self.assertIn("SERVICE_STOPPED=0", resume)
+        self.assertEqual(script.count("resume_service || true"), 5)
+        self.assertNotIn('systemctl start "$SERVICE" || true', script)
+
+    def test_updater_resume_service_preserves_stopped_flag_on_failures(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        resume = script[script.index("resume_service() {"):script.index("\\nrollback_update() {")]
+        scenarios = (
+            ("start failure", "1", "0", 1, ["start"]),
+            ("health failure", "0", "1", 1, ["start", "health", "stop"]),
+            ("success", "0", "0", 0, ["start", "health"]),
+        )
+        for name, fail_start, fail_health, expected_stopped, expected_calls in scenarios:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                log = Path(temporary) / "calls.log"
+                harness = f"""
+SERVICE=autozapaz.service
+SERVICE_STOPPED=1
+CALL_LOG={shlex.quote(str(log))}
+FAIL_START={fail_start}
+FAIL_HEALTH={fail_health}
+systemctl() {{
+    printf '%s\\n' "$1" >> "$CALL_LOG"
+    [[ "$1" != start || "$FAIL_START" != 1 ]]
+}}
+health_check() {{
+    printf 'health\\n' >> "$CALL_LOG"
+    [[ "$FAIL_HEALTH" != 1 ]]
+}}
+{resume}
+if resume_service; then printf 'RESULT=success\\n'; else printf 'RESULT=failure\\n'; fi
+printf 'SERVICE_STOPPED=%s\\n' "$SERVICE_STOPPED"
+"""
+                completed = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, check=False)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertIn(f"SERVICE_STOPPED={expected_stopped}", completed.stdout)
+                self.assertEqual(log.read_text(encoding="utf-8").splitlines(), expected_calls)
+
     def test_updater_verifies_signed_release_before_copying_or_stopping_service(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         verify = script.index('"$VENV_LINK/bin/python" "$TRUSTED_VERIFIER" --release')
