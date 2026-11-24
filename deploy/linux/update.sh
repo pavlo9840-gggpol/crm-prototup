@@ -83,15 +83,37 @@ as_service() {
         "AUTOZAPAZ_SECURE_COOKIES=${AUTOZAPAZ_SECURE_COOKIES:-0}" "$@"
 }
 atomic_link() {
-    local link_path="$1" target_path="$2" temporary_link="${1}.next-$STAMP"
-    ln -s "$target_path" "$temporary_link"
+    local link_path="$1" target_path="$2" temporary_link="1.next-$STAMP"
+    if ! ln -s "$target_path" "$temporary_link"; then
+        return 1
+    fi
     if [[ -L "$link_path" ]]; then
-        mv -Tf "$temporary_link" "$link_path"
+        if ! mv -Tf "$temporary_link" "$link_path"; then
+            rm -f -- "$temporary_link"
+            return 1
+        fi
     else
         local fallback="$3"
-        [[ -e "$link_path" ]] || fail "Не знайдено каталог для перемикання: $link_path"
-        mv "$link_path" "$fallback"
-        mv -Tf "$temporary_link" "$link_path"
+        if [[ ! -e "$link_path" ]]; then
+            rm -f -- "$temporary_link"
+            fail "Не знайдено каталог для перемикання: $link_path"
+        fi
+        if [[ -e "$fallback" || -L "$fallback" ]]; then
+            rm -f -- "$temporary_link"
+            fail "Шлях резервного каталогу вже зайнятий: $fallback"
+        fi
+        if ! mv "$link_path" "$fallback"; then
+            rm -f -- "$temporary_link"
+            return 1
+        fi
+        if ! mv -Tf "$temporary_link" "$link_path"; then
+            rm -f -- "$temporary_link"
+            if ! mv "$fallback" "$link_path"; then
+                ROLLBACK_ATTEMPTED=1
+                printf 'КРИТИЧНО: не вдалося повернути каталог %s на місце %s. Служба залишена зупиненою; резервний каталог збережено.\\n' "$fallback" "$link_path" >&2
+            fi
+            return 1
+        fi
     fi
 }
 health_check() {
