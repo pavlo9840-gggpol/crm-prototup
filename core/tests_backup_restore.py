@@ -88,6 +88,27 @@ class BackupArchiveTests(TransactionTestCase):
                 with self.assertRaises(ValueError):
                     admin_tools.verify_backup_archive(malicious.getvalue())
 
+    def test_verifier_rejects_archive_over_total_uncompressed_size_limit(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        with patch.object(admin_tools, "MAX_BACKUP_TOTAL_SIZE", 1):
+            with self.assertRaisesRegex(ValueError, "Розпакований розмір"):
+                admin_tools.verify_backup_archive(data)
+
+    def test_verifier_rejects_too_many_archive_files(self):
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as archive:
+            archive.writestr("db.sqlite3", b"placeholder")
+            archive.writestr("media/one.txt", b"x")
+        with patch.object(admin_tools, "MAX_BACKUP_ARCHIVE_FILES", 1):
+            with self.assertRaisesRegex(ValueError, "надто багато файлів"):
+                admin_tools.verify_backup_archive(data.getvalue())
+
+    def test_verifier_rejects_oversized_manifest_before_parsing(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        with patch.object(admin_tools, "MAX_BACKUP_MANIFEST_SIZE", 1):
+            with self.assertRaisesRegex(ValueError, "Маніфест.*ліміт"):
+                admin_tools.verify_backup_archive(data)
+
     def test_manifest_rejects_duplicate_json_keys(self):
         data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
         forged = io.BytesIO()
