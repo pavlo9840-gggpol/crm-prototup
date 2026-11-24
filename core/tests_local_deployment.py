@@ -143,7 +143,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('не може бути всередині чинної програми', script)
 
 
-    def _execute_updater_rollback(self, fail_media_restore=False):
+    def _execute_updater_rollback(self, fail_media_restore=False, fail_health_check=False):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("rollback_update() {")
         end = script.index("\non_exit() {", start)
@@ -182,6 +182,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
             "BACKUP_PATH": str(root / "backup.zip"),
             "CALL_LOG": call_log,
             "FAIL_MEDIA_RESTORE": "1" if fail_media_restore else "0",
+            "FAIL_HEALTH_CHECK": "1" if fail_health_check else "0",
             "APP_SWITCHED": "1",
             "VENV_SWITCHED": "1",
             "ROLLBACK_ATTEMPTED": "0",
@@ -205,7 +206,7 @@ mv() {{
 }}
 health_check() {{
     printf 'health_check\\n' >> "$CALL_LOG"
-    return 0
+    [[ "$FAIL_HEALTH_CHECK" != 1 ]]
 }}
 {rollback}
 rollback_update "integration test"
@@ -243,6 +244,18 @@ rollback_update "integration test"
         self.assertNotIn("systemctl start autozapaz.service", calls)
         self.assertIn("Служба залишена зупиненою", completed.stderr)
         self.assertTrue((restore / "media" / "old.txt").exists())
+
+
+    def test_updater_rollback_stops_service_when_health_check_fails(self):
+        temporary, completed, data, restore, old_app, old_venv, call_log = self._execute_updater_rollback(
+            fail_health_check=True
+        )
+        self.addCleanup(temporary.cleanup)
+        self.assertNotEqual(completed.returncode, 0)
+        calls = call_log.read_text(encoding="utf-8").splitlines()
+        start_index = calls.index("systemctl start autozapaz.service")
+        self.assertIn("systemctl stop autozapaz.service", calls[start_index + 1:])
+        self.assertIn("health-check; службу зупинено", completed.stderr)
 
 
 class SignedReleaseVerificationTests(SimpleTestCase):
