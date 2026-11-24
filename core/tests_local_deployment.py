@@ -96,53 +96,54 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('Дані, конфігурація та системний користувач збережені', script)
     def _run_uninstaller(self, purge=False, fail_stop=False, symlink_data=False):
         script = (ROOT / "deploy/linux/uninstall.sh").read_text(encoding="utf-8")
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            paths = {
-                "/opt/autozapaz": root / "app",
-                "/var/lib/autozapaz": root / "data",
-                "/etc/autozapaz": root / "config",
-                "/etc/systemd/system/autozapaz.service": root / "autozapaz.service",
-                "/usr/local/lib/autozapaz": root / "verifier",
-            }
-            for original, replacement in paths.items():
-                script = script.replace(original, str(replacement))
-            for key in ("app", "data", "config", "verifier"):
-                (root / key).mkdir()
-                (root / key / "sentinel").write_text(key, encoding="utf-8")
-            paths["/etc/systemd/system/autozapaz.service"].write_text("unit", encoding="utf-8")
-            if symlink_data:
-                import shutil
-                shutil.rmtree(paths["/var/lib/autozapaz"])
-                paths["/var/lib/autozapaz"].symlink_to(root / "outside", target_is_directory=True)
-                (root / "outside").mkdir()
-                (root / "outside" / "sentinel").write_text("outside", encoding="utf-8")
-            log = root / "calls.log"
-            harness = f"""
+        temporary = tempfile.TemporaryDirectory()
+        root = Path(temporary.name)
+        paths = {
+            "/opt/autozapaz": root / "app",
+            "/var/lib/autozapaz": root / "data",
+            "/etc/autozapaz": root / "config",
+            "/etc/systemd/system/autozapaz.service": root / "autozapaz.service",
+            "/usr/local/lib/autozapaz": root / "verifier",
+        }
+        for original, replacement in paths.items():
+            script = script.replace(original, str(replacement))
+        for key in ("app", "data", "config", "verifier"):
+            (root / key).mkdir()
+            (root / key / "sentinel").write_text(key, encoding="utf-8")
+        paths["/etc/systemd/system/autozapaz.service"].write_text("unit", encoding="utf-8")
+        if symlink_data:
+            import shutil
+            shutil.rmtree(paths["/var/lib/autozapaz"])
+            paths["/var/lib/autozapaz"].symlink_to(root / "outside", target_is_directory=True)
+            (root / "outside").mkdir()
+            (root / "outside" / "sentinel").write_text("outside", encoding="utf-8")
+        log = root / "calls.log"
+        harness = f"""
 id() {{
-    if [[ "$1" == "-u" ]]; then printf '0\\\\n'; return 0; fi
+    if [[ "$1" == "-u" ]]; then printf '0\\n'; return 0; fi
     return 0
 }}
 systemctl() {{
-    printf 'systemctl %s\\\\n' "$*" >> {shlex.quote(str(log))}
+    printf 'systemctl %s\\n' "$*" >> {shlex.quote(str(log))}
     case "$1" in
         cat) return 0 ;;
         stop) [[ {1 if fail_stop else 0} != 1 ]] ;;
         *) return 0 ;;
     esac
 }}
-userdel() {{ printf 'userdel %s\\\\n' "$*" >> {shlex.quote(str(log))}; }}
+userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
 {script}
 """
-            args = ["bash", "-c", harness, "uninstall"]
-            if purge:
-                args.append("--purge-data")
-            completed = subprocess.run(args, capture_output=True, text=True, check=False)
-            calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
-            return completed, paths, root, calls
+        args = ["bash", "-c", harness, "uninstall"]
+        if purge:
+            args.append("--purge-data")
+        completed = subprocess.run(args, capture_output=True, text=True, check=False)
+        calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+        return temporary, completed, paths, root, calls
 
     def test_uninstaller_execution_preserves_customer_data_by_default(self):
-        completed, paths, root, calls = self._run_uninstaller()
+        temporary, completed, paths, root, calls = self._run_uninstaller()
+        self.addCleanup(temporary.cleanup)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertFalse(paths["/opt/autozapaz"].exists())
         self.assertFalse(paths["/usr/local/lib/autozapaz"].exists())
@@ -153,14 +154,16 @@ userdel() {{ printf 'userdel %s\\\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertLess(calls.index("systemctl stop autozapaz.service"), calls.index("systemctl disable autozapaz.service"))
 
     def test_uninstaller_purge_removes_data_config_and_service_account(self):
-        completed, paths, root, calls = self._run_uninstaller(purge=True)
+        temporary, completed, paths, root, calls = self._run_uninstaller(purge=True)
+        self.addCleanup(temporary.cleanup)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         for path in paths.values():
             self.assertFalse(path.exists())
         self.assertIn("userdel autozapaz", calls)
 
     def test_uninstaller_stop_failure_prevents_all_destructive_changes(self):
-        completed, paths, root, calls = self._run_uninstaller(fail_stop=True)
+        temporary, completed, paths, root, calls = self._run_uninstaller(fail_stop=True)
+        self.addCleanup(temporary.cleanup)
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("Не вдалося зупинити службу", completed.stderr)
         for path in paths.values():
@@ -168,7 +171,8 @@ userdel() {{ printf 'userdel %s\\\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertEqual(calls, ["systemctl cat autozapaz.service", "systemctl stop autozapaz.service"])
 
     def test_uninstaller_rejects_symlinked_data_directory_before_stopping_service(self):
-        completed, paths, root, calls = self._run_uninstaller(symlink_data=True)
+        temporary, completed, paths, root, calls = self._run_uninstaller(symlink_data=True)
+        self.addCleanup(temporary.cleanup)
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("символічним посиланням", completed.stderr)
         self.assertEqual(calls, [])
