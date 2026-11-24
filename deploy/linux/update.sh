@@ -115,6 +115,19 @@ PY
     done
     return 1
 }
+resume_service() {
+    if ! systemctl start "$SERVICE"; then
+        printf 'Не вдалося повторно запустити службу %s.\n' "$SERVICE" >&2
+        return 1
+    fi
+    if ! health_check; then
+        systemctl stop "$SERVICE" || true
+        printf 'Стара служба %s не пройшла health-check після скасування оновлення.\n' "$SERVICE" >&2
+        return 1
+    fi
+    SERVICE_STOPPED=0
+    return 0
+}
 rollback_update() {
     local reason="$1"
     local temporary_db="$DATA_DIR/db.sqlite3.rollback-$STAMP"
@@ -247,29 +260,25 @@ info "Зупинка служби та резервне копіювання"
 systemctl stop "$SERVICE"
 SERVICE_STOPPED=1
 if ! BACKUP_OUTPUT="$(as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" backup --keep 30 2>&1)"; then
-    systemctl start "$SERVICE" || true
-    SERVICE_STOPPED=0
+    resume_service || true
     fail "Не вдалося створити резервну копію; оновлення скасовано. $BACKUP_OUTPUT"
 fi
 printf '%s\n' "$BACKUP_OUTPUT"
 BACKUP_PATH="$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Saved //p' | tail -n 1)"
 [[ -n "$BACKUP_PATH" && -f "$BACKUP_PATH" ]] || {
-    systemctl start "$SERVICE" || true
-    SERVICE_STOPPED=0
+    resume_service || true
     fail "Команда backup не повернула шлях до архіву."
 }
 case "$(realpath -e -- "$BACKUP_PATH")" in
     "$(realpath -e -- "$BACKUP_DIR")"/*) ;;
-    *) systemctl start "$SERVICE" || true; SERVICE_STOPPED=0; fail "Backup створено поза каталогом резервних копій." ;;
+    *) resume_service || true; fail "Backup створено поза каталогом резервних копій." ;;
 esac
 if ! as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" verify_backup "$BACKUP_PATH"; then
-    systemctl start "$SERVICE" || true
-    SERVICE_STOPPED=0
+    resume_service || true
     fail "Перевірка резервної копії не пройшла; оновлення скасовано."
 fi
 if ! as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" restore_backup "$BACKUP_PATH" "$RESTORE_DIR" --apply; then
-    systemctl start "$SERVICE" || true
-    SERVICE_STOPPED=0
+    resume_service || true
     fail "Не вдалося підготувати каталог відкату; оновлення скасовано."
 fi
 
