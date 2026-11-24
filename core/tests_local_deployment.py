@@ -145,7 +145,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('не може бути всередині чинної програми', script)
 
 
-    def _execute_updater_rollback(self, fail_media_restore=False, fail_health_check=False, fail_initial_stop=False):
+    def _execute_updater_rollback(self, fail_media_restore=False, fail_health_check=False, fail_initial_stop=False, fail_migration=False):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("rollback_update() {")
         end = script.index("\non_exit() {", start)
@@ -188,6 +188,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
             "FAIL_MEDIA_RESTORE": "1" if fail_media_restore else "0",
             "FAIL_HEALTH_CHECK": "1" if fail_health_check else "0",
             "FAIL_INITIAL_STOP": "1" if fail_initial_stop else "0",
+            "FAIL_MIGRATION": "1" if fail_migration else "0",
             "APP_SWITCHED": "1",
             "VENV_SWITCHED": "1",
             "ROLLBACK_ATTEMPTED": "0",
@@ -213,8 +214,22 @@ health_check() {{
     printf 'health_check\\n' >> "$CALL_LOG"
     [[ "$FAIL_HEALTH_CHECK" != 1 ]]
 }}
+as_service() {{
+    [[ "$FAIL_MIGRATION" != 1 ]]
+}}
+fail() {{
+    printf '%s\\n' "$*" >&2
+    exit 1
+}}
 {rollback}
-rollback_update "integration test"
+if [[ "$FAIL_MIGRATION" == 1 ]]; then
+    if ! as_service "$VENV_LINK/bin/python" "$APP_LINK/manage.py" migrate --noinput; then
+        rollback_update "Міграції завершилися помилкою." || true
+        fail "Оновлення скасовано."
+    fi
+else
+    rollback_update "integration test"
+fi
 """
         completed = subprocess.run(
             ["bash", "-c", harness],
@@ -277,6 +292,23 @@ rollback_update "integration test"
         calls = call_log.read_text(encoding="utf-8")
         self.assertIn("systemctl stop autozapaz.service", calls)
         self.assertNotIn("systemctl start autozapaz.service", calls)
+
+    def test_updater_migration_failure_runs_real_rollback_and_cancels_update(self):
+        temporary, completed, data, restore, old_app, old_venv, call_log = self._execute_updater_rollback(
+            fail_migration=True
+        )
+        self.addCleanup(temporary.cleanup)
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        self.assertIn("Міграції завершилися помилкою", completed.stderr)
+        self.assertIn("Оновлення скасовано", completed.stderr)
+        self.assertIn("Попередню версію та дані відновлено", completed.stdout)
+        self.assertEqual((data / "db.sqlite3").read_text(encoding="utf-8"), "previous database")
+        self.assertEqual((data / "media" / "old.txt").read_text(encoding="utf-8"), "previous media")
+        self.assertEqual((data.parent / "current").resolve(), old_app)
+        self.assertEqual((data.parent / "venv").resolve(), old_venv)
+        calls = call_log.read_text(encoding="utf-8")
+        self.assertIn("systemctl start autozapaz.service", calls)
+        self.assertIn("health_check", calls)
 
 
 class SignedReleaseVerificationTests(SimpleTestCase):
