@@ -213,7 +213,7 @@ def verify_backup_archive(source):
             for info in infos:
                 name = info.filename
                 member = Path(name)
-                if name.startswith(("/", "\\\\")) or "\\\\" in name or ".." in member.parts:
+                if name.startswith(("/", chr(92))) or chr(92) in name or ".." in member.parts:
                     raise ValueError(f"Небезпечний шлях у ZIP-архіві: {name}")
                 if info.file_size > MAX_BACKUP_MEMBER_SIZE:
                     raise ValueError(f"Файл у ZIP-архіві перевищує дозволений розмір: {name}")
@@ -224,7 +224,7 @@ def verify_backup_archive(source):
                 raise ValueError("Маніфест резервної копії перевищує дозволений розмір.")
             if "db.sqlite3" not in names:
                 raise ValueError("В архіві немає обов'язкового файлу db.sqlite3.")
-            if archive.testzip() is not None:
+            if "manifest.json" not in names and archive.testzip() is not None:
                 raise ValueError("ZIP-архів пошкоджений.")
 
             if "manifest.json" in names:
