@@ -127,3 +127,89 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             )
             with self.assertRaisesRegex(ValueError, "duplicate manifest key"):
                 verify_release(root, public, "1.2.3")
+
+
+    def test_signer_cli_creates_release_verified_by_runtime_verifier(self):
+        from unittest import mock
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import sign_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            release = base / "release"
+            release.mkdir()
+            (release / "manage.py").write_text("release payload", encoding="utf-8")
+            private = Ed25519PrivateKey.generate()
+            pem = private.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.BestAvailableEncryption(b"test-password"),
+            )
+            key_path = base / "publisher-key.pem"
+            key_path.write_bytes(pem)
+            public = private.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+            public_value = base64.urlsafe_b64encode(public).decode("ascii").rstrip("=")
+
+            with mock.patch.object(sys, "argv", [
+                "sign_release.py", "--release", str(release),
+                "--private-key", str(key_path), "--version", "2.0.0",
+            ]), mock.patch.object(sign_release, "getpass", return_value="test-password"):
+                sign_release.main()
+
+            self.assertEqual(verify_release(release, public_value, "2.0.0"), "2.0.0")
+            self.assertTrue((release / "release-manifest.json").read_bytes().endswith(b"\\n"))
+            self.assertTrue((release / "release-manifest.sig").read_bytes().endswith(b"\\n"))
+
+    def test_signer_refuses_private_key_inside_release_tree(self):
+        from unittest import mock
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import sign_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            release = Path(temp) / "release"
+            release.mkdir()
+            key_path = release / "publisher-key.pem"
+            key_path.write_text("not a real key", encoding="ascii")
+            with mock.patch.object(sys, "argv", [
+                "sign_release.py", "--release", str(release),
+                "--private-key", str(key_path), "--version", "1.0.0",
+            ]), self.assertRaises(SystemExit):
+                sign_release.main()
+
+    def test_signer_refuses_symlink_private_key(self):
+        from unittest import mock
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import sign_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            release = base / "release"
+            release.mkdir()
+            real_key = base / "real-key.pem"
+            real_key.write_text("not a real key", encoding="ascii")
+            linked_key = base / "linked-key.pem"
+            linked_key.symlink_to(real_key)
+            with mock.patch.object(sys, "argv", [
+                "sign_release.py", "--release", str(release),
+                "--private-key", str(linked_key), "--version", "1.0.0",
+            ]), self.assertRaises(SystemExit):
+                sign_release.main()
+
+    def test_signer_refuses_symlinks_inside_release_tree(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from sign_release import build_manifest
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target.txt"
+            target.write_text("payload", encoding="utf-8")
+            (root / "linked.txt").symlink_to(target)
+            with self.assertRaisesRegex(ValueError, "release contains symlink"):
+                build_manifest(root)
