@@ -168,7 +168,7 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertIn("Не вдалося зупинити службу", completed.stderr)
         for path in paths.values():
             self.assertTrue(path.exists())
-        self.assertEqual(calls, ["systemctl cat autozapaz.service", "systemctl stop autozapaz.service"])
+        self.assertEqual(calls, ["systemctl stop autozapaz.service"])
 
     def test_uninstaller_rejects_symlinked_data_directory_before_stopping_service(self):
         temporary, completed, paths, root, calls = self._run_uninstaller(symlink_data=True)
