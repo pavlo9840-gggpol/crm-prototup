@@ -63,6 +63,30 @@ class SignedReleaseVerificationTests(SimpleTestCase):
                 verify_release(temp, public, "1.2.3")
 
 
+
+    def test_release_signer_hashes_large_files_in_bounded_chunks(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from sign_release import HASH_CHUNK_BYTES, sha256_file
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "large.bin"
+            payload = (b"release-data-" * (HASH_CHUNK_BYTES // 13 + 100))
+            path.write_bytes(payload)
+            size, digest = sha256_file(path)
+            self.assertEqual(size, len(payload))
+            self.assertEqual(digest, hashlib.sha256(payload).hexdigest())
+
+    def test_release_signer_rejects_unsafe_version_identifiers(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from sign_release import validate_version
+
+        for version in ("", "../1.0", "1.0\\nforged", "x" * 65, " space"):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                validate_version(version)
+        self.assertEqual(validate_version("1.2.3-beta_1"), "1.2.3-beta_1")
+
     def test_oversized_manifest_is_rejected_before_json_parsing(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
