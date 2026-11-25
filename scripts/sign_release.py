@@ -102,7 +102,7 @@ def main():
     try:
         with tempfile.NamedTemporaryFile(dir=root.parent, prefix=".release-manifest-", delete=False) as stream:
             manifest_tmp = Path(stream.name)
-            stream.write(payload + b"\\n")
+            stream.write(payload + b"\n")
             stream.flush()
             import os
             os.fsync(stream.fileno())
@@ -111,7 +111,7 @@ def main():
             prefix=".release-signature-", delete=False
         ) as stream:
             signature_tmp = Path(stream.name)
-            stream.write(signature + "\\n")
+            stream.write(signature + "\n")
             stream.flush()
             os.fsync(stream.fileno())
         import os
