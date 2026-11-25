@@ -64,9 +64,10 @@ def verify_release(root, public_key, expected_version=None):
         raise ValueError("signed release manifest or signature missing")
 
     with manifest_path.open("rb") as stream:
-        payload = stream.read(MAX_MANIFEST_BYTES + 1).strip()
+        payload = stream.read(MAX_MANIFEST_BYTES + 1)
     if len(payload) > MAX_MANIFEST_BYTES:
         raise ValueError("release manifest exceeds size limit")
+    payload = payload.strip()
     with signature_path.open("rb") as stream:
         signature_payload = stream.read(MAX_SIGNATURE_BYTES + 1)
     if len(signature_payload) > MAX_SIGNATURE_BYTES:
