@@ -62,6 +62,25 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             with self.assertRaisesRegex(ValueError, "file list mismatch"):
                 verify_release(temp, public, "1.2.3")
 
+
+    def test_oversized_manifest_is_rejected_before_json_parsing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "manage.py").write_text("safe release", encoding="utf-8")
+            (root / "release-manifest.json").write_bytes(b" " * (16 * 1024 * 1024 + 1))
+            (root / "release-manifest.sig").write_text("AA", encoding="ascii")
+            with self.assertRaisesRegex(ValueError, "manifest exceeds size limit"):
+                verify_release(root, "A" * 43, "1.2.3")
+
+    def test_oversized_signature_is_rejected_before_decoding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "manage.py").write_text("safe release", encoding="utf-8")
+            (root / "release-manifest.json").write_bytes(b"{}")
+            (root / "release-manifest.sig").write_bytes(b"A" * (4096 + 1))
+            with self.assertRaisesRegex(ValueError, "signature exceeds size limit"):
+                verify_release(root, "A" * 43, "1.2.3")
+
     def test_duplicate_manifest_keys_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
