@@ -80,6 +80,12 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('Чинне Python-середовище знаходиться поза коренем інсталяції', script)
         self.assertIn('staticfiles" -prune', script)
         self.assertIn('Файли чинного Python-середовища мають належати root', script)
+        self.assertIn('[[ -d "$DATA_DIR" && ! -L "$DATA_DIR" ]] || fail', script)
+        self.assertIn('[[ -d "$DATA_DIR/media" && ! -L "$DATA_DIR/media" ]] || fail', script)
+        self.assertIn('[[ "$BACKUP_DIR" == /* ]] || fail', script)
+        self.assertIn('[[ -d "$BACKUP_DIR" && ! -L "$BACKUP_DIR" ]] || fail', script)
+        self.assertLess(script.index('Постійний каталог даних відсутній'), script.index('mkdir -p "$RELEASES_DIR" "$VENVS_DIR"'))
+        self.assertLess(script.index('Каталог резервних копій відсутній'), script.index('mkdir -p "$RELEASES_DIR" "$VENVS_DIR"'))
 
     def test_uninstaller_preserves_data_by_default_and_requires_explicit_purge(self):
         script = (ROOT / "deploy/linux/uninstall.sh").read_text(encoding="utf-8")
