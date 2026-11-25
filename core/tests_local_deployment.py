@@ -105,7 +105,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('Не вдалося зупинити службу; файли не видалялися', script)
         self.assertIn('Каталог $directory є символічним посиланням', script)
         self.assertIn('Дані, конфігурація та системний користувач збережені', script)
-    def _run_uninstaller(self, purge=False, fail_stop=False, symlink_data=False):
+    def _run_uninstaller(self, purge=False, fail_stop=False, symlink_data=False, systemctl_missing=False):
         script = (ROOT / "deploy/linux/uninstall.sh").read_text(encoding="utf-8")
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
@@ -134,21 +134,29 @@ id() {{
     if [[ "$1" == "-u" ]]; then printf '0\\n'; return 0; fi
     return 0
 }}
-systemctl() {{
+{" " if systemctl_missing else f'''systemctl() {{
     printf 'systemctl %s\\n' "$*" >> {shlex.quote(str(log))}
     case "$1" in
         cat) return 0 ;;
         stop) [[ {1 if fail_stop else 0} != 1 ]] ;;
         *) return 0 ;;
     esac
-}}
+}}'''}
 userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
 {script}
 """
-        args = ["bash", "-c", harness, "uninstall"]
+        args = ["/bin/bash", "-c", harness, "uninstall"]
         if purge:
             args.append("--purge-data")
-        completed = subprocess.run(args, capture_output=True, text=True, check=False)
+        env = None
+        if systemctl_missing:
+            stub_bin = root / "bin"
+            stub_bin.mkdir()
+            id_stub = stub_bin / "id"
+            id_stub.write_text("#!/bin/sh\\n[ \\"$1\\" = \\"-u\\" ] && { echo 0; exit 0; }\\nexit 0\\n", encoding="utf-8")
+            id_stub.chmod(0o755)
+            env = {"PATH": str(stub_bin)}
+        completed = subprocess.run(args, capture_output=True, text=True, check=False, env=env)
         calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
         return temporary, completed, paths, root, calls
 
@@ -188,6 +196,14 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertIn("символічним посиланням", completed.stderr)
         self.assertEqual(calls, [])
         self.assertTrue((root / "outside" / "sentinel").exists())
+
+    def test_uninstaller_runtime_guard_keeps_files_when_systemctl_is_missing(self):
+        temporary, completed, paths, root, calls = self._run_uninstaller(systemctl_missing=True)
+        self.addCleanup(temporary.cleanup)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("systemctl недоступний", completed.stderr)
+        for path in paths.values():
+            self.assertTrue(path.exists())
 
     def test_uninstaller_refuses_to_remove_files_when_systemctl_is_unavailable(self):
         script = (ROOT / "deploy/linux/uninstall.sh").read_text(encoding="utf-8")
