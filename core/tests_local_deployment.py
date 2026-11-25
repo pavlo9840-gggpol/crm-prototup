@@ -105,7 +105,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('Не вдалося зупинити службу; файли не видалялися', script)
         self.assertIn('Каталог $directory є символічним посиланням', script)
         self.assertIn('Дані, конфігурація та системний користувач збережені', script)
-    def _run_uninstaller(self, purge=False, fail_stop=False, symlink_data=False, systemctl_missing=False):
+    def _run_uninstaller(self, purge=False, fail_stop=False, symlink_data=False, systemctl_missing=False, service_file_missing=False):
         script = (ROOT / "deploy/linux/uninstall.sh").read_text(encoding="utf-8")
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
@@ -121,7 +121,8 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         for key in ("app", "data", "config", "verifier"):
             (root / key).mkdir()
             (root / key / "sentinel").write_text(key, encoding="utf-8")
-        paths["/etc/systemd/system/autozapaz.service"].write_text("unit", encoding="utf-8")
+        if not service_file_missing:
+            paths["/etc/systemd/system/autozapaz.service"].write_text("unit", encoding="utf-8")
         if symlink_data:
             import shutil
             shutil.rmtree(paths["/var/lib/autozapaz"])
@@ -198,7 +199,7 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertTrue((root / "outside" / "sentinel").exists())
 
     def test_uninstaller_runtime_guard_keeps_files_when_systemctl_is_missing(self):
-        temporary, completed, paths, root, calls = self._run_uninstaller(systemctl_missing=True)
+        temporary, completed, paths, root, calls = self._run_uninstaller(systemctl_missing=True, service_file_missing=True)
         self.addCleanup(temporary.cleanup)
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("systemctl недоступний", completed.stderr)
