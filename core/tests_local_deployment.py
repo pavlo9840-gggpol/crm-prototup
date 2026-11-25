@@ -44,7 +44,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('Каталог початкового релізу має належати root', script)
         self.assertIn('Кореневий каталог інсталяції відсутній або є символічним посиланням', script)
         self.assertIn('Кореневий каталог інсталяції має належати root', script)
-        self.assertIn('Каталог інсталяції доступний для запису групі/іншим', script)
+        self.assertIn('Кореневий каталог інсталяції доступний для запису групі/іншим', script)
         self.assertIn('Шлях $directory є символічним посиланням', script)
         self.assertLess(script.index('for directory in "$DATA_DIR" "$CONFIG_DIR" "$VENV_DIR"'), script.index('install -d -o root -g "$SERVICE_USER" -m 0750 "$INSTALL_ROOT"'))
         self.assertIn('Початковий реліз містить символічні посилання', script)
