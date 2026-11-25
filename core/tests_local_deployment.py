@@ -153,7 +153,7 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
             stub_bin = root / "bin"
             stub_bin.mkdir()
             id_stub = stub_bin / "id"
-            id_stub.write_text("#!/bin/sh\\n[ \\"$1\\" = \\"-u\\" ] && { echo 0; exit 0; }\\nexit 0\\n", encoding="utf-8")
+            id_stub.write_text('#!/bin/sh\n[ "$1" = "-u" ] && { echo 0; exit 0; }\nexit 0\n', encoding="utf-8")
             id_stub.chmod(0o755)
             env = {"PATH": str(stub_bin)}
         completed = subprocess.run(args, capture_output=True, text=True, check=False, env=env)
