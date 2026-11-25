@@ -210,6 +210,7 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         script = (ROOT / "deploy/linux/uninstall.sh").read_text(encoding="utf-8")
         self.assertIn('[[ -e "$SERVICE_FILE" ]] || systemctl cat "$SERVICE"', script)
         self.assertIn('command -v systemctl >/dev/null 2>&1 || fail', script)
+        self.assertLess(script.index('command -v systemctl'), script.index('if [[ -e "$SERVICE_FILE" ]]'))
         self.assertLess(script.index('command -v systemctl'), script.index('rm -rf --one-file-system -- "$INSTALL_ROOT"'))
 
     def test_updater_creates_and_verifies_backup_before_switching_release(self):
