@@ -41,6 +41,14 @@ info() { printf '\n==> %s\n' "$*"; }
 [[ "$(id -u)" -eq 0 ]] || fail "Запустіть інсталятор від root: sudo bash deploy/linux/install.sh"
 [[ -d "$APP_DIR" && ! -L "$APP_DIR" && -f "$APP_DIR/manage.py" && -f "$APP_DIR/requirements.txt" ]] || fail "Спочатку розпакуйте реліз у звичайний каталог $APP_DIR."
 [[ "$(stat -c '%u' -- "$APP_DIR")" == "0" ]] || fail "Каталог початкового релізу має належати root."
+[[ -d "$INSTALL_ROOT" && ! -L "$INSTALL_ROOT" ]] || fail "Кореневий каталог інсталяції відсутній або є символічним посиланням."
+[[ "$(stat -c '%u' -- "$INSTALL_ROOT")" == "0" ]] || fail "Кореневий каталог інсталяції має належати root."
+INSTALL_ROOT_MODE="$(stat -c '%a' -- "$INSTALL_ROOT")"
+(( (8#$INSTALL_ROOT_MODE & 0022) == 0 )) || fail "Кореневий каталог інсталяції доступний для запису групі/іншим."
+for directory in "$DATA_DIR" "$CONFIG_DIR" "$VENV_DIR"; do
+    if [[ -L "$directory" ]]; then fail "Шлях $directory є символічним посиланням; інсталяцію скасовано."; fi
+    if [[ -e "$directory" && ! -d "$directory" ]]; then fail "Шлях $directory не є каталогом."; fi
+done
 [[ "$(find "$APP_DIR" -type l -print -quit)" == "" ]] || fail "Початковий реліз містить символічні посилання."
 [[ "$(find "$APP_DIR" \( -type f -o -type d \) \( ! -user root -o -perm /022 \) -print -quit)" == "" ]] || fail "Усі файли/каталоги релізу мають належати root і не бути доступними для запису групі/іншим."
 [[ -f "$SERVICE_SOURCE" ]] || fail "Не знайдено systemd unit: $SERVICE_SOURCE"
