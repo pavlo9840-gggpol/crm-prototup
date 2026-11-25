@@ -203,8 +203,11 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.addCleanup(temporary.cleanup)
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("systemctl недоступний", completed.stderr)
-        for path in paths.values():
-            self.assertTrue(path.exists())
+        for key, path in paths.items():
+            if key == "/etc/systemd/system/autozapaz.service":
+                self.assertFalse(path.exists(), "fixture intentionally starts without a service unit")
+            else:
+                self.assertTrue(path.exists())
 
     def test_uninstaller_refuses_to_remove_files_when_systemctl_is_unavailable(self):
         script = (ROOT / "deploy/linux/uninstall.sh").read_text(encoding="utf-8")
