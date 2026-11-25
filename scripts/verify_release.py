@@ -14,6 +14,17 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 MANIFEST = "release-manifest.json"
 SIGNATURE = "release-manifest.sig"
+MAX_MANIFEST_BYTES = 16 * 1024 * 1024
+MAX_SIGNATURE_BYTES = 4096
+HASH_CHUNK_BYTES = 1024 * 1024
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(HASH_CHUNK_BYTES), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def decode_b64(value):
@@ -52,8 +63,15 @@ def verify_release(root, public_key, expected_version=None):
     if not manifest_path.is_file() or not signature_path.is_file():
         raise ValueError("signed release manifest or signature missing")
 
-    payload = manifest_path.read_bytes().strip()
-    signature = decode_b64(signature_path.read_text(encoding="ascii").strip())
+    with manifest_path.open("rb") as stream:
+        payload = stream.read(MAX_MANIFEST_BYTES + 1).strip()
+    if len(payload) > MAX_MANIFEST_BYTES:
+        raise ValueError("release manifest exceeds size limit")
+    with signature_path.open("rb") as stream:
+        signature_payload = stream.read(MAX_SIGNATURE_BYTES + 1)
+    if len(signature_payload) > MAX_SIGNATURE_BYTES:
+        raise ValueError("release signature exceeds size limit")
+    signature = decode_b64(signature_payload.decode("ascii").strip())
     load_key(public_key).verify(signature, payload)
     manifest = json.loads(payload, object_pairs_hook=reject_duplicate_keys)
 
@@ -93,7 +111,7 @@ def verify_release(root, public_key, expected_version=None):
         file_path = root / relative
         if not file_path.is_file() or file_path.stat().st_size != metadata["size"]:
             raise ValueError("size mismatch: " + relative)
-        if hashlib.sha256(file_path.read_bytes()).hexdigest() != digest:
+        if sha256_file(file_path) != digest:
             raise ValueError("digest mismatch: " + relative)
     return version
 
