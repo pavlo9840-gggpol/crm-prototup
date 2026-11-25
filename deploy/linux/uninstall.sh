@@ -26,8 +26,8 @@ for directory in "$INSTALL_ROOT" "$TRUSTED_VERIFIER_DIR" "$DATA_DIR" "$CONFIG_DI
 done
 if [[ -L "$SERVICE_FILE" ]]; then fail "Файл systemd unit є символічним посиланням; автоматичне видалення скасовано."; fi
 
+command -v systemctl >/dev/null 2>&1 || fail "systemctl недоступний; неможливо перевірити/зупинити службу, файли не видалялися."
 if [[ -e "$SERVICE_FILE" ]] || systemctl cat "$SERVICE" >/dev/null 2>&1; then
-    command -v systemctl >/dev/null 2>&1 || fail "systemctl недоступний; файли не видалялися."
     systemctl stop "$SERVICE" || fail "Не вдалося зупинити службу; файли не видалялися."
     systemctl disable "$SERVICE" || fail "Не вдалося вимкнути службу; файли не видалялися."
 fi
