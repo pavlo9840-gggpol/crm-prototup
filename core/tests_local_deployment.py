@@ -364,7 +364,7 @@ printf 'SERVICE_STOPPED=%s\\n' "$SERVICE_STOPPED"
         self.assertIn('TRUSTED_VERIFIER="$APP_LINK/scripts/verify_release.py"', script)
         self.assertIn('Staging-копія релізу не пройшла повторну перевірку', script)
         self.assertIn('--version "$VERSION"', script)
-        self.assertIn('Підпис або контрольні суми релізу не пройшли перевірку', script)
+        self.assertIn('Підпис, контрольні суми або послідовність релізу не пройшли перевірку', script)
 
     def test_signed_release_tools_exist_and_validate_manifest(self):
         signer = (ROOT / "scripts/sign_release.py").read_text(encoding="utf-8")
