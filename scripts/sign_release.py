@@ -78,7 +78,7 @@ def publish_signed_files(root, manifest_payload, signature):
         with tempfile.NamedTemporaryFile(dir=root.parent, prefix=".release-manifest-", delete=False) as stream:
             manifest_tmp = Path(stream.name)
             temporary_paths.append(manifest_tmp)
-            stream.write(manifest_payload + b"\\n")
+            stream.write(manifest_payload + b"\n")
             stream.flush()
             os.fsync(stream.fileno())
         with tempfile.NamedTemporaryFile(
@@ -87,7 +87,7 @@ def publish_signed_files(root, manifest_payload, signature):
         ) as stream:
             signature_tmp = Path(stream.name)
             temporary_paths.append(signature_tmp)
-            stream.write(signature + "\\n")
+            stream.write(signature + "\n")
             stream.flush()
             os.fsync(stream.fileno())
 
