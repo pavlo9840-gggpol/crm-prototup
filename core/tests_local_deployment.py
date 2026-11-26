@@ -326,6 +326,7 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         for phase in phases:
             self.assertIn(f'write_update_state "{phase}"', script)
         self.assertIn('os.fsync(stream.fileno())', script)
+        self.assertIn('os.fsync(fd)', script)
         self.assertIn('chmod 0600 "$temporary_state"', script)
         self.assertIn('mv -f -- "$temporary_state" "$UPDATE_STATE"', script)
         self.assertIn('Автоматичний повторний запуск заблоковано', script)
