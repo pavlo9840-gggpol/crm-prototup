@@ -97,11 +97,13 @@ def publish_signed_files(root, manifest_payload, signature):
         os.link(signature_tmp, signature_path)
         published_paths.append((signature_path, signature_tmp))
 
-        directory_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        directory_flag = getattr(os, "O_DIRECTORY", None)
+        if directory_flag is not None:
+            directory_fd = os.open(root, os.O_RDONLY | directory_flag)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     except Exception:
         for published, temporary in reversed(published_paths):
             if _same_file(published, temporary):
