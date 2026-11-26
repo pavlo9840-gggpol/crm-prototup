@@ -302,7 +302,7 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertIn('if ! systemctl start "$SERVICE"; then', resume)
         self.assertIn("if ! health_check; then", resume)
         self.assertIn("SERVICE_STOPPED=0", resume)
-        self.assertEqual(script.count("resume_service || true"), 5)
+        self.assertEqual(script.count("resume_service || true"), 8)
         self.assertNotIn('systemctl start "$SERVICE" || true', script)
 
     def test_updater_resume_service_preserves_stopped_flag_on_failures(self):
