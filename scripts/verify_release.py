@@ -54,7 +54,7 @@ def reject_duplicate_keys(pairs):
     return result
 
 
-def verify_release(root, public_key, expected_version=None):
+def load_signed_manifest(root, public_key):
     root = Path(root).resolve()
     if not root.is_dir():
         raise ValueError("release directory does not exist")
@@ -62,7 +62,6 @@ def verify_release(root, public_key, expected_version=None):
     signature_path = root / SIGNATURE
     if not manifest_path.is_file() or not signature_path.is_file():
         raise ValueError("signed release manifest or signature missing")
-
     with manifest_path.open("rb") as stream:
         payload = stream.read(MAX_MANIFEST_BYTES + 1)
     if len(payload) > MAX_MANIFEST_BYTES:
@@ -75,16 +74,38 @@ def verify_release(root, public_key, expected_version=None):
     signature = decode_b64(signature_payload.decode("ascii").strip())
     load_key(public_key).verify(signature, payload)
     manifest = json.loads(payload, object_pairs_hook=reject_duplicate_keys)
-
     if not isinstance(manifest, dict):
         raise ValueError("manifest must be an object")
-    if type(manifest.get("format_version")) is not int or manifest["format_version"] != 1:
+    format_version = manifest.get("format_version")
+    if type(format_version) is not int or format_version not in (1, 2):
         raise ValueError("unsupported manifest format")
     version = manifest.get("version")
     if not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", version):
         raise ValueError("invalid release version")
+    if format_version == 1:
+        sequence = 0
+    else:
+        sequence = manifest.get("release_sequence")
+        if type(sequence) is not int or sequence < 1:
+            raise ValueError("invalid release sequence")
+    return manifest, version, sequence
+
+
+def read_release_sequence(root, public_key):
+    """Read the sequence from the signed manifest without hashing the installed tree."""
+    return load_signed_manifest(root, public_key)[2]
+
+
+def verify_release(root, public_key, expected_version=None, minimum_sequence=None):
+    root = Path(root).resolve()
+    manifest, version, sequence = load_signed_manifest(root, public_key)
     if expected_version and version != expected_version:
         raise ValueError("release version mismatch")
+    if minimum_sequence is not None:
+        if type(minimum_sequence) is not int or minimum_sequence < 1:
+            raise ValueError("minimum release sequence must be a positive integer")
+        if sequence < minimum_sequence:
+            raise ValueError("release sequence is older than the installed release")
 
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
@@ -122,11 +143,16 @@ def main():
     parser.add_argument("--release", required=True, type=Path)
     parser.add_argument("--public-key", default=os.environ.get("AUTOZAPAZ_RELEASE_PUBLIC_KEY", ""))
     parser.add_argument("--version")
+    parser.add_argument("--minimum-sequence", type=int)
+    parser.add_argument("--print-sequence", action="store_true", help="Print signed sequence from the installed manifest")
     args = parser.parse_args()
     if not args.public_key:
         parser.error("release public key required")
     try:
-        version = verify_release(args.release, args.public_key, args.version)
+        if args.print_sequence:
+            print(read_release_sequence(args.release, args.public_key))
+            return
+        version = verify_release(args.release, args.public_key, args.version, args.minimum_sequence)
     except Exception as exc:
         print("Release verification failed:", exc, file=sys.stderr)
         raise SystemExit(1)
