@@ -317,7 +317,6 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertIn('flock -n 9', script)
         self.assertIn('UPDATE_STATE="$DATA_DIR/.update-state.json"', script)
         self.assertIn('[[ ! -e "$UPDATE_STATE" && ! -L "$UPDATE_STATE" ]] || fail', script)
-        self.assertIn('definitely_not_a_real_phase', script) if False else None
         phases = (
             'preparing_release', 'service_stopped', 'backup_created',
             'rollback_ready', 'app_switched', 'venv_switched',
@@ -329,6 +328,13 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertIn('chmod 0600 "$temporary_state"', script)
         self.assertIn('mv -f -- "$temporary_state" "$UPDATE_STATE"', script)
         self.assertIn('Автоматичний повторний запуск заблоковано', script)
+        for reason in (
+            "Міграції завершилися помилкою.",
+            "Django system check не пройшов.",
+            "collectstatic завершився помилкою.",
+            "Нова версія не запустилася або не відповідає на HTTP.",
+        ):
+            self.assertIn(f'if rollback_update "{reason}"; then clear_update_state; fi', script)
 
     def test_updater_restarts_old_service_only_after_health_check(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
