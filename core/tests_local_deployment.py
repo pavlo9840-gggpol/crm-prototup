@@ -341,7 +341,7 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
     def test_updater_journal_functions_write_private_atomic_json_and_clear_owned_state(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("write_update_state() {")
-        end = script.index("\\natomic_link() {", start)
+        end = script.index("\natomic_link() {", start)
         functions = script[start:end]
         with tempfile.TemporaryDirectory() as temporary:
             state_dir = Path(temporary)
@@ -378,7 +378,7 @@ if [[ -e "$UPDATE_STATE" ]]; then echo STILL_EXISTS; else echo CLEARED; fi
     def test_updater_journal_clear_refuses_symlink_state(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("clear_update_state() {")
-        end = script.index("\\natomic_link() {", start)
+        end = script.index("\natomic_link() {", start)
         function = script[start:end]
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
