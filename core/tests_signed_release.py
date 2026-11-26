@@ -10,7 +10,7 @@ from django.test import SimpleTestCase
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from verify_release import verify_release
+from verify_release import read_release_sequence, verify_release
 
 
 class SignedReleaseVerificationTests(SimpleTestCase):
@@ -36,6 +36,13 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             base64.urlsafe_b64encode(signature).decode().rstrip("="), encoding="ascii"
         )
         return public_value
+
+    def test_legacy_manifest_has_sequence_zero(self):
+        with tempfile.TemporaryDirectory() as temp:
+            public = self._signed_release(temp)
+            self.assertEqual(read_release_sequence(temp, public), 0)
+            with self.assertRaisesRegex(ValueError, "older than the installed release"):
+                verify_release(temp, public, "1.2.3", minimum_sequence=1)
 
     def test_valid_release_signature_and_hashes_are_accepted(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -156,7 +163,7 @@ class SignedReleaseVerificationTests(SimpleTestCase):
 
             with mock.patch.object(sys, "argv", [
                 "sign_release.py", "--release", str(release),
-                "--private-key", str(key_path), "--version", "2.0.0",
+                "--private-key", str(key_path), "--version", "2.0.0", "--sequence", "2",
             ]), mock.patch.object(sign_release, "getpass", return_value="test-password"):
                 sign_release.main()
 
@@ -177,7 +184,7 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             key_path.write_text("not a real key", encoding="ascii")
             with mock.patch.object(sys, "argv", [
                 "sign_release.py", "--release", str(release),
-                "--private-key", str(key_path), "--version", "1.0.0",
+                "--private-key", str(key_path), "--version", "1.0.0", "--sequence", "1",
             ]), self.assertRaises(SystemExit):
                 sign_release.main()
 
@@ -197,7 +204,7 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             linked_key.symlink_to(real_key)
             with mock.patch.object(sys, "argv", [
                 "sign_release.py", "--release", str(release),
-                "--private-key", str(linked_key), "--version", "1.0.0",
+                "--private-key", str(linked_key), "--version", "1.0.0", "--sequence", "1",
             ]), self.assertRaises(SystemExit):
                 sign_release.main()
 
