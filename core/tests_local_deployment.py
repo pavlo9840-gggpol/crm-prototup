@@ -1,16 +1,19 @@
 import base64
 import hashlib
 import json
+import os
 import tempfile
 import shlex
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives import serialization
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from django.test import SimpleTestCase
 
+from scripts.sign_release import publish_signed_files
 from scripts.verify_release import verify_release
 
 
@@ -604,6 +607,47 @@ class SignedReleaseVerificationTests(SimpleTestCase):
         (root / "release-manifest.json").write_bytes(payload + b"\n")
         signature = base64.urlsafe_b64encode(private_key.sign(payload)).decode("ascii").rstrip("=")
         (root / "release-manifest.sig").write_text(signature + "\n", encoding="ascii")
+
+    def test_signer_publishes_manifest_and_signature_with_real_newlines(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "release"
+            root.mkdir()
+            publish_signed_files(root, b'{"format_version":1}', "signature")
+            self.assertEqual((root / "release-manifest.json").read_bytes(), b'{"format_version":1}\\n')
+            self.assertEqual((root / "release-manifest.sig").read_bytes(), b"signature\\n")
+
+    def test_signer_removes_partial_manifest_if_signature_publish_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "release"
+            root.mkdir()
+            real_link = os.link
+            calls = 0
+
+            def fail_second_link(source, destination):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("simulated signature publication failure")
+                return real_link(source, destination)
+
+            with patch("os.link", side_effect=fail_second_link):
+                with self.assertRaisesRegex(OSError, "simulated"):
+                    publish_signed_files(root, b"manifest", "signature")
+
+            self.assertFalse((root / "release-manifest.json").exists())
+            self.assertFalse((root / "release-manifest.sig").exists())
+            self.assertEqual(list(root.parent.iterdir()), [root])
+
+    def test_signer_never_overwrites_existing_signature_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "release"
+            root.mkdir()
+            existing = root / "release-manifest.json"
+            existing.write_bytes(b"trusted existing file")
+            with self.assertRaises(FileExistsError):
+                publish_signed_files(root, b"new manifest", "new signature")
+            self.assertEqual(existing.read_bytes(), b"trusted existing file")
+            self.assertFalse((root / "release-manifest.sig").exists())
 
     def test_valid_ed25519_release_and_expected_version(self):
         private_key = Ed25519PrivateKey.generate()
