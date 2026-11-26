@@ -6,6 +6,7 @@ VENV_LINK="$INSTALL_ROOT/venv"
 RELEASES_DIR="$INSTALL_ROOT/releases"
 VENVS_DIR="$INSTALL_ROOT/venvs"
 DATA_DIR="/var/lib/autozapaz"
+UPDATE_STATE="$DATA_DIR/.update-state.json"
 BACKUP_DIR="$DATA_DIR/backups"
 ENV_FILE="/etc/autozapaz/autozapaz.env"
 SERVICE="autozapaz.service"
@@ -18,6 +19,8 @@ info() { printf '\n==> %s\n' "$*"; }
 [[ $# -eq 2 ]] || fail "Використання: update.sh <каталог-релізу> <версія>"
 RELEASE_SOURCE="$(realpath -e -- "$1")"
 VERSION="$2"
+exec 9>/run/lock/autozapaz-update.lock
+flock -n 9 || fail "Інше оновлення вже виконується."
 [[ "$VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || fail "Некоректний ідентифікатор версії."
 [[ -d "$RELEASE_SOURCE" && -f "$RELEASE_SOURCE/manage.py" && -f "$RELEASE_SOURCE/requirements.txt" ]] || fail "Каталог релізу має містити manage.py та requirements.txt."
 [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" && -f "$APP_LINK/manage.py" && -x "$VENV_LINK/bin/python" ]] || fail "Не знайдено безпечну чинну інсталяцію АвтоЗапас."
@@ -55,6 +58,7 @@ MINIMUM_RELEASE_SEQUENCE="$((CURRENT_RELEASE_SEQUENCE + 1))"
 id "$SERVICE_USER" >/dev/null 2>&1 || fail "Не знайдено системного користувача $SERVICE_USER."
 SERVICE_UID="$(id -u "$SERVICE_USER")"
 [[ -d "$DATA_DIR" && ! -L "$DATA_DIR" ]] || fail "Постійний каталог даних відсутній або є символічним посиланням."
+[[ ! -e "$UPDATE_STATE" && ! -L "$UPDATE_STATE" ]] || fail "Знайдено журнал незавершеного оновлення: $UPDATE_STATE. Повторний запуск заблоковано для захисту бази й резервної копії. Спочатку перевірте стан служби, посилання app/venv, .rollback-restore-* та виконайте ручне відновлення."
 [[ -d "$DATA_DIR/media" && ! -L "$DATA_DIR/media" ]] || fail "Каталог медіафайлів відсутній або є символічним посиланням."
 [[ -d "$BACKUP_DIR" && ! -L "$BACKUP_DIR" ]] || fail "Каталог резервних копій відсутній або є символічним посиланням."
 for directory in "$DATA_DIR" "$DATA_DIR/media" "$BACKUP_DIR"; do
@@ -102,6 +106,7 @@ VENV_SWITCHED=0
 SERVICE_STOPPED=0
 UPDATE_COMPLETE=0
 ROLLBACK_ATTEMPTED=0
+STATE_WRITTEN=0
 [[ ! -e "$NEW_APP" && ! -e "$NEW_VENV" ]] || fail "Каталог версії вже існує."
 mkdir -p "$RELEASES_DIR" "$VENVS_DIR"
 
@@ -116,6 +121,30 @@ as_service() {
         "AUTOZAPAZ_LICENSE_PUBLIC_KEY=$AUTOZAPAZ_LICENSE_PUBLIC_KEY" \
         "AUTOZAPAZ_REQUIRE_LICENSE=${AUTOZAPAZ_REQUIRE_LICENSE:-1}" \
         "AUTOZAPAZ_SECURE_COOKIES=${AUTOZAPAZ_SECURE_COOKIES:-0}" "$@"
+}
+write_update_state() {
+    local phase="$1" temporary_state
+    temporary_state="$(mktemp "$DATA_DIR/.update-state.XXXXXX")"
+    python3 - "$temporary_state" "$phase" "$STAMP" "$OLD_APP_REAL" "$OLD_VENV_REAL" "$NEW_APP" "$NEW_VENV" "$RESTORE_DIR" "$BACKUP_PATH" <<'PY'
+import json, os, sys
+path, phase, stamp, old_app, old_venv, new_app, new_venv, restore_dir, backup = sys.argv[1:]
+payload = {"format_version": 1, "phase": phase, "stamp": stamp, "old_app": old_app, "old_venv": old_venv, "new_app": new_app, "new_venv": new_venv, "restore_dir": restore_dir, "backup": backup}
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(payload, stream, ensure_ascii=False, sort_keys=True)
+    stream.write("\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+PY
+    chown root:root "$temporary_state"
+    chmod 0600 "$temporary_state"
+    mv -f -- "$temporary_state" "$UPDATE_STATE"
+    STATE_WRITTEN=1
+}
+clear_update_state() {
+    if [[ -e "$UPDATE_STATE" && ! -L "$UPDATE_STATE" && "$(stat -c '%u' -- "$UPDATE_STATE")" == "0" ]]; then
+        rm -f -- "$UPDATE_STATE"
+    fi
+    STATE_WRITTEN=0
 }
 atomic_link() {
     local link_path="$1" target_path="$2" temporary_link="${1}.next-$STAMP"
@@ -291,6 +320,7 @@ on_exit() {
 trap on_exit EXIT
 
 info "Підготовка релізу $VERSION"
+write_update_state "preparing_release"
 cp -a "$RELEASE_SOURCE" "$NEW_APP"
 chown -R "root:$SERVICE_USER" "$NEW_APP"
 find "$NEW_APP" -type d -exec chmod 0750 {} +
@@ -311,12 +341,14 @@ as_service "$NEW_VENV/bin/python" "$NEW_APP/manage.py" collectstatic --noinput
 info "Зупинка служби та резервне копіювання"
 systemctl stop "$SERVICE"
 SERVICE_STOPPED=1
+write_update_state "service_stopped"
 if ! BACKUP_OUTPUT="$(as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" backup --keep 30 2>&1)"; then
     resume_service || true
     fail "Не вдалося створити резервну копію; оновлення скасовано. $BACKUP_OUTPUT"
 fi
 printf '%s\n' "$BACKUP_OUTPUT"
 BACKUP_PATH="$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Saved //p' | tail -n 1)"
+write_update_state "backup_created"
 [[ -n "$BACKUP_PATH" && -f "$BACKUP_PATH" ]] || {
     resume_service || true
     fail "Команда backup не повернула шлях до архіву."
@@ -339,16 +371,20 @@ if ! as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" restore_backup
     resume_service || true
     fail "Не вдалося підготувати каталог відкату; оновлення скасовано."
 fi
+write_update_state "rollback_ready"
 
 info "Перемикання коду та Python-середовища"
 atomic_link "$APP_LINK" "$NEW_APP" "$OLD_APP_FALLBACK"
 if [[ "$OLD_APP_REAL" == "$APP_LINK" ]]; then OLD_APP_REAL="$OLD_APP_FALLBACK"; fi
 APP_SWITCHED=1
+write_update_state "app_switched"
 atomic_link "$VENV_LINK" "$NEW_VENV" "$OLD_VENV_FALLBACK"
 if [[ "$OLD_VENV_REAL" == "$VENV_LINK" ]]; then OLD_VENV_REAL="$OLD_VENV_FALLBACK"; fi
 VENV_SWITCHED=1
+write_update_state "venv_switched"
 
 info "Застосування міграцій"
+write_update_state "migrations_started"
 if ! as_service "$VENV_LINK/bin/python" "$APP_LINK/manage.py" migrate --noinput; then
     rollback_update "Міграції завершилися помилкою." || true
     fail "Оновлення скасовано."
@@ -368,8 +404,10 @@ if ! systemctl start "$SERVICE" || ! health_check; then
     fail "Оновлення скасовано."
 fi
 SERVICE_STOPPED=0
+write_update_state "health_check_passed"
 rm -rf -- "$RESTORE_DIR"
 UPDATE_COMPLETE=1
+clear_update_state
 printf '\nОновлення до %s успішне.\n' "$VERSION"
 printf 'Backup перед оновленням: %s\n' "$BACKUP_PATH"
 printf 'Попередній код і venv збережені: %s ; %s\n' "$OLD_APP_REAL" "$OLD_VENV_REAL"
