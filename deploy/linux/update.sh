@@ -138,6 +138,7 @@ PY
     chown root:root "$temporary_state"
     chmod 0600 "$temporary_state"
     mv -f -- "$temporary_state" "$UPDATE_STATE"
+    python3 -c 'import os; fd=os.open("/var/lib", os.O_RDONLY | os.O_DIRECTORY); os.fsync(fd); os.close(fd)'
     STATE_WRITTEN=1
 }
 clear_update_state() {
