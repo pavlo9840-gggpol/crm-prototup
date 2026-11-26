@@ -113,6 +113,7 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('Архів резервної копії має бути звичайним файлом без symlink', script)
         self.assertIn('Архів резервної копії має належати $SERVICE_USER і не мати hard links', script)
         self.assertIn('chmod 0600 -- "$BACKUP_PATH"', script)
+        self.assertIn('[[ "$BACKUP_DIR" == "$DATA_DIR/backups" ]] || fail', script)
 
     def test_uninstaller_preserves_data_by_default_and_requires_explicit_purge(self):
         script = (ROOT / "deploy/linux/uninstall.sh").read_text(encoding="utf-8")
