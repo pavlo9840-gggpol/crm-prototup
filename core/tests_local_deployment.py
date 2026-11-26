@@ -613,8 +613,8 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             root = Path(temporary) / "release"
             root.mkdir()
             publish_signed_files(root, b'{"format_version":1}', "signature")
-            self.assertEqual((root / "release-manifest.json").read_bytes(), b'{"format_version":1}\\n')
-            self.assertEqual((root / "release-manifest.sig").read_bytes(), b"signature\\n")
+            self.assertEqual((root / "release-manifest.json").read_bytes(), b'{"format_version":1}\n')
+            self.assertEqual((root / "release-manifest.sig").read_bytes(), b"signature\n")
 
     def test_signer_removes_partial_manifest_if_signature_publish_fails(self):
         with tempfile.TemporaryDirectory() as temporary:
