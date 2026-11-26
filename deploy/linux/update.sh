@@ -310,10 +310,18 @@ on_exit() {
         exit "$exit_code"
     fi
     if [[ "$APP_SWITCHED" -eq 1 || "$VENV_SWITCHED" -eq 1 ]]; then
-        rollback_update "Неочікувана помилка (код $exit_code) під час оновлення." || true
+        if rollback_update "Неочікувана помилка (код $exit_code) під час оновлення."; then
+            clear_update_state
+        fi
     elif [[ "$SERVICE_STOPPED" -eq 1 ]]; then
         printf '\nНеочікувана помилка (код %s). Перевіряю відновлення чинної служби.\n' "$exit_code" >&2
-        resume_service || printf 'Не вдалося безпечно відновити службу; перевірте journalctl -u %s.\n' "$SERVICE" >&2
+        if resume_service; then
+            clear_update_state
+        else
+            printf 'Не вдалося безпечно відновити службу; журнал стану збережено: %s\n' "$UPDATE_STATE" >&2
+        fi
+    else
+        clear_update_state
     fi
     exit "$exit_code"
 }
