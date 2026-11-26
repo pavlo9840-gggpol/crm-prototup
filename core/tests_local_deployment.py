@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from django.test import SimpleTestCase
 
 from scripts.sign_release import publish_signed_files
-from scripts.verify_release import verify_release
+from scripts.verify_release import read_release_sequence, verify_release
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -252,6 +252,19 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertLess(switch, migrate)
         self.assertIn('migrate --plan', script)
         self.assertIn('health_check', script)
+
+    def test_updater_rejects_signed_release_downgrade_before_stopping_service(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        sequence_read = script.index('--print-sequence')
+        incoming_verify = script.index('--minimum-sequence "$MINIMUM_RELEASE_SEQUENCE"', sequence_read)
+        stop_section = script.index('info "Зупинка служби та резервне копіювання"')
+        stop_service = script.index('systemctl stop "$SERVICE"', stop_section)
+        staging_verify = script.index('--minimum-sequence "$MINIMUM_RELEASE_SEQUENCE"', incoming_verify + 1)
+        self.assertLess(sequence_read, incoming_verify)
+        self.assertLess(incoming_verify, stop_service)
+        self.assertLess(staging_verify, stop_service)
+        self.assertIn('MINIMUM_RELEASE_SEQUENCE="$((CURRENT_RELEASE_SEQUENCE + 1))"', script)
+        self.assertIn('Некоректна послідовність чинного релізу', script)
 
     def test_updater_has_code_venv_database_and_media_rollback(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
@@ -612,8 +625,9 @@ class SignedReleaseVerificationTests(SimpleTestCase):
         payload_file.write_text("print('safe')\n", encoding="utf-8")
         data = payload_file.read_bytes()
         manifest = {
-            "format_version": 1,
+            "format_version": 2,
             "version": "1.2.3",
+            "release_sequence": 42,
             "files": {
                 "manage.py": {
                     "size": len(data),
@@ -668,6 +682,18 @@ class SignedReleaseVerificationTests(SimpleTestCase):
                 publish_signed_files(root, b"new manifest", "new signature")
             self.assertEqual(existing.read_bytes(), b"trusted existing file")
             self.assertFalse((root / "release-manifest.sig").exists())
+
+    def test_release_sequence_rejects_replay_and_reports_installed_sequence(self):
+        private_key = Ed25519PrivateKey.generate()
+        public_key = private_key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        encoded_key = base64.urlsafe_b64encode(public_key).decode("ascii").rstrip("=")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._make_signed_release(root, private_key)
+            self.assertEqual(read_release_sequence(root, encoded_key), 42)
+            self.assertEqual(verify_release(root, encoded_key, "1.2.3", minimum_sequence=42), "1.2.3")
+            with self.assertRaisesRegex(ValueError, "older than the installed release"):
+                verify_release(root, encoded_key, "1.2.3", minimum_sequence=43)
 
     def test_valid_ed25519_release_and_expected_version(self):
         private_key = Ed25519PrivateKey.generate()
