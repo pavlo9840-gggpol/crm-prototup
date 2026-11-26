@@ -15,6 +15,7 @@ MANIFEST = "release-manifest.json"
 SIGNATURE = "release-manifest.sig"
 HASH_CHUNK_BYTES = 1024 * 1024
 VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+MAX_RELEASE_SEQUENCE = 2**63 - 2
 
 
 def b64(data):
@@ -145,8 +146,8 @@ def main():
         validate_version(args.version)
     except ValueError as exc:
         parser.error(str(exc))
-    if args.sequence < 1:
-        parser.error("release sequence must be a positive integer")
+    if not 1 <= args.sequence <= MAX_RELEASE_SEQUENCE:
+        parser.error("release sequence must be between 1 and 2^63-2")
 
     key_data = private_path.read_bytes()
     key = serialization.load_pem_private_key(
