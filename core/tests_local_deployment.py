@@ -329,7 +329,7 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertIn('os.fsync(fd)', script)
         self.assertIn('chmod 0600 "$temporary_state"', script)
         self.assertIn('mv -f -- "$temporary_state" "$UPDATE_STATE"', script)
-        self.assertIn('Автоматичний повторний запуск заблоковано', script)
+        self.assertIn('Повторний запуск заблоковано', script)
         for reason in (
             "Міграції завершилися помилкою.",
             "Django system check не пройшов.",
