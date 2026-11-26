@@ -303,11 +303,32 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         start = script.index("on_exit() {")
         end = script.index("\ntrap on_exit EXIT", start)
         exit_handler = script[start:end]
-        self.assertIn("resume_service || printf", exit_handler)
+        self.assertIn("if resume_service; then", exit_handler)
+        self.assertIn("clear_update_state", exit_handler)
+        self.assertIn("журнал стану збережено", exit_handler)
         self.assertNotIn("SERVICE_STOPPED=0", exit_handler)
         helper_start = script.index("resume_service() {")
         helper_end = script.index("rollback_update() {", helper_start)
         self.assertIn("health_check", script[helper_start:helper_end])
+
+    def test_updater_uses_durable_journal_and_fails_closed_after_interruption(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        self.assertIn('exec 9>/run/lock/autozapaz-update.lock', script)
+        self.assertIn('flock -n 9', script)
+        self.assertIn('UPDATE_STATE="$DATA_DIR/.update-state.json"', script)
+        self.assertIn('[[ ! -e "$UPDATE_STATE" && ! -L "$UPDATE_STATE" ]] || fail', script)
+        self.assertIn('definitely_not_a_real_phase', script) if False else None
+        phases = (
+            'preparing_release', 'service_stopped', 'backup_created',
+            'rollback_ready', 'app_switched', 'venv_switched',
+            'migrations_started', 'health_check_passed',
+        )
+        for phase in phases:
+            self.assertIn(f'write_update_state "{phase}"', script)
+        self.assertIn('os.fsync(stream.fileno())', script)
+        self.assertIn('chmod 0600 "$temporary_state"', script)
+        self.assertIn('mv -f -- "$temporary_state" "$UPDATE_STATE"', script)
+        self.assertIn('Автоматичний повторний запуск заблоковано', script)
 
     def test_updater_restarts_old_service_only_after_health_check(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
