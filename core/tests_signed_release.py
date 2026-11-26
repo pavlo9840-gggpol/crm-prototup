@@ -184,7 +184,7 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             key_path.write_text("not a real key", encoding="ascii")
             with mock.patch.object(sys, "argv", [
                 "sign_release.py", "--release", str(release),
-                "--private-key", str(key_path), "--version", "1.0.0", "--sequence", "1", "--sequence", "1",
+                "--private-key", str(key_path), "--version", "1.0.0", "--sequence", "1",
             ]), self.assertRaises(SystemExit):
                 sign_release.main()
 
@@ -238,6 +238,6 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             os.link(key_path, release / "linked-publisher-key.pem")
             with mock.patch.object(sys, "argv", [
                 "sign_release.py", "--release", str(release),
-                "--private-key", str(key_path), "--version", "1.0.0",
+                "--private-key", str(key_path), "--version", "1.0.0", "--sequence", "1",
             ]), self.assertRaises(SystemExit):
                 sign_release.main()
