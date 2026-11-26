@@ -213,3 +213,24 @@ class SignedReleaseVerificationTests(SimpleTestCase):
             (root / "linked.txt").symlink_to(target)
             with self.assertRaisesRegex(ValueError, "release contains symlink"):
                 build_manifest(root)
+
+
+    def test_signer_refuses_private_key_with_hard_link_inside_release(self):
+        from unittest import mock
+        import os
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import sign_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            release = base / "release"
+            release.mkdir()
+            key_path = base / "publisher-key.pem"
+            key_path.write_text("not a real key", encoding="ascii")
+            os.link(key_path, release / "linked-publisher-key.pem")
+            with mock.patch.object(sys, "argv", [
+                "sign_release.py", "--release", str(release),
+                "--private-key", str(key_path), "--version", "1.0.0",
+            ]), self.assertRaises(SystemExit):
+                sign_release.main()
