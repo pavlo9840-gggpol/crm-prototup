@@ -49,7 +49,7 @@ def build_manifest(root):
             files[relative] = {"size": size, "sha256": digest}
     if not files:
         raise ValueError("release is empty")
-    return {"format_version": 1, "version": None, "files": files}
+    return {"format_version": 2, "version": None, "release_sequence": None, "files": files}
 
 
 def _same_file(left, right):
@@ -119,6 +119,7 @@ def main():
     parser.add_argument("--release", required=True, type=Path)
     parser.add_argument("--private-key", required=True, type=Path)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--sequence", required=True, type=int, help="Monotonically increasing release sequence")
     args = parser.parse_args()
 
     root = args.release.resolve()
@@ -144,6 +145,8 @@ def main():
         validate_version(args.version)
     except ValueError as exc:
         parser.error(str(exc))
+    if args.sequence < 1:
+        parser.error("release sequence must be a positive integer")
 
     key_data = private_path.read_bytes()
     key = serialization.load_pem_private_key(
@@ -157,6 +160,7 @@ def main():
     except ValueError as exc:
         parser.error(str(exc))
     manifest["version"] = args.version
+    manifest["release_sequence"] = args.sequence
     payload = json.dumps(
         manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
