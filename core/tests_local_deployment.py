@@ -357,6 +357,9 @@ RESTORE_DIR=/var/lib/autozapaz/.rollback-restore-test
 BACKUP_PATH=/var/lib/autozapaz/backups/test.zip
 STATE_WRITTEN=0
 chown() {{ :; }}
+stat() {{
+    if [[ "$1" == "-c" && "$2" == "%u" ]]; then printf '0\\n'; else command stat "$@"; fi
+}}
 {functions}
 write_update_state migrations_started
 stat -c '%a' "$UPDATE_STATE"
