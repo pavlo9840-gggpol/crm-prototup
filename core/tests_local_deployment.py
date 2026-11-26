@@ -338,6 +338,28 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         ):
             self.assertIn(f'if rollback_update "{reason}"; then clear_update_state; fi', script)
 
+    def test_updater_clears_journal_before_removing_rollback_material(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        committed = script.index("UPDATE_COMPLETE=1", script.index('write_update_state "health_check_passed"'))
+        clear_state = script.index("clear_update_state", committed)
+        cleanup_restore = script.index('rm -rf -- "$RESTORE_DIR"', clear_state)
+        self.assertLess(committed, clear_state)
+        self.assertLess(clear_state, cleanup_restore)
+        self.assertIn("orphaned restore directory", script)
+
+    def test_updater_recovery_runbook_documents_fail_closed_manual_process(self):
+        runbook = (ROOT / "deploy/linux/RECOVERY.md").read_text(encoding="utf-8")
+        for required in (
+            "/var/lib/autozapaz-update-state.json",
+            "db.sqlite3-wal",
+            "db.sqlite3-shm",
+            "Не видаляйте журнал стану",
+            "Не запускайте updater повторно",
+            "verify_backup",
+            "не має автоматичного відновлення",
+        ):
+            self.assertIn(required, runbook)
+
     def test_updater_restarts_old_service_only_after_health_check(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         resume = script[script.index("resume_service() {"):script.index("\nrollback_update() {")]
