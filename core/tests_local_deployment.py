@@ -338,6 +338,62 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         ):
             self.assertIn(f'if rollback_update "{reason}"; then clear_update_state; fi', script)
 
+    def test_updater_journal_functions_write_private_atomic_json_and_clear_owned_state(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        start = script.index("write_update_state() {")
+        end = script.index("\\natomic_link() {", start)
+        functions = script[start:end]
+        with tempfile.TemporaryDirectory() as temporary:
+            state_dir = Path(temporary)
+            functions = functions.replace("/var/lib", str(state_dir))
+            harness = f"""
+UPDATE_STATE={shlex.quote(str(state_dir / "autozapaz-update-state.json"))}
+STAMP=20261126T120000Z
+OLD_APP_REAL=/opt/autozapaz/releases/old
+OLD_VENV_REAL=/opt/autozapaz/venvs/old
+NEW_APP=/opt/autozapaz/releases/new
+NEW_VENV=/opt/autozapaz/venvs/new
+RESTORE_DIR=/var/lib/autozapaz/.rollback-restore-test
+BACKUP_PATH=/var/lib/autozapaz/backups/test.zip
+STATE_WRITTEN=0
+chown() {{ :; }}
+{functions}
+write_update_state migrations_started
+stat -c '%a' "$UPDATE_STATE"
+cat "$UPDATE_STATE"
+clear_update_state
+if [[ -e "$UPDATE_STATE" ]]; then echo STILL_EXISTS; else echo CLEARED; fi
+"""
+            completed = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, check=False)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("600", completed.stdout)
+            self.assertIn('"phase": "migrations_started"', completed.stdout)
+            self.assertIn('"format_version": 1', completed.stdout)
+            self.assertIn("CLEARED", completed.stdout)
+            self.assertFalse((state_dir / "autozapaz-update-state.json").exists())
+
+    def test_updater_journal_clear_refuses_symlink_state(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        start = script.index("clear_update_state() {")
+        end = script.index("\\natomic_link() {", start)
+        function = script[start:end]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "target"
+            target.write_text("keep", encoding="utf-8")
+            state = root / "state.json"
+            state.symlink_to(target)
+            harness = f"""
+UPDATE_STATE={shlex.quote(str(state))}
+STATE_WRITTEN=1
+{function}
+clear_update_state
+"""
+            completed = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, check=False)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(state.is_symlink())
+            self.assertEqual(target.read_text(encoding="utf-8"), "keep")
+
     def test_updater_clears_journal_before_removing_rollback_material(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         committed = script.index("UPDATE_COMPLETE=1", script.index('write_update_state "health_check_passed"'))
