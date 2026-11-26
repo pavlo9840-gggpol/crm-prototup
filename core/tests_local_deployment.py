@@ -315,7 +315,8 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         self.assertIn('exec 9>/run/lock/autozapaz-update.lock', script)
         self.assertIn('flock -n 9', script)
-        self.assertIn('UPDATE_STATE="$DATA_DIR/.update-state.json"', script)
+        self.assertIn('UPDATE_STATE="/var/lib/autozapaz-update-state.json"', script)
+        self.assertIn('mktemp /var/lib/.autozapaz-update-state.XXXXXX', script)
         self.assertIn('[[ ! -e "$UPDATE_STATE" && ! -L "$UPDATE_STATE" ]] || fail', script)
         phases = (
             'preparing_release', 'service_stopped', 'backup_created',
