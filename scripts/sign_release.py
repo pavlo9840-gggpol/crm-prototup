@@ -52,6 +52,66 @@ def build_manifest(root):
     return {"format_version": 1, "version": None, "files": files}
 
 
+def _same_file(left, right):
+    try:
+        left_stat = left.stat()
+        right_stat = right.stat()
+    except FileNotFoundError:
+        return False
+    return (left_stat.st_dev, left_stat.st_ino) == (right_stat.st_dev, right_stat.st_ino)
+
+
+def publish_signed_files(root, manifest_payload, signature):
+    """Publish a manifest/signature pair without overwriting or leaving half a pair."""
+    import os
+    import tempfile
+
+    root = Path(root).resolve()
+    manifest_path = root / MANIFEST
+    signature_path = root / SIGNATURE
+    if manifest_path.exists() or signature_path.exists():
+        raise FileExistsError("refusing to overwrite existing signature files")
+
+    temporary_paths = []
+    published_paths = []
+    try:
+        with tempfile.NamedTemporaryFile(dir=root.parent, prefix=".release-manifest-", delete=False) as stream:
+            manifest_tmp = Path(stream.name)
+            temporary_paths.append(manifest_tmp)
+            stream.write(manifest_payload + b"\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="ascii", dir=root.parent,
+            prefix=".release-signature-", delete=False
+        ) as stream:
+            signature_tmp = Path(stream.name)
+            temporary_paths.append(signature_tmp)
+            stream.write(signature + "\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+
+        # Hard-link publication is atomic and fails if another process created a target.
+        os.link(manifest_tmp, manifest_path)
+        published_paths.append((manifest_path, manifest_tmp))
+        os.link(signature_tmp, signature_path)
+        published_paths.append((signature_path, signature_tmp))
+
+        directory_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except Exception:
+        for published, temporary in reversed(published_paths):
+            if _same_file(published, temporary):
+                published.unlink(missing_ok=True)
+        raise
+    finally:
+        for temporary in temporary_paths:
+            temporary.unlink(missing_ok=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release", required=True, type=Path)
@@ -100,34 +160,10 @@ def main():
     ).encode("utf-8")
     signature = b64(key.sign(payload))
 
-    # Write temporary files outside the release tree so they cannot enter its manifest.
-    import tempfile
-    manifest_tmp = None
-    signature_tmp = None
     try:
-        with tempfile.NamedTemporaryFile(dir=root.parent, prefix=".release-manifest-", delete=False) as stream:
-            manifest_tmp = Path(stream.name)
-            stream.write(payload + b"\n")
-            stream.flush()
-            import os
-            os.fsync(stream.fileno())
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="ascii", dir=root.parent,
-            prefix=".release-signature-", delete=False
-        ) as stream:
-            signature_tmp = Path(stream.name)
-            stream.write(signature + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        import os
-        os.replace(manifest_tmp, root / MANIFEST)
-        manifest_tmp = None
-        os.replace(signature_tmp, root / SIGNATURE)
-        signature_tmp = None
-    finally:
-        for temporary in (manifest_tmp, signature_tmp):
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
+        publish_signed_files(root, payload, signature)
+    except OSError as exc:
+        parser.error("could not publish signed release files: " + str(exc))
 
     print("Signed release:", root)
 
