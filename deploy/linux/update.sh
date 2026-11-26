@@ -414,9 +414,12 @@ if ! systemctl start "$SERVICE" || ! health_check; then
 fi
 SERVICE_STOPPED=0
 write_update_state "health_check_passed"
-rm -rf -- "$RESTORE_DIR"
+# Mark the release committed and remove the fail-closed journal before
+# deleting rollback material. A crash during cleanup then leaves only an
+# orphaned restore directory, never a journal that points to missing data.
 UPDATE_COMPLETE=1
 clear_update_state
+rm -rf -- "$RESTORE_DIR"
 printf '\nОновлення до %s успішне.\n' "$VERSION"
 printf 'Backup перед оновленням: %s\n' "$BACKUP_PATH"
 printf 'Попередній код і venv збережені: %s ; %s\n' "$OLD_APP_REAL" "$OLD_VENV_REAL"
