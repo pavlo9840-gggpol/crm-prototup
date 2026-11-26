@@ -48,9 +48,26 @@ TRUSTED_VERIFIER="$APP_LINK/scripts/verify_release.py"
 VERIFIER_MODE="$(stat -c '%a' -- "$TRUSTED_VERIFIER")"
 (( (8#$VERIFIER_MODE & 0022) == 0 )) || fail "Verifier не повинен бути доступним для запису групі/іншим."
 "$VENV_LINK/bin/python" "$TRUSTED_VERIFIER" --release "$RELEASE_SOURCE" --public-key "$AUTOZAPAZ_RELEASE_PUBLIC_KEY" --version "$VERSION" || fail "Підпис або контрольні суми релізу не пройшли перевірку."
+id "$SERVICE_USER" >/dev/null 2>&1 || fail "Не знайдено системного користувача $SERVICE_USER."
+SERVICE_UID="$(id -u "$SERVICE_USER")"
 [[ -d "$DATA_DIR" && ! -L "$DATA_DIR" ]] || fail "Постійний каталог даних відсутній або є символічним посиланням."
 [[ -d "$DATA_DIR/media" && ! -L "$DATA_DIR/media" ]] || fail "Каталог медіафайлів відсутній або є символічним посиланням."
-id "$SERVICE_USER" >/dev/null 2>&1 || fail "Не знайдено системного користувача $SERVICE_USER."
+[[ -d "$BACKUP_DIR" && ! -L "$BACKUP_DIR" ]] || fail "Каталог резервних копій відсутній або є символічним посиланням."
+for directory in "$DATA_DIR" "$DATA_DIR/media" "$BACKUP_DIR"; do
+    [[ "$(stat -c '%u' -- "$directory")" == "$SERVICE_UID" ]] || fail "Каталог даних має належати користувачу $SERVICE_USER: $directory"
+    DIRECTORY_MODE="$(stat -c '%a' -- "$directory")"
+    (( (8#$DIRECTORY_MODE & 0077) == 0 )) || fail "Каталог даних не повинен бути доступним групі або іншим: $directory"
+done
+for database_file in "$DATA_DIR/db.sqlite3" "$DATA_DIR/db.sqlite3-wal" "$DATA_DIR/db.sqlite3-shm"; do
+    [[ ! -L "$database_file" ]] || fail "Файл SQLite не може бути символічним посиланням: $database_file"
+    if [[ -e "$database_file" ]]; then
+        [[ -f "$database_file" ]] || fail "Файл SQLite має бути звичайним файлом: $database_file"
+        [[ "$(stat -c '%u' -- "$database_file")" == "$SERVICE_UID" ]] || fail "Файл SQLite має належати користувачу $SERVICE_USER: $database_file"
+        [[ "$(stat -c '%h' -- "$database_file")" == "1" ]] || fail "Файл SQLite не повинен мати додаткових hard links: $database_file"
+        DATABASE_MODE="$(stat -c '%a' -- "$database_file")"
+        (( (8#$DATABASE_MODE & 0022) == 0 )) || fail "Файл SQLite доступний для запису групі або іншим: $database_file"
+    fi
+done
 systemctl cat "$SERVICE" >/dev/null 2>&1 || fail "Службу $SERVICE не встановлено."
 case "$RELEASE_SOURCE/" in "$CURRENT_APP_REAL/"*) fail "Новий реліз не може бути всередині чинної програми." ;; esac
 [[ "$(find "$RELEASE_SOURCE" -type l -print -quit)" == "" ]] || fail "Реліз містить символічні посилання."
@@ -303,6 +320,12 @@ case "$(realpath -e -- "$BACKUP_PATH")" in
     "$(realpath -e -- "$BACKUP_DIR")"/*) ;;
     *) resume_service || true; fail "Backup створено поза каталогом резервних копій." ;;
 esac
+[[ -f "$BACKUP_PATH" && ! -L "$BACKUP_PATH" ]] || { resume_service || true; fail "Архів резервної копії має бути звичайним файлом без symlink." ; }
+[[ "$(stat -c '%u' -- "$BACKUP_PATH")" == "$SERVICE_UID" && "$(stat -c '%h' -- "$BACKUP_PATH")" == "1" ]] || { resume_service || true; fail "Архів резервної копії має належати $SERVICE_USER і не мати hard links."; }
+if ! chmod 0600 -- "$BACKUP_PATH"; then
+    resume_service || true
+    fail "Не вдалося обмежити доступ до архіву резервної копії."
+fi
 if ! as_service "$OLD_VENV_REAL/bin/python" "$APP_LINK/manage.py" verify_backup "$BACKUP_PATH"; then
     resume_service || true
     fail "Перевірка резервної копії не пройшла; оновлення скасовано."
