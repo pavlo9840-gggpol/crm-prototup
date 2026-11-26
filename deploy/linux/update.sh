@@ -75,6 +75,7 @@ case "$RELEASE_SOURCE/" in "$CURRENT_APP_REAL/"*) fail "Новий реліз н
 
 [[ "$AUTOZAPAZ_DATA_DIR" == "$DATA_DIR" ]] || fail "Оновлювач підтримує стандартний AUTOZAPAZ_DATA_DIR=$DATA_DIR."
 BACKUP_DIR="$AUTOZAPAZ_BACKUP_DIR"
+[[ "$BACKUP_DIR" == "$DATA_DIR/backups" ]] || fail "Оновлювач підтримує лише стандартний каталог резервних копій $DATA_DIR/backups."
 [[ "$BACKUP_DIR" == /* ]] || fail "Каталог резервних копій має бути абсолютним шляхом."
 [[ -d "$BACKUP_DIR" && ! -L "$BACKUP_DIR" ]] || fail "Каталог резервних копій відсутній або є символічним посиланням: $BACKUP_DIR"
 : "${DJANGO_SECRET_KEY:?У конфігурації немає DJANGO_SECRET_KEY}"
