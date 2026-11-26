@@ -17,6 +17,7 @@ SIGNATURE = "release-manifest.sig"
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 MAX_SIGNATURE_BYTES = 4096
 HASH_CHUNK_BYTES = 1024 * 1024
+MAX_RELEASE_SEQUENCE = 2**63 - 2
 
 
 def sha256_file(path):
@@ -86,7 +87,7 @@ def load_signed_manifest(root, public_key):
         sequence = 0
     else:
         sequence = manifest.get("release_sequence")
-        if type(sequence) is not int or sequence < 1:
+        if type(sequence) is not int or not 1 <= sequence <= MAX_RELEASE_SEQUENCE:
             raise ValueError("invalid release sequence")
     return manifest, version, sequence
 
@@ -102,8 +103,8 @@ def verify_release(root, public_key, expected_version=None, minimum_sequence=Non
     if expected_version and version != expected_version:
         raise ValueError("release version mismatch")
     if minimum_sequence is not None:
-        if type(minimum_sequence) is not int or minimum_sequence < 1:
-            raise ValueError("minimum release sequence must be a positive integer")
+        if type(minimum_sequence) is not int or not 1 <= minimum_sequence <= MAX_RELEASE_SEQUENCE:
+            raise ValueError("minimum release sequence is outside the supported range")
         if sequence < minimum_sequence:
             raise ValueError("release sequence is older than the installed release")
 
