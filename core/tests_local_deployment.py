@@ -95,6 +95,24 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertLess(script.index('Постійний каталог даних відсутній'), script.index('mkdir -p "$RELEASES_DIR" "$VENVS_DIR"'))
         self.assertLess(script.index('Каталог резервних копій відсутній'), script.index('mkdir -p "$RELEASES_DIR" "$VENVS_DIR"'))
 
+    def test_updater_rejects_unsafe_sqlite_and_backup_storage(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        service_user = script.index('SERVICE_UID="$(id -u "$SERVICE_USER")"')
+        sqlite_checks = script.index('for database_file in "$DATA_DIR/db.sqlite3"')
+        backup_checks = script.index('[[ -f "$BACKUP_PATH" && ! -L "$BACKUP_PATH" ]]')
+        backup_verify = script.index('verify_backup "$BACKUP_PATH"')
+        stop_service = script.index('systemctl stop "$SERVICE"')
+        self.assertLess(service_user, sqlite_checks)
+        self.assertLess(sqlite_checks, stop_service)
+        self.assertLess(backup_checks, backup_verify)
+        self.assertLess(backup_verify, script.index('restore_backup "$BACKUP_PATH"'))
+        self.assertIn('Файл SQLite не може бути символічним посиланням', script)
+        self.assertIn('Файл SQLite не повинен мати додаткових hard links', script)
+        self.assertIn('Каталог даних не повинен бути доступним групі або іншим', script)
+        self.assertIn('Архів резервної копії має бути звичайним файлом без symlink', script)
+        self.assertIn('Архів резервної копії має належати $SERVICE_USER і не мати hard links', script)
+        self.assertIn('chmod 0600 -- "$BACKUP_PATH"', script)
+
     def test_uninstaller_preserves_data_by_default_and_requires_explicit_purge(self):
         script = (ROOT / "deploy/linux/uninstall.sh").read_text(encoding="utf-8")
         self.assertIn('PURGE_DATA=0', script)
