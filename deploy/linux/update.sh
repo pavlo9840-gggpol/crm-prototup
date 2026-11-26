@@ -394,21 +394,21 @@ write_update_state "venv_switched"
 info "Застосування міграцій"
 write_update_state "migrations_started"
 if ! as_service "$VENV_LINK/bin/python" "$APP_LINK/manage.py" migrate --noinput; then
-    rollback_update "Міграції завершилися помилкою." || true
+    if rollback_update "Міграції завершилися помилкою."; then clear_update_state; fi
     fail "Оновлення скасовано."
 fi
 if ! as_service "$VENV_LINK/bin/python" "$APP_LINK/manage.py" check --database default; then
-    rollback_update "Django system check не пройшов." || true
+    if rollback_update "Django system check не пройшов."; then clear_update_state; fi
     fail "Оновлення скасовано."
 fi
 if ! as_service "$VENV_LINK/bin/python" "$APP_LINK/manage.py" collectstatic --noinput; then
-    rollback_update "collectstatic завершився помилкою." || true
+    if rollback_update "collectstatic завершився помилкою."; then clear_update_state; fi
     fail "Оновлення скасовано."
 fi
 
 info "Запуск і health-check"
 if ! systemctl start "$SERVICE" || ! health_check; then
-    rollback_update "Нова версія не запустилася або не відповідає на HTTP." || true
+    if rollback_update "Нова версія не запустилася або не відповідає на HTTP."; then clear_update_state; fi
     fail "Оновлення скасовано."
 fi
 SERVICE_STOPPED=0
