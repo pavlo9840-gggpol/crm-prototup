@@ -71,6 +71,11 @@ def main():
         parser.error("private signing key must be stored outside the release directory")
     if not private_path.is_file() or args.private_key.expanduser().is_symlink():
         parser.error("private signing key must be a regular, non-symlink file")
+    try:
+        if private_path.stat().st_nlink != 1:
+            parser.error("private signing key must not have additional hard links")
+    except OSError as exc:
+        parser.error("cannot inspect private signing key: " + str(exc))
     if (root / MANIFEST).exists() or (root / SIGNATURE).exists():
         parser.error("refusing to overwrite existing signature files")
     try:
