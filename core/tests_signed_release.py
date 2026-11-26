@@ -161,8 +161,8 @@ class SignedReleaseVerificationTests(SimpleTestCase):
                 sign_release.main()
 
             self.assertEqual(verify_release(release, public_value, "2.0.0"), "2.0.0")
-            self.assertTrue((release / "release-manifest.json").read_bytes().endswith(b"\\n"))
-            self.assertTrue((release / "release-manifest.sig").read_bytes().endswith(b"\\n"))
+            self.assertTrue((release / "release-manifest.json").read_bytes().endswith(b"\n"))
+            self.assertTrue((release / "release-manifest.sig").read_bytes().endswith(b"\n"))
 
     def test_signer_refuses_private_key_inside_release_tree(self):
         from unittest import mock
