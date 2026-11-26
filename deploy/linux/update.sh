@@ -6,7 +6,7 @@ VENV_LINK="$INSTALL_ROOT/venv"
 RELEASES_DIR="$INSTALL_ROOT/releases"
 VENVS_DIR="$INSTALL_ROOT/venvs"
 DATA_DIR="/var/lib/autozapaz"
-UPDATE_STATE="$DATA_DIR/.update-state.json"
+UPDATE_STATE="/var/lib/autozapaz-update-state.json"
 BACKUP_DIR="$DATA_DIR/backups"
 ENV_FILE="/etc/autozapaz/autozapaz.env"
 SERVICE="autozapaz.service"
@@ -124,7 +124,7 @@ as_service() {
 }
 write_update_state() {
     local phase="$1" temporary_state
-    temporary_state="$(mktemp "$DATA_DIR/.update-state.XXXXXX")"
+    temporary_state="$(mktemp /var/lib/.autozapaz-update-state.XXXXXX)"
     python3 - "$temporary_state" "$phase" "$STAMP" "$OLD_APP_REAL" "$OLD_VENV_REAL" "$NEW_APP" "$NEW_VENV" "$RESTORE_DIR" "$BACKUP_PATH" <<'PY'
 import json, os, sys
 path, phase, stamp, old_app, old_venv, new_app, new_venv, restore_dir, backup = sys.argv[1:]
