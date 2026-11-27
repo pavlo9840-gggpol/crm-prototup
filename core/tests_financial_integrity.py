@@ -608,6 +608,11 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(compensation.reversal_cash_operation.amount, Decimal("-200.00"))
         self.assertEqual(shift.drawer, {"20000": 1})
         self.assertEqual(shift_summary(shift)["supplier_compensation_net"], Decimal("0.00"))
+        cashflow = self.client.get(reverse("cashflow_report"))
+        self.assertEqual(cashflow.status_code, 200)
+        self.assertEqual(cashflow.context["cash_in"], Decimal("200.00"))
+        self.assertEqual(cashflow.context["cash_out"], Decimal("200.00"))
+        self.assertEqual(cashflow.context["cash_net"], Decimal("0.00"))
         self.assertEqual(CashOperation.objects.filter(
             shift=shift, detail__source="supplier_return_compensation"
         ).count(), 1)
