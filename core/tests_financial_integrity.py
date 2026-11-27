@@ -606,11 +606,11 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(compensation.reversal_cash_operation.amount, Decimal("-200.00"))
         self.assertEqual(shift.drawer, {"20000": 1})
         self.assertEqual(CashOperation.objects.filter(
-            detail__supplier_compensation_id=compensation.pk
+            shift=shift, detail__source="supplier_return_compensation"
         ).count(), 1)
         self.assertEqual(CashOperation.objects.filter(
-            detail__supplier_compensation_reversal__isnull=False
-        ).count(), 0)
+            shift=shift, detail__source="supplier_compensation_reversal"
+        ).count(), 1)
 
     def test_supplier_cash_compensation_cannot_be_voided_after_shift_close(self):
         self.client.force_login(self.admin)
