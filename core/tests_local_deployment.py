@@ -385,6 +385,35 @@ if [[ -e "$UPDATE_STATE" ]]; then echo STILL_EXISTS; else echo CLEARED; fi
         self.assertLess(clear_function.index('rm -f -- "$UPDATE_STATE"'), clear_function.index("os.fsync(fd)"))
         self.assertIn('os.open("/var/lib", os.O_RDONLY | os.O_DIRECTORY)', clear_function)
 
+    def test_updater_journal_clear_refuses_non_root_owned_state(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        start = script.index("clear_update_state() {")
+        end = script.index("\\natomic_link() {", start)
+        function = script[start:end]
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "state.json"
+            state.write_text('{"phase": "migrations_started"}', encoding="utf-8")
+            harness = f"""
+UPDATE_STATE={shlex.quote(str(state))}
+STATE_WRITTEN=1
+stat() {{
+    if [[ "$1" == "-c" && "$2" == "%u" ]]; then printf '12345\\n'; else command stat "$@"; fi
+}}
+{function}
+if clear_update_state; then
+    echo UNEXPECTED_SUCCESS
+else
+    echo REFUSED
+fi
+"""
+            completed = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, check=False)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("REFUSED", completed.stdout)
+            self.assertNotIn("UNEXPECTED_SUCCESS", completed.stdout)
+            self.assertIn("не належить root", completed.stderr)
+            self.assertTrue(state.is_file())
+            self.assertEqual(state.read_text(encoding="utf-8"), '{"phase": "migrations_started"}')
+
     def test_updater_journal_clear_refuses_symlink_state(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("clear_update_state() {")
