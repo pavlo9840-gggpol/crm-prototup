@@ -856,7 +856,7 @@ def supplier_credit_apply(request, target_pk):
 
         source_paid, source_comp, source_out, source_in = document_credit(source)
         target_paid, target_comp, target_out, target_in = document_credit(target)
-        source_available = max(D0, source_paid + source_comp - source.total - source_out)
+        source_available = max(D0, source_paid + source_comp + source_in - source.total - source_out)
         target_due = max(D0, target.total - target_paid - target_comp - target_in)
         if amount > source_available:
             messages.error(request, f"Доступний кредит із накладної {source.number}: {source_available:.2f} ₴.")
