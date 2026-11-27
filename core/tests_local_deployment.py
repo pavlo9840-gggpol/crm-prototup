@@ -301,10 +301,10 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         # A failed rollback must retain the durable journal so the next updater
         # invocation stays blocked until an operator completes recovery.
         exit_start = script.index("on_exit() {")
-        exit_end = script.index("\\ntrap on_exit EXIT", exit_start)
+        exit_end = script.index("\ntrap on_exit EXIT", exit_start)
         exit_handler = script[exit_start:exit_end]
         self.assertIn('if rollback_update "Неочікувана помилка', exit_handler)
-        self.assertIn("then\\n            clear_update_state\\n        fi", exit_handler)
+        self.assertIn("then\n            clear_update_state\n        fi", exit_handler)
         for reason in (
             "Міграції завершилися помилкою.",
             "Django system check не пройшов.",
