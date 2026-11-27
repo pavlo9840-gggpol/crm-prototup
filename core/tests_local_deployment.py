@@ -653,7 +653,7 @@ atomic_link "$APP_LINK" "$TARGET" "$FALLBACK"
         self.assertIn("ROLLBACK_ATTEMPTED=1", completed.stdout + completed.stderr)
         self.assertIn("КРИТИЧНО", completed.stderr)
 
-    def _execute_updater_rollback(self, fail_media_restore=False, fail_health_check=False, fail_initial_stop=False, fail_migration=False):
+    def _execute_updater_rollback(self, fail_media_restore=False, fail_health_check=False, fail_initial_stop=False, fail_migration=False, missing_restore_db=False):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("rollback_update() {")
         end = script.index("\non_exit() {", start)
@@ -673,7 +673,8 @@ atomic_link "$APP_LINK" "$TARGET" "$FALLBACK"
         for directory in (data, restore / "media", old_app, new_app, old_venv, new_venv, data / "media"):
             directory.mkdir(parents=True, exist_ok=True)
         (data / "db.sqlite3").write_text("new database", encoding="utf-8")
-        (restore / "db.sqlite3").write_text("previous database", encoding="utf-8")
+        if not missing_restore_db:
+            (restore / "db.sqlite3").write_text("previous database", encoding="utf-8")
         (data / "db.sqlite3-wal").write_text("new WAL", encoding="utf-8")
         (data / "db.sqlite3-shm").write_text("new SHM", encoding="utf-8")
         (data / "media" / "new.txt").write_text("new media", encoding="utf-8")
@@ -761,6 +762,22 @@ fi
         calls = call_log.read_text(encoding="utf-8")
         self.assertIn("systemctl start autozapaz.service", calls)
         self.assertIn("health_check", calls)
+
+    def test_updater_rollback_refuses_incomplete_restore_before_touching_database(self):
+        temporary, completed, data, restore, old_app, old_venv, call_log = self._execute_updater_rollback(
+            missing_restore_db=True
+        )
+        self.addCleanup(temporary.cleanup)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual((data / "db.sqlite3").read_text(encoding="utf-8"), "new database")
+        self.assertEqual((data / "db.sqlite3-wal").read_text(encoding="utf-8"), "new WAL")
+        self.assertEqual((data / "db.sqlite3-shm").read_text(encoding="utf-8"), "new SHM")
+        self.assertTrue((data / "media" / "new.txt").exists())
+        self.assertTrue((restore / "media" / "old.txt").exists())
+        calls = call_log.read_text(encoding="utf-8")
+        self.assertIn("systemctl stop autozapaz.service", calls)
+        self.assertNotIn("systemctl start autozapaz.service", calls)
+        self.assertIn("не містить db.sqlite3", completed.stderr)
 
     def test_updater_rollback_keeps_service_stopped_if_media_restore_fails(self):
         temporary, completed, data, restore, old_app, old_venv, call_log = self._execute_updater_rollback(
