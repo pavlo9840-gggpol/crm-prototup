@@ -298,6 +298,22 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         self.assertNotIn(r'Backup: %s\\n', rollback)
         self.assertNotIn('systemctl start "$SERVICE" || true', rollback)
 
+        # A failed rollback must retain the durable journal so the next updater
+        # invocation stays blocked until an operator completes recovery.
+        exit_start = script.index("on_exit() {")
+        exit_end = script.index("\\ntrap on_exit EXIT", exit_start)
+        exit_handler = script[exit_start:exit_end]
+        self.assertIn('if rollback_update "Неочікувана помилка', exit_handler)
+        self.assertIn("then\\n            clear_update_state\\n        fi", exit_handler)
+        for reason in (
+            "Міграції завершилися помилкою.",
+            "Django system check не пройшов.",
+            "collectstatic завершився помилкою.",
+            "Нова версія не запустилася або не відповідає на HTTP.",
+        ):
+            rollback_call = f'if rollback_update "{reason}"; then clear_update_state; fi'
+            self.assertIn(rollback_call, script)
+
     def test_updater_exit_trap_uses_health_checked_service_recovery(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("on_exit() {")
