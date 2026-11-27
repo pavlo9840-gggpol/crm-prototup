@@ -790,6 +790,8 @@ fi
         self.assertEqual((data / "db.sqlite3-shm.failed-test").read_text(encoding="utf-8"), "new SHM")
         self.assertEqual((data / "media.failed-test" / "new.txt").read_text(encoding="utf-8"), "new media")
         self.assertTrue((restore / "media" / "old.txt").exists())
+        self.assertEqual((data.parent / "current").resolve(), old_app)
+        self.assertEqual((data.parent / "venv").resolve(), old_venv)
         calls = call_log.read_text(encoding="utf-8")
         self.assertIn("systemctl stop autozapaz.service", calls)
         self.assertNotIn("systemctl start autozapaz.service", calls)
