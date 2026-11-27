@@ -375,6 +375,16 @@ if [[ -e "$UPDATE_STATE" ]]; then echo STILL_EXISTS; else echo CLEARED; fi
             self.assertIn("CLEARED", completed.stdout)
             self.assertFalse((state_dir / "autozapaz-update-state.json").exists())
 
+    def test_updater_journal_clear_fsyncs_parent_and_rejects_untrusted_state(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        start = script.index("clear_update_state() {")
+        end = script.index("\\natomic_link() {", start)
+        clear_function = script[start:end]
+        self.assertIn("Відмова очищати некоректний журнал", clear_function)
+        self.assertIn("Відмова очищати журнал оновлення, що не належить root", clear_function)
+        self.assertLess(clear_function.index('rm -f -- "$UPDATE_STATE"'), clear_function.index("os.fsync(fd)"))
+        self.assertIn('os.open("/var/lib", os.O_RDONLY | os.O_DIRECTORY)', clear_function)
+
     def test_updater_journal_clear_refuses_symlink_state(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("clear_update_state() {")
@@ -390,7 +400,7 @@ if [[ -e "$UPDATE_STATE" ]]; then echo STILL_EXISTS; else echo CLEARED; fi
 UPDATE_STATE={shlex.quote(str(state))}
 STATE_WRITTEN=1
 {function}
-clear_update_state
+clear_update_state || true
 """
             completed = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, check=False)
             self.assertEqual(completed.returncode, 0, completed.stderr)
