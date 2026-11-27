@@ -613,6 +613,13 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(cashflow.context["cash_in"], Decimal("200.00"))
         self.assertEqual(cashflow.context["cash_out"], Decimal("200.00"))
         self.assertEqual(cashflow.context["cash_net"], Decimal("0.00"))
+        pnl = self.client.get(reverse("finance_overview"))
+        self.assertEqual(pnl.status_code, 200)
+        self.assertEqual(pnl.context["cash_in"], Decimal("200.00"))
+        self.assertEqual(pnl.context["cash_out"], Decimal("-200.00"))
+        self.assertEqual(pnl.context["operating_result"], Decimal("0.00"))
+        self.assertEqual(pnl.context["revenue"], Decimal("0.00"))
+        self.assertEqual(pnl.context["expenses"], Decimal("0.00"))
         self.assertEqual(CashOperation.objects.filter(
             shift=shift, detail__source="supplier_return_compensation"
         ).count(), 1)
@@ -696,6 +703,13 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(cashflow.context["bank_in"], Decimal("200.00"))
         self.assertEqual(cashflow.context["bank_out"], Decimal("200.00"))
         self.assertEqual(cashflow.context["bank_net"], Decimal("0.00"))
+        pnl = self.client.get(reverse("finance_overview"))
+        self.assertEqual(pnl.status_code, 200)
+        self.assertEqual(pnl.context["bank_in"], Decimal("200.00"))
+        self.assertEqual(pnl.context["bank_out"], Decimal("200.00"))
+        self.assertEqual(pnl.context["operating_result"], Decimal("0.00"))
+        self.assertEqual(pnl.context["revenue"], Decimal("0.00"))
+        self.assertEqual(pnl.context["expenses"], Decimal("0.00"))
 
         # Both ledger rows are owned by the compensation lifecycle and cannot
         # be independently voided, which preserves the paired audit trail.
