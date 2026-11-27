@@ -327,6 +327,33 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
         helper_end = script.index("rollback_update() {", helper_start)
         self.assertIn("health_check", script[helper_start:helper_end])
 
+    def test_updater_exit_trap_keeps_journal_when_rollback_fails(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        start = script.index("on_exit() {")
+        end = script.index("\\ntrap on_exit EXIT", start)
+        exit_handler = script[start:end]
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "update-state.json"
+            state.write_text('{"phase":"app_switched"}', encoding="utf-8")
+            harness = f"""
+UPDATE_STATE={shlex.quote(str(state))}
+APP_SWITCHED=1
+VENV_SWITCHED=0
+ROLLBACK_ATTEMPTED=0
+SERVICE_STOPPED=0
+UPDATE_COMPLETE=0
+rollback_update() {{ return 1; }}
+clear_update_state() {{ rm -f -- "$UPDATE_STATE"; }}
+{exit_handler}
+false
+on_exit
+"""
+            completed = subprocess.run(
+                ["bash", "-c", harness], capture_output=True, text=True, check=False
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertTrue(state.exists(), "failed rollback must retain the recovery journal")
+
     def test_updater_uses_durable_journal_and_fails_closed_after_interruption(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         self.assertIn('exec 9>/run/lock/autozapaz-update.lock', script)
