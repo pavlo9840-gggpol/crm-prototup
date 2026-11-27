@@ -330,7 +330,7 @@ userdel() {{ printf 'userdel %s\\n' "$*" >> {shlex.quote(str(log))}; }}
     def test_updater_exit_trap_keeps_journal_when_rollback_fails(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("on_exit() {")
-        end = script.index("\\ntrap on_exit EXIT", start)
+        end = script.index("\ntrap on_exit EXIT", start)
         exit_handler = script[start:end]
         with tempfile.TemporaryDirectory() as temporary:
             state = Path(temporary) / "update-state.json"
