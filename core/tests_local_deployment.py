@@ -378,7 +378,7 @@ if [[ -e "$UPDATE_STATE" ]]; then echo STILL_EXISTS; else echo CLEARED; fi
     def test_updater_journal_clear_fsyncs_parent_and_rejects_untrusted_state(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("clear_update_state() {")
-        end = script.index("\\natomic_link() {", start)
+        end = script.index("\natomic_link() {", start)
         clear_function = script[start:end]
         self.assertIn("Відмова очищати некоректний журнал", clear_function)
         self.assertIn("Відмова очищати журнал оновлення, що не належить root", clear_function)
