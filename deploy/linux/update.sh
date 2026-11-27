@@ -142,8 +142,19 @@ PY
     STATE_WRITTEN=1
 }
 clear_update_state() {
-    if [[ -e "$UPDATE_STATE" && ! -L "$UPDATE_STATE" && "$(stat -c '%u' -- "$UPDATE_STATE")" == "0" ]]; then
+    if [[ -e "$UPDATE_STATE" || -L "$UPDATE_STATE" ]]; then
+        [[ -f "$UPDATE_STATE" && ! -L "$UPDATE_STATE" ]] || {
+            printf 'Відмова очищати некоректний журнал оновлення: %s\\n' "$UPDATE_STATE" >&2
+            return 1
+        }
+        [[ "$(stat -c '%u' -- "$UPDATE_STATE")" == "0" ]] || {
+            printf 'Відмова очищати журнал оновлення, що не належить root: %s\\n' "$UPDATE_STATE" >&2
+            return 1
+        }
         rm -f -- "$UPDATE_STATE"
+        # Persist the unlink itself. Without a directory fsync, a power loss
+        # could resurrect the journal after rollback material has been removed.
+        python3 -c 'import os; fd=os.open("/var/lib", os.O_RDONLY | os.O_DIRECTORY); os.fsync(fd); os.close(fd)'
     fi
     STATE_WRITTEN=0
 }
