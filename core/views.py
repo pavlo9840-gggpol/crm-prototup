@@ -2207,8 +2207,14 @@ def shift_summary(shift):
         company=shift.company, detail__source__in=["advance", "advance_reversal"]
     )
     advance_net = advance_ops.aggregate(total=Sum("amount"))["total"] or D0
+    supplier_compensation_ops = shift.cash_ops.filter(
+        company=shift.company,
+        detail__source__in=["supplier_return_compensation", "supplier_compensation_reversal"],
+    )
+    supplier_compensation_net = supplier_compensation_ops.aggregate(total=Sum("amount"))["total"] or D0
     return {"total": a["t"] or D0, "count": qs.count(), "cash": a["c"] or D0, "card": a["k"] or D0,
             "settlement_net": settlement_net, "advance_net": advance_net,
+            "supplier_compensation_net": supplier_compensation_net,
             "expected": cashlib.to_dec(cashlib.total(shift.drawer))}
 
 
