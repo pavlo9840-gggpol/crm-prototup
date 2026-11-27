@@ -388,7 +388,7 @@ if [[ -e "$UPDATE_STATE" ]]; then echo STILL_EXISTS; else echo CLEARED; fi
     def test_updater_journal_clear_refuses_non_root_owned_state(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("clear_update_state() {")
-        end = script.index("\\natomic_link() {", start)
+        end = script.index("\natomic_link() {", start)
         function = script[start:end]
         with tempfile.TemporaryDirectory() as temporary:
             state = Path(temporary) / "state.json"
