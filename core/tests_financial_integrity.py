@@ -746,6 +746,10 @@ class FinancialIntegrityTests(TestCase):
         report = self.client.get(reverse("supplier_balances_report"))
         self.assertEqual(report.status_code, 200)
         self.assertEqual(report.context["totals"]["debt"], Decimal("5.00"))
+        controls = self.client.get(reverse("finance_controls"))
+        self.assertEqual(controls.status_code, 200)
+        self.assertEqual(controls.context["supplier_debt_total"], Decimal("5.00"))
+        self.assertEqual(controls.context["period_snapshot"]["metrics"]["supplier_debt"], "5.00")
 
         # A second credit note cannot exceed the remaining 5.00.
         response = self.client.post(
@@ -775,6 +779,9 @@ class FinancialIntegrityTests(TestCase):
         )
         report = self.client.get(reverse("supplier_balances_report"))
         self.assertEqual(report.context["totals"]["debt"], Decimal("12.00"))
+        controls = self.client.get(reverse("finance_controls"))
+        self.assertEqual(controls.context["supplier_debt_total"], Decimal("12.00"))
+        self.assertEqual(controls.context["period_snapshot"]["metrics"]["supplier_debt"], "12.00")
 
         response = self.client.post(
             reverse("supplier_return_compensate", args=[returned.pk]),
@@ -786,4 +793,7 @@ class FinancialIntegrityTests(TestCase):
         ).exists())
         report = self.client.get(reverse("supplier_balances_report"))
         self.assertEqual(report.context["totals"]["debt"], Decimal("0.00"))
+        controls = self.client.get(reverse("finance_controls"))
+        self.assertEqual(controls.context["supplier_debt_total"], Decimal("0.00"))
+        self.assertEqual(controls.context["period_snapshot"]["metrics"]["supplier_debt"], "0.00")
 
