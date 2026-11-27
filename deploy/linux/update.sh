@@ -144,11 +144,11 @@ PY
 clear_update_state() {
     if [[ -e "$UPDATE_STATE" || -L "$UPDATE_STATE" ]]; then
         [[ -f "$UPDATE_STATE" && ! -L "$UPDATE_STATE" ]] || {
-            printf 'Відмова очищати некоректний журнал оновлення: %s\\n' "$UPDATE_STATE" >&2
+            printf 'Відмова очищати некоректний журнал оновлення: %s\n' "$UPDATE_STATE" >&2
             return 1
         }
         [[ "$(stat -c '%u' -- "$UPDATE_STATE")" == "0" ]] || {
-            printf 'Відмова очищати журнал оновлення, що не належить root: %s\\n' "$UPDATE_STATE" >&2
+            printf 'Відмова очищати журнал оновлення, що не належить root: %s\n' "$UPDATE_STATE" >&2
             return 1
         }
         rm -f -- "$UPDATE_STATE"
