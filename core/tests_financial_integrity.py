@@ -565,6 +565,76 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(serial.product_id, self.product.pk)
 
 
+    def test_supplier_return_stock_and_credit_compensation_complete_end_to_end(self):
+        self.client.force_login(self.admin)
+        supplier = Supplier.objects.create(company=self.company, name="End-to-end supplier return")
+        purchase = create_purchase(
+            self.admin, supplier,
+            [(self.product, Decimal("2.000"), Decimal("12.00"))],
+        )
+        item = purchase.items.get()
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("12.000"))
+        self.assertEqual(purchase.total, Decimal("24.00"))
+
+        response = self.client.post(
+            reverse("supplier_return_create", args=[purchase.pk, item.pk]),
+            {
+                "quantity": "1.000",
+                "reason": "Пошкоджена одиниця",
+                "compensation_type": "credit",
+                "note": "Наскрізна перевірка повернення",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        returned = SupplierReturn.objects.get(purchase_item=item)
+        self.assertEqual(returned.quantity, Decimal("1.000"))
+        self.assertEqual(returned.total, Decimal("12.000"))
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("11.000"))
+        movements = list(
+            StockMovement.objects.filter(
+                product=self.product,
+                doc_ref__in=[purchase.number, returned.number],
+            ).order_by("pk")
+        )
+        self.assertEqual(
+            [(row.movement_type, row.quantity_change, row.balance_after) for row in movements],
+            [
+                ("purchase", Decimal("2.000"), Decimal("12.000")),
+                ("supplier_return", Decimal("-1.000"), Decimal("11.000")),
+            ],
+        )
+
+        response = self.client.post(
+            reverse("supplier_return_compensate", args=[returned.pk]),
+            {"kind": "credit", "amount": "12.00", "note": "Зарахування повернення"},
+        )
+        self.assertEqual(response.status_code, 302)
+        compensation = SupplierCompensation.objects.get(supplier_return=returned, is_void=False)
+        self.assertEqual(compensation.amount, Decimal("12.00"))
+        self.assertEqual(compensation.kind, SupplierCompensation.CREDIT)
+
+        # The credit note reduces the payable, but it must not affect stock a
+        # second time: stock was already reduced when the return was posted.
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("11.000"))
+        self.assertEqual(
+            StockMovement.objects.filter(product=self.product, movement_type="supplier_return").count(),
+            1,
+        )
+        balances = self.client.get(reverse("supplier_balances_report"))
+        self.assertEqual(balances.status_code, 200)
+        self.assertEqual(balances.context["totals"]["debt"], Decimal("12.00"))
+        controls = self.client.get(reverse("finance_controls"))
+        self.assertEqual(controls.status_code, 200)
+        self.assertEqual(controls.context["supplier_debt_total"], Decimal("12.00"))
+        self.assertEqual(
+            controls.context["period_snapshot"]["metrics"]["supplier_debt"],
+            "12.00",
+        )
+
     def test_supplier_cash_compensation_void_posts_equal_outflow_and_preserves_audit(self):
         self.client.force_login(self.admin)
         supplier = Supplier.objects.create(company=self.company, name="Cash compensation supplier")
