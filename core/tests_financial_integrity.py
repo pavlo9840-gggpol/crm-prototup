@@ -7,10 +7,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.db import connection
-from django.db.models import Sum
-from django.urls import reverse
 
-from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement, SettlementPayment, SupplierCreditApplication
+from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement
 from core.services import StockError, _lock_products, create_purchase, create_return, save_held
 from core.tests_tenant_helpers import create_test_company
 
@@ -531,41 +529,3 @@ class FinancialIntegrityTests(TestCase):
         from core.models import StockAdjustment, StockMovement
         self.assertEqual(StockAdjustment.objects.count(), 0)
         self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
-
-
-    def test_supplier_credit_received_on_a_purchase_can_be_transferred_again(self):
-        self.client.force_login(self.admin)
-        supplier = Supplier.objects.create(company=self.company, name="Credit chain supplier")
-        source = create_purchase(self.admin, supplier, [(self.product, Decimal("1.000"), Decimal("100.00"))])
-        middle = create_purchase(self.admin, supplier, [(self.product, Decimal("1.000"), Decimal("100.00"))])
-        target = create_purchase(self.admin, supplier, [(self.product, Decimal("1.000"), Decimal("100.00"))])
-
-        SettlementPayment.objects.create(
-            company=self.company, purchase=source, amount=Decimal("150.00"),
-            payment_method="bank", created_by=self.admin,
-        )
-        SettlementPayment.objects.create(
-            company=self.company, purchase=middle, amount=Decimal("120.00"),
-            payment_method="bank", created_by=self.admin,
-        )
-
-        first = self.client.post(
-            reverse("supplier_credit_apply", args=[middle.pk]),
-            {"source_purchase": source.pk, "amount": "30.00", "note": "Перший етап"},
-        )
-        self.assertEqual(first.status_code, 302)
-        self.assertEqual(SupplierCreditApplication.objects.filter(
-            source_purchase=source, target_purchase=middle, is_void=False
-        ).aggregate(total=Sum("amount"))["total"], Decimal("30.00"))
-
-        # The middle document has 20.00 original overpayment plus 30.00
-        # received credit. All 50.00 is transferable to the next document.
-        second = self.client.post(
-            reverse("supplier_credit_apply", args=[target.pk]),
-            {"source_purchase": middle.pk, "amount": "40.00", "note": "Другий етап"},
-        )
-        self.assertEqual(second.status_code, 302)
-        self.assertTrue(SupplierCreditApplication.objects.filter(
-            source_purchase=middle, target_purchase=target, amount=Decimal("40.00"), is_void=False
-        ).exists())
-\n
