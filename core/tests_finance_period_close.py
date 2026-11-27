@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 import hashlib
 import json
@@ -6,8 +6,12 @@ import json
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.utils import timezone
 
-from core.models import Company, FinanceEntry, FinancePeriodClose, Product, Sale, SaleItem, StaffMembership
+from core.models import (
+    Company, FinanceEntry, FinancePeriodClose, Product, Sale, SaleItem,
+    SaleReturn, SaleReturnItem, StaffMembership,
+)
 
 
 class FinancePeriodCloseTests(TestCase):
@@ -118,3 +122,43 @@ class FinancePeriodCloseTests(TestCase):
             close.save()
         with self.assertRaises(ValidationError):
             close.delete()
+
+
+    def test_period_close_subtracts_returns_from_revenue_and_cost_of_goods_sold(self):
+        earned_at = timezone.make_aware(datetime(2026, 11, 15, 12, 0))
+        product = Product.objects.create(
+            company=self.company, name="Returned snapshot item", sku="SNAP-RET-001",
+            price=Decimal("50.00"), cost_price=Decimal("30.00"),
+            current_stock=Decimal("4.000"),
+        )
+        sale = Sale.objects.create(
+            company=self.company, number="SNAP-RET-SALE-001", status=Sale.DONE,
+            cashier=self.user, total=Decimal("50.00"),
+        )
+        sale_item = SaleItem.objects.create(
+            company=self.company, sale=sale, product=product,
+            quantity=Decimal("1.000"), original_price=Decimal("50.00"),
+            price=Decimal("50.00"), cost_price=Decimal("30.00"),
+            earned_at=earned_at,
+        )
+        returned = SaleReturn.objects.create(
+            company=self.company, sale=sale, user=self.user,
+            total=Decimal("20.00"),
+        )
+        SaleReturn.objects.filter(pk=returned.pk).update(created_at=earned_at)
+        SaleReturnItem.objects.create(
+            company=self.company, sale_return=returned, sale_item=sale_item,
+            quantity=Decimal("0.400"), price=Decimal("50.00"),
+        )
+
+        self._close()
+        metrics = FinancePeriodClose.objects.get(company=self.company).snapshot["metrics"]
+        self.assertEqual(metrics["gross_revenue"], "50.00")
+        self.assertEqual(metrics["returned_revenue"], "20.00")
+        self.assertEqual(metrics["net_revenue"], "30.00")
+        self.assertEqual(metrics["gross_cost_of_goods_sold"], "30.00")
+        self.assertEqual(metrics["returned_cost_of_goods_sold"], "12.00")
+        self.assertEqual(metrics["net_cost_of_goods_sold"], "18.00")
+        self.assertEqual(metrics["gross_profit"], "12.00")
+        self.assertEqual(metrics["sold_units"], "1.000")
+        self.assertEqual(metrics["returned_units"], "0.400")
