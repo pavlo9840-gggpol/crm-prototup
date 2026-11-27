@@ -691,6 +691,11 @@ class FinancialIntegrityTests(TestCase):
         income = active.filter(direction=BankTransaction.INCOME).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
         expense = active.filter(direction=BankTransaction.EXPENSE).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
         self.assertEqual(income - expense, Decimal("0.00"))
+        cashflow = self.client.get(reverse("cashflow_report"))
+        self.assertEqual(cashflow.status_code, 200)
+        self.assertEqual(cashflow.context["bank_in"], Decimal("200.00"))
+        self.assertEqual(cashflow.context["bank_out"], Decimal("200.00"))
+        self.assertEqual(cashflow.context["bank_net"], Decimal("0.00"))
 
         # Both ledger rows are owned by the compensation lifecycle and cannot
         # be independently voided, which preserves the paired audit trail.
