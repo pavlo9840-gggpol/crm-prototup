@@ -631,9 +631,6 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(controls.status_code, 200)
         self.assertEqual(controls.context["supplier_debt_total"], Decimal("12.00"))
         self.assertEqual(
-            controls.context["supplier_debt_total"],
-            "12.00",
-        )
 
     def test_supplier_cash_compensation_void_posts_equal_outflow_and_preserves_audit(self):
         self.client.force_login(self.admin)
@@ -693,7 +690,6 @@ class FinancialIntegrityTests(TestCase):
         controls = self.client.get(reverse("finance_controls"))
         self.assertEqual(controls.context["cash_period_in"], Decimal("200.00"))
         self.assertEqual(controls.context["cash_period_out"], Decimal("200.00"))
-        self.assertEqual(controls.context["period_cash_net"], Decimal("0.00"))
         self.assertEqual(controls.context["period_cash_net"], Decimal("0.00"))
         self.assertEqual(CashOperation.objects.filter(
             shift=shift, detail__source="supplier_return_compensation"
@@ -789,7 +785,6 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(controls.context["bank_period_in"], Decimal("200.00"))
         self.assertEqual(controls.context["bank_period_out"], Decimal("200.00"))
         self.assertEqual(controls.context["period_bank_net"], Decimal("0.00"))
-        self.assertEqual(controls.context["period_bank_net"], Decimal("0.00"))
 
         # Both ledger rows are owned by the compensation lifecycle and cannot
         # be independently voided, which preserves the paired audit trail.
@@ -829,7 +824,6 @@ class FinancialIntegrityTests(TestCase):
         controls = self.client.get(reverse("finance_controls"))
         self.assertEqual(controls.status_code, 200)
         self.assertEqual(controls.context["supplier_debt_total"], Decimal("5.00"))
-        self.assertEqual(controls.context["supplier_debt_total"], Decimal("5.00"))
 
         # A second credit note cannot exceed the remaining 5.00.
         response = self.client.post(
@@ -861,7 +855,6 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(report.context["totals"]["debt"], Decimal("12.00"))
         controls = self.client.get(reverse("finance_controls"))
         self.assertEqual(controls.context["supplier_debt_total"], Decimal("12.00"))
-        self.assertEqual(controls.context["supplier_debt_total"], Decimal("12.00"))
 
         response = self.client.post(
             reverse("supplier_return_compensate", args=[returned.pk]),
@@ -874,6 +867,5 @@ class FinancialIntegrityTests(TestCase):
         report = self.client.get(reverse("supplier_balances_report"))
         self.assertEqual(report.context["totals"]["debt"], Decimal("0.00"))
         controls = self.client.get(reverse("finance_controls"))
-        self.assertEqual(controls.context["supplier_debt_total"], Decimal("0.00"))
         self.assertEqual(controls.context["supplier_debt_total"], Decimal("0.00"))
 
