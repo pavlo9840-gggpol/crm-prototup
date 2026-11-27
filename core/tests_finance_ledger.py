@@ -403,6 +403,27 @@ class BankLedgerTests(TestCase):
         self.assertIsNotNone(reconciliation.voided_at)
         self.assertEqual(reconciliation.voided_by, self.owner)
 
+    def test_bank_csv_export_escapes_formula_cells_and_keeps_void_audit(self):
+        entry = BankTransaction.objects.create(
+            company=self.company, account=self.account, transaction_date=self.today,
+            direction=BankTransaction.INCOME, category="-danger",
+            amount=Decimal("125.00"), counterparty="=HYPERLINK(\"https://example.invalid\")",
+            document_ref="+SUM(1,1)", note="@malicious", created_by=self.owner,
+            is_void=True, void_reason="Скасовано після перевірки",
+        )
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("bank_export_csv"))
+        self.assertEqual(response.status_code, 200)
+        csv_text = response.content.decode("utf-8-sig")
+        self.assertIn("Скасовано", csv_text)
+        self.assertIn("Скасовано після перевірки", csv_text)
+        self.assertIn("'=HYPERLINK", csv_text)
+        self.assertIn("'+SUM(1,1)", csv_text)
+        self.assertIn("'-danger", csv_text)
+        self.assertIn("'@malicious", csv_text)
+        entry.refresh_from_db()
+        self.assertTrue(entry.is_void)
+
     def test_cashier_cannot_view_or_write_bank_ledger(self):
         self.client.force_login(self.cashier)
         self.assertEqual(self.client.get(reverse("bank_ledger")).status_code, 403)
