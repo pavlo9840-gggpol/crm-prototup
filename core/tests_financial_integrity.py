@@ -7,9 +7,10 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.db import connection
+from django.db.models import Sum
 from django.urls import reverse
 
-from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement, SupplierReturn, StockSerialUnit, SupplierReplacementReceipt
+from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement, SupplierReturn, StockSerialUnit, SupplierReplacementReceipt, SupplierCompensation
 from core.services import StockError, _lock_products, create_purchase, create_return, save_held
 from core.tests_tenant_helpers import create_test_company
 
@@ -562,4 +563,63 @@ class FinancialIntegrityTests(TestCase):
         serial = StockSerialUnit.objects.get(normalized_serial="REPLSN001")
         self.assertEqual(serial.purchase_item_id, replacement_item.pk)
         self.assertEqual(serial.product_id, self.product.pk)
+
+
+    def test_supplier_credit_note_partial_compensation_void_restores_available_amount(self):
+        self.client.force_login(self.admin)
+        supplier = Supplier.objects.create(company=self.company, name="Credit note lifecycle supplier")
+        purchase = create_purchase(
+            self.admin, supplier,
+            [(self.product, Decimal("1.000"), Decimal("12.00"))],
+        )
+        returned = SupplierReturn.objects.create(
+            company=self.company, purchase_item=purchase.items.get(), supplier=supplier,
+            quantity=Decimal("1.000"), unit_cost=Decimal("12.00"),
+            compensation_type="credit", reason="Повернення постачальнику",
+            completed_at=timezone.now(), created_by=self.admin,
+        )
+
+        response = self.client.post(
+            reverse("supplier_return_compensate", args=[returned.pk]),
+            {"kind": "credit", "amount": "7.00", "note": "Часткова кредит-нота"},
+        )
+        self.assertEqual(response.status_code, 302)
+        compensation = SupplierCompensation.objects.get(supplier_return=returned, is_void=False)
+        self.assertEqual(compensation.amount, Decimal("7.00"))
+
+        # A second credit note cannot exceed the remaining 5.00.
+        response = self.client.post(
+            reverse("supplier_return_compensate", args=[returned.pk]),
+            {"kind": "credit", "amount": "6.00", "note": "Перевищення"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            SupplierCompensation.objects.filter(supplier_return=returned, is_void=False).aggregate(
+                total=Sum("amount")
+            )["total"],
+            Decimal("7.00"),
+        )
+
+        response = self.client.post(
+            reverse("supplier_compensation_void", args=[compensation.pk]),
+            {"reason": "Помилкова кредит-нота"},
+        )
+        self.assertEqual(response.status_code, 302)
+        compensation.refresh_from_db()
+        self.assertTrue(compensation.is_void)
+        self.assertEqual(compensation.void_reason, "Помилкова кредит-нота")
+        self.assertIsNotNone(compensation.voided_at)
+        self.assertEqual(
+            SupplierCompensation.objects.filter(supplier_return=returned, is_void=False).count(),
+            0,
+        )
+
+        response = self.client.post(
+            reverse("supplier_return_compensate", args=[returned.pk]),
+            {"kind": "credit", "amount": "12.00", "note": "Повторна правильна кредит-нота"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(SupplierCompensation.objects.filter(
+            supplier_return=returned, amount=Decimal("12.00"), is_void=False
+        ).exists())
 
