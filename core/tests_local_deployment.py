@@ -378,10 +378,10 @@ if [[ -e "$UPDATE_STATE" ]]; then echo STILL_EXISTS; else echo CLEARED; fi
     def test_updater_journal_survives_crash_after_app_switch_before_phase_update(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         write_start = script.index("write_update_state() {")
-        write_end = script.index("\\nclear_update_state() {", write_start)
+        write_end = script.index("\nclear_update_state() {", write_start)
         write_function = script[write_start:write_end]
         link_start = script.index("atomic_link() {")
-        link_end = script.index("\\nhealth_check() {", link_start)
+        link_end = script.index("\nhealth_check() {", link_start)
         link_function = script[link_start:link_end]
 
         with tempfile.TemporaryDirectory() as temporary:
