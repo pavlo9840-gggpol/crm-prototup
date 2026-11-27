@@ -7,8 +7,9 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.db import connection
+from django.urls import reverse
 
-from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement
+from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement, SupplierReturn, StockSerialUnit, SupplierReplacementReceipt
 from core.services import StockError, _lock_products, create_purchase, create_return, save_held
 from core.tests_tenant_helpers import create_test_company
 
@@ -529,3 +530,36 @@ class FinancialIntegrityTests(TestCase):
         from core.models import StockAdjustment, StockMovement
         self.assertEqual(StockAdjustment.objects.count(), 0)
         self.assertEqual(StockMovement.objects.filter(product=self.product).count(), 0)
+
+
+    def test_supplier_replacement_receipt_links_serial_units_without_new_payable(self):
+        self.client.force_login(self.admin)
+        self.product.tracking_mode = "serial"
+        self.product.save(update_fields=["tracking_mode"])
+        supplier = Supplier.objects.create(company=self.company, name="Serial replacement supplier")
+        original_purchase = create_purchase(
+            self.admin, supplier,
+            [(self.product, Decimal("1.000"), Decimal("12.00"))],
+        )
+        original_item = original_purchase.items.get()
+        returned = SupplierReturn.objects.create(
+            company=self.company, purchase_item=original_item, supplier=supplier,
+            quantity=Decimal("1.000"), unit_cost=Decimal("12.00"),
+            compensation_type="replacement", reason="Гарантійна заміна",
+            completed_at=timezone.now(), created_by=self.admin,
+        )
+
+        response = self.client.post(
+            reverse("supplier_replacement_receive", args=[returned.pk]),
+            {"quantity": "1.000", "serial_numbers": "REPL-SN-001", "note": "Тестова заміна"},
+        )
+        self.assertEqual(response.status_code, 302)
+        receipt = SupplierReplacementReceipt.objects.get(supplier_return=returned)
+        replacement_item = receipt.purchase_item
+        self.assertEqual(receipt.quantity, Decimal("1.000"))
+        self.assertEqual(receipt.purchase.total, Decimal("0.00"))
+        self.assertEqual(replacement_item.cost_price, Decimal("12.00"))
+        serial = StockSerialUnit.objects.get(normalized_serial="REPLSN001")
+        self.assertEqual(serial.purchase_item_id, replacement_item.pk)
+        self.assertEqual(serial.product_id, self.product.pk)
+
