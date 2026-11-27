@@ -403,6 +403,21 @@ class BankLedgerTests(TestCase):
         self.assertIsNotNone(reconciliation.voided_at)
         self.assertEqual(reconciliation.voided_by, self.owner)
 
+        self.client.post(reverse("settlement_payment_void", args=[payment.pk]), {
+            "reason": "Скасування після зняття звірки",
+        })
+        payment.refresh_from_db()
+        self.assertTrue(payment.is_void)
+        self.client.post(reverse("bank_reconcile", args=[entry.pk]), {
+            "match_ref": f"payment:{payment.pk}",
+        })
+        self.assertEqual(
+            BankReconciliation.objects.filter(bank_transaction=entry, is_void=False).count(), 0
+        )
+        self.assertEqual(
+            BankReconciliation.objects.filter(bank_transaction=entry, is_void=True).count(), 1
+        )
+
     def test_bank_csv_export_escapes_formula_cells_and_keeps_void_audit(self):
         entry = BankTransaction.objects.create(
             company=self.company, account=self.account, transaction_date=self.today,
