@@ -10,7 +10,7 @@ from django.db import connection
 from django.db.models import Sum
 from django.urls import reverse
 
-from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement, SupplierReturn, StockSerialUnit, SupplierReplacementReceipt, SupplierCompensation
+from core.models import BankAccount, BankTransaction, CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement, SupplierReturn, StockSerialUnit, SupplierReplacementReceipt, SupplierCompensation
 from core.services import StockError, _lock_products, create_purchase, create_return, save_held
 from core.tests_tenant_helpers import create_test_company
 
@@ -564,6 +564,136 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(serial.purchase_item_id, replacement_item.pk)
         self.assertEqual(serial.product_id, self.product.pk)
 
+
+    def test_supplier_cash_compensation_void_posts_equal_outflow_and_preserves_audit(self):
+        self.client.force_login(self.admin)
+        supplier = Supplier.objects.create(company=self.company, name="Cash compensation supplier")
+        purchase = create_purchase(
+            self.admin, supplier,
+            [(self.product, Decimal("1.000"), Decimal("200.00"))],
+        )
+        returned = SupplierReturn.objects.create(
+            company=self.company, purchase_item=purchase.items.get(), supplier=supplier,
+            quantity=Decimal("1.000"), unit_cost=Decimal("200.00"),
+            compensation_type="cash", reason="Повернення готівкою",
+            completed_at=timezone.now(), created_by=self.admin,
+        )
+        shift = Shift.objects.create(company=self.company, cashier=self.admin, drawer={"20000": 1})
+        response = self.client.post(
+            reverse("supplier_return_compensate", args=[returned.pk]),
+            {"kind": "cash", "amount": "200.00", "note": "Готівкове повернення"},
+        )
+        self.assertEqual(response.status_code, 302)
+        compensation = SupplierCompensation.objects.get(supplier_return=returned, is_void=False)
+        original = compensation.cash_operation
+        self.assertEqual(original.kind, "in")
+        self.assertEqual(original.amount, Decimal("200.00"))
+        shift.refresh_from_db()
+        self.assertEqual(shift.drawer, {"20000": 2})
+
+        response = self.client.post(
+            reverse("supplier_compensation_void", args=[compensation.pk]),
+            {"reason": "Помилкова виплата"},
+        )
+        self.assertEqual(response.status_code, 302)
+        compensation.refresh_from_db()
+        shift.refresh_from_db()
+        self.assertTrue(compensation.is_void)
+        self.assertEqual(compensation.void_reason, "Помилкова виплата")
+        self.assertIsNotNone(compensation.voided_at)
+        self.assertEqual(compensation.voided_by, self.admin)
+        self.assertEqual(compensation.reversal_cash_operation.kind, "out")
+        self.assertEqual(compensation.reversal_cash_operation.amount, Decimal("-200.00"))
+        self.assertEqual(shift.drawer, {"20000": 1})
+        self.assertEqual(CashOperation.objects.filter(
+            detail__supplier_compensation_id=compensation.pk
+        ).count(), 1)
+        self.assertEqual(CashOperation.objects.filter(
+            detail__supplier_compensation_reversal__isnull=False
+        ).count(), 0)
+
+    def test_supplier_cash_compensation_cannot_be_voided_after_shift_close(self):
+        self.client.force_login(self.admin)
+        supplier = Supplier.objects.create(company=self.company, name="Closed shift supplier")
+        purchase = create_purchase(
+            self.admin, supplier,
+            [(self.product, Decimal("1.000"), Decimal("200.00"))],
+        )
+        returned = SupplierReturn.objects.create(
+            company=self.company, purchase_item=purchase.items.get(), supplier=supplier,
+            quantity=Decimal("1.000"), unit_cost=Decimal("200.00"),
+            compensation_type="cash", reason="Повернення",
+            completed_at=timezone.now(), created_by=self.admin,
+        )
+        shift = Shift.objects.create(company=self.company, cashier=self.admin, drawer={"20000": 1})
+        self.client.post(reverse("supplier_return_compensate", args=[returned.pk]), {
+            "kind": "cash", "amount": "200.00", "note": "Готівка",
+        })
+        compensation = SupplierCompensation.objects.get(supplier_return=returned, is_void=False)
+        shift.closed_at = timezone.now()
+        shift.save(update_fields=["closed_at"])
+        response = self.client.post(
+            reverse("supplier_compensation_void", args=[compensation.pk]),
+            {"reason": "Після закриття"},
+        )
+        self.assertEqual(response.status_code, 302)
+        compensation.refresh_from_db()
+        self.assertFalse(compensation.is_void)
+        self.assertIsNone(compensation.reversal_cash_operation_id)
+
+    def test_supplier_bank_compensation_void_creates_balancing_bank_entry(self):
+        self.client.force_login(self.admin)
+        supplier = Supplier.objects.create(company=self.company, name="Bank compensation supplier")
+        purchase = create_purchase(
+            self.admin, supplier,
+            [(self.product, Decimal("1.000"), Decimal("200.00"))],
+        )
+        returned = SupplierReturn.objects.create(
+            company=self.company, purchase_item=purchase.items.get(), supplier=supplier,
+            quantity=Decimal("1.000"), unit_cost=Decimal("200.00"),
+            compensation_type="bank", reason="Повернення на рахунок",
+            completed_at=timezone.now(), created_by=self.admin,
+        )
+        account = BankAccount.objects.create(
+            company=self.company, bank_name="Тестовий банк",
+            iban="UA123456789012345678901234567", currency="UAH",
+        )
+        response = self.client.post(
+            reverse("supplier_return_compensate", args=[returned.pk]),
+            {"kind": "bank", "amount": "200.00", "bank_account": account.pk, "note": "Повернення"},
+        )
+        self.assertEqual(response.status_code, 302)
+        compensation = SupplierCompensation.objects.get(supplier_return=returned, is_void=False)
+        original = compensation.bank_transaction
+        self.assertEqual(original.direction, BankTransaction.INCOME)
+        self.assertEqual(original.amount, Decimal("200.00"))
+
+        response = self.client.post(
+            reverse("supplier_compensation_void", args=[compensation.pk]),
+            {"reason": "Помилкове зарахування"},
+        )
+        self.assertEqual(response.status_code, 302)
+        compensation.refresh_from_db()
+        self.assertTrue(compensation.is_void)
+        reversal = compensation.reversal_bank_transaction
+        self.assertEqual(reversal.direction, BankTransaction.EXPENSE)
+        self.assertEqual(reversal.amount, original.amount)
+        self.assertEqual(reversal.account_id, account.pk)
+        active = BankTransaction.objects.filter(company=self.company, account=account, is_void=False)
+        income = active.filter(direction=BankTransaction.INCOME).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
+        expense = active.filter(direction=BankTransaction.EXPENSE).aggregate(v=Sum("amount"))["v"] or Decimal("0.00")
+        self.assertEqual(income - expense, Decimal("0.00"))
+
+        # Both ledger rows are owned by the compensation lifecycle and cannot
+        # be independently voided, which preserves the paired audit trail.
+        response = self.client.post(
+            reverse("bank_transaction_void", args=[original.pk]),
+            {"reason": "Окреме скасування"},
+        )
+        original.refresh_from_db()
+        self.assertFalse(original.is_void)
+        reversal.refresh_from_db()
+        self.assertFalse(reversal.is_void)
 
     def test_supplier_credit_note_partial_compensation_void_restores_available_amount(self):
         self.client.force_login(self.admin)
