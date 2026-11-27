@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.db import connection
+from django.db.models import Sum
 from django.urls import reverse
 
 from core.models import CashOperation, Product, Sale, SaleItem, Shift, SaleReturn, Purchase, Supplier, StockMovement, SettlementPayment, SupplierCreditApplication
@@ -555,7 +556,7 @@ class FinancialIntegrityTests(TestCase):
         self.assertEqual(first.status_code, 302)
         self.assertEqual(SupplierCreditApplication.objects.filter(
             source_purchase=source, target_purchase=middle, is_void=False
-        ).aggregate(total=__import__("django").db.models.Sum("amount"))["total"], Decimal("30.00"))
+        ).aggregate(total=Sum("amount"))["total"], Decimal("30.00"))
 
         # The middle document has 20.00 original overpayment plus 30.00
         # received credit. All 50.00 is transferable to the next document.
