@@ -786,11 +786,14 @@ fi
         self.addCleanup(temporary.cleanup)
         self.assertNotEqual(completed.returncode, 0)
         self.assertEqual((data / "db.sqlite3").read_text(encoding="utf-8"), "previous database")
+        self.assertEqual((data / "db.sqlite3-wal.failed-test").read_text(encoding="utf-8"), "new WAL")
+        self.assertEqual((data / "db.sqlite3-shm.failed-test").read_text(encoding="utf-8"), "new SHM")
+        self.assertEqual((data / "media.failed-test" / "new.txt").read_text(encoding="utf-8"), "new media")
+        self.assertTrue((restore / "media" / "old.txt").exists())
         calls = call_log.read_text(encoding="utf-8")
         self.assertIn("systemctl stop autozapaz.service", calls)
         self.assertNotIn("systemctl start autozapaz.service", calls)
         self.assertIn("Служба залишена зупиненою", completed.stderr)
-        self.assertTrue((restore / "media" / "old.txt").exists())
 
 
     def test_updater_rollback_stops_service_when_health_check_fails(self):
