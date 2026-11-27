@@ -534,13 +534,13 @@ class FinancialIntegrityTests(TestCase):
 
     def test_supplier_replacement_receipt_links_serial_units_without_new_payable(self):
         self.client.force_login(self.admin)
-        self.product.tracking_mode = "serial"
-        self.product.save(update_fields=["tracking_mode"])
         supplier = Supplier.objects.create(company=self.company, name="Serial replacement supplier")
         original_purchase = create_purchase(
             self.admin, supplier,
             [(self.product, Decimal("1.000"), Decimal("12.00"))],
         )
+        self.product.tracking_mode = "serial"
+        self.product.save(update_fields=["tracking_mode"])
         original_item = original_purchase.items.get()
         returned = SupplierReturn.objects.create(
             company=self.company, purchase_item=original_item, supplier=supplier,
