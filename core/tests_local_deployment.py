@@ -375,6 +375,57 @@ if [[ -e "$UPDATE_STATE" ]]; then echo STILL_EXISTS; else echo CLEARED; fi
             self.assertIn("CLEARED", completed.stdout)
             self.assertFalse((state_dir / "autozapaz-update-state.json").exists())
 
+    def test_updater_journal_survives_crash_after_app_switch_before_phase_update(self):
+        script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
+        write_start = script.index("write_update_state() {")
+        write_end = script.index("\\nclear_update_state() {", write_start)
+        write_function = script[write_start:write_end]
+        link_start = script.index("atomic_link() {")
+        link_end = script.index("\\nhealth_check() {", link_start)
+        link_function = script[link_start:link_end]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state_dir = root / "var-lib"
+            state_dir.mkdir()
+            old_app = root / "releases" / "old"
+            new_app = root / "releases" / "new"
+            old_app.mkdir(parents=True)
+            new_app.mkdir(parents=True)
+            app_link = root / "app"
+            app_link.symlink_to(old_app, target_is_directory=True)
+            state = state_dir / "autozapaz-update-state.json"
+            harness = f"""
+set -e
+UPDATE_STATE={shlex.quote(str(state))}
+STAMP=crash-test
+OLD_APP_REAL={shlex.quote(str(old_app))}
+OLD_VENV_REAL=/opt/autozapaz/venvs/old
+NEW_APP={shlex.quote(str(new_app))}
+NEW_VENV=/opt/autozapaz/venvs/new
+RESTORE_DIR=/var/lib/autozapaz/.rollback-restore-crash-test
+BACKUP_PATH=/var/lib/autozapaz/backups/crash-test.zip
+STATE_WRITTEN=0
+APP_LINK={shlex.quote(str(app_link))}
+ROLLBACK_ATTEMPTED=0
+chown() {{ :; }}
+{write_function.replace("/var/lib", str(state_dir))}
+{link_function}
+write_update_state rollback_ready
+atomic_link "$APP_LINK" "$NEW_APP" "$OLD_APP_REAL.fallback"
+exit 77
+"""
+            completed = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, check=False)
+            self.assertEqual(completed.returncode, 77, completed.stderr)
+            self.assertTrue(state.is_file(), "durable journal must remain after interrupted switch")
+            journal = json.loads(state.read_text(encoding="utf-8"))
+            self.assertEqual(journal["phase"], "rollback_ready")
+            self.assertEqual(app_link.resolve(), new_app, "the filesystem may be ahead of the last journal phase")
+
+            runbook = (ROOT / "deploy/linux/RECOVERY.md").read_text(encoding="utf-8")
+            self.assertIn("наступна операція не встигла частково виконатися", runbook)
+            self.assertIn("Чинні посилання app/venv", runbook)
+
     def test_updater_journal_clear_fsyncs_parent_and_rejects_untrusted_state(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         start = script.index("clear_update_state() {")
