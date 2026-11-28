@@ -1,6 +1,7 @@
 import io
 import json
 import tempfile
+import stat
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
@@ -94,6 +95,22 @@ class BackupArchiveTests(TransactionTestCase):
         with self.assertRaisesRegex(ValueError, "Небезпечний шлях"):
             admin_tools.verify_backup_archive(malicious.getvalue())
 
+
+    def test_verifier_rejects_special_file_types(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        with zipfile.ZipFile(io.BytesIO(data), "r") as source:
+            database = source.read("db.sqlite3")
+            manifest = source.read("manifest.json")
+        malicious = io.BytesIO()
+        with zipfile.ZipFile(malicious, "w") as archive:
+            archive.writestr("db.sqlite3", database)
+            archive.writestr("manifest.json", manifest)
+            fifo = zipfile.ZipInfo("media/fifo")
+            fifo.create_system = 3
+            fifo.external_attr = (stat.S_IFIFO | 0o600) << 16
+            archive.writestr(fifo, b"")
+        with self.assertRaisesRegex(ValueError, "Спеціальні типи файлів"):
+            admin_tools.verify_backup_archive(malicious.getvalue())
 
     def test_manifest_rejects_boolean_version_and_size(self):
         data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
