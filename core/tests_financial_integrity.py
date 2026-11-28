@@ -630,7 +630,6 @@ class FinancialIntegrityTests(TestCase):
         controls = self.client.get(reverse("finance_controls"))
         self.assertEqual(controls.status_code, 200)
         self.assertEqual(controls.context["supplier_debt_total"], Decimal("12.00"))
-        self.assertEqual(
 
     def test_supplier_cash_compensation_void_posts_equal_outflow_and_preserves_audit(self):
         self.client.force_login(self.admin)
