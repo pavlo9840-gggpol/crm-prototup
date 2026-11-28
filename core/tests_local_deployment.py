@@ -72,6 +72,13 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         self.assertIn('rm -f -- "$SERVICE_FILE"', script)
         self.assertIn('Каталог програми, конфігурація та дані збережені', script)
         self.assertIn('INSTALL_COMPLETE=1', script)
+        self.assertIn('DJANGO_CSRF_TRUSTED_ORIGINS="${DJANGO_CSRF_TRUSTED_ORIGINS:-}"', script)
+        self.assertIn('AUTOZAPAZ_SECURE_COOKIES="${AUTOZAPAZ_SECURE_COOKIES:-0}"', script)
+        self.assertIn('AUTOZAPAZ_SECURE_COOKIES" == "0" || "$AUTOZAPAZ_SECURE_COOKIES" == "1"', script)
+        self.assertLess(
+            script.index('AUTOZAPAZ_SECURE_COOKIES="${AUTOZAPAZ_SECURE_COOKIES:-0}"'),
+            script.index('info "Створення системного користувача та каталогів"'),
+        )
 
 
     def test_updater_validates_trusted_installation_paths_before_verifier(self):
