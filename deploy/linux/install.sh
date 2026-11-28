@@ -72,6 +72,11 @@ if [[ -e "$ENV_FILE" ]]; then
     . "$ENV_FILE"
     set +a
 fi
+# Older customer configurations may predate these optional settings.
+# Normalize them before any later expansion under set -u.
+DJANGO_CSRF_TRUSTED_ORIGINS="${DJANGO_CSRF_TRUSTED_ORIGINS:-}"
+AUTOZAPAZ_SECURE_COOKIES="${AUTOZAPAZ_SECURE_COOKIES:-0}"
+[[ "$AUTOZAPAZ_SECURE_COOKIES" == "0" || "$AUTOZAPAZ_SECURE_COOKIES" == "1" ]] || fail "AUTOZAPAZ_SECURE_COOKIES має бути 0 або 1."
 [[ "${AUTOZAPAZ_LICENSE_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "Потрібен AUTOZAPAZ_LICENSE_PUBLIC_KEY (Ed25519 Base64URL, 43 символи)."
 [[ "${AUTOZAPAZ_RELEASE_PUBLIC_KEY:-}" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "Потрібен AUTOZAPAZ_RELEASE_PUBLIC_KEY (Ed25519 Base64URL, 43 символи)."
 TRUSTED_VERIFIER_DIR="/usr/local/lib/autozapaz"
