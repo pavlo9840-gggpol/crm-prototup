@@ -350,6 +350,36 @@ class BackupArchiveTests(TransactionTestCase):
             call_command("verify_backup", "/definitely/missing/autozapaz-backup.zip")
 
 
+    def test_verifier_rejects_symlink_entries_in_backup_archive(self):
+        data = self._make_archive(Path(tempfile.gettempdir()) / "autozapaz-no-media")
+        with zipfile.ZipFile(io.BytesIO(data), "r") as source:
+            database = source.read("db.sqlite3")
+            manifest = source.read("manifest.json")
+        malicious = io.BytesIO()
+        with zipfile.ZipFile(malicious, "w") as archive:
+            archive.writestr("db.sqlite3", database)
+            archive.writestr("manifest.json", manifest)
+            link = zipfile.ZipInfo("media/linked-file")
+            link.create_system = 3
+            link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(link, b"../../outside.txt")
+
+        with self.assertRaisesRegex(ValueError, "Символічні посилання"):
+            admin_tools.verify_backup_archive(malicious.getvalue())
+
+    def test_restore_rejects_corrupt_sqlite_without_leaving_temporary_directory(self):
+        malicious = io.BytesIO()
+        with zipfile.ZipFile(malicious, "w") as archive:
+            archive.writestr("db.sqlite3", b"not a sqlite database")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "restored"
+            with self.assertRaisesRegex(ValueError, "не є коректною SQLite-базою"):
+                admin_tools.restore_backup_archive(malicious.getvalue(), target)
+            self.assertFalse(target.exists())
+            self.assertEqual(list(Path(temp_dir).glob(".autozapaz-restore-*")), [])
+
+
 class BackupLegacyCompatibilityTests(SimpleTestCase):
     def test_archive_with_non_sqlite_database_is_rejected_cleanly(self):
         data = io.BytesIO()
