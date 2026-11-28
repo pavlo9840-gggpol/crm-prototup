@@ -227,6 +227,8 @@ def verify_backup_archive(source):
                 mode = (info.external_attr >> 16) & 0o170000
                 if stat.S_ISLNK(mode):
                     raise ValueError(f"Символічні посилання в ZIP-архіві заборонені: {name}")
+                if mode and not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                    raise ValueError(f"Спеціальні типи файлів у ZIP-архіві заборонені: {name}")
             if "manifest.json" in names and archive.getinfo("manifest.json").file_size > MAX_BACKUP_MANIFEST_SIZE:
                 raise ValueError("Маніфест резервної копії перевищує дозволений розмір.")
             if "db.sqlite3" not in names:
