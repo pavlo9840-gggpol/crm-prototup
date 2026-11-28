@@ -1,0 +1,75 @@
+{% extends "core/base.html" %}
+{% block title %}Замовлення {{ order.number }} · друк{% endblock %}
+{% block content %}
+<style>
+.print-sheet{max-width:1050px;margin:0 auto;background:#fff;padding:30px;border:1px solid #ddd}
+.print-head{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;border-bottom:2px solid #222;padding-bottom:18px;margin-bottom:18px}
+.print-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px 28px;margin:18px 0}
+.print-meta div{padding:5px 0;border-bottom:1px solid #ddd}
+.print-table{box-shadow:none;border:1px solid #bbb;border-radius:0}
+.print-table th,.print-table td{border-bottom:1px solid #ccc;padding:8px}
+.print-total{text-align:right;font-size:18px;font-weight:700;margin-top:16px}
+.print-note{white-space:pre-wrap;border:1px solid #ddd;padding:12px;margin-top:18px}
+.print-sign{display:grid;grid-template-columns:1fr 1fr;gap:70px;margin-top:55px}
+.print-sign div{border-top:1px solid #333;padding-top:7px;text-align:center}
+@media print{
+  @page{size:A4;margin:12mm}
+  body{background:#fff!important;font-size:11pt}
+  .top,.sidebar,.no-print{display:none!important}
+  .shell{display:block!important;min-height:0!important}
+  main{padding:0!important;max-width:none!important}
+  .print-sheet{max-width:none;border:0;padding:0;margin:0}
+  .print-table{break-inside:auto}
+  .print-table tr{break-inside:avoid}
+  a{color:#000;text-decoration:none}
+}
+@media(max-width:700px){.print-sheet{padding:14px}.print-meta{grid-template-columns:1fr}.print-head{display:block}}
+</style>
+<div class="no-print" style="display:flex;gap:8px;margin-bottom:14px">
+<button class="btn" type="button" onclick="window.print()">Друкувати / зберегти PDF</button>
+<a class="btn" href="{% url 'purchase_order_detail' order.pk %}">Повернутися до замовлення</a>
+</div>
+<section class="print-sheet">
+  <div class="print-head">
+    <div>
+      <h1 style="margin:0 0 6px">Замовлення постачальнику</h1>
+      <div style="font-size:22px;font-weight:700">{{ order.number }}</div>
+    </div>
+    <div style="text-align:right">
+      <div><b>Дата:</b> {{ order.created_at|date:"d.m.Y H:i" }}</div>
+      <div><b>Статус:</b> {{ order.get_status_display }}</div>
+      {% if order.expected_date %}<div><b>Очікувана доставка:</b> {{ order.expected_date|date:"d.m.Y" }}</div>{% endif %}
+    </div>
+  </div>
+  <h3>Постачальник</h3>
+  <div style="font-size:18px;font-weight:700">{{ order.supplier.name }}</div>
+  {% if order.supplier.contact_person %}<div>Контактна особа: {{ order.supplier.contact_person }}</div>{% endif %}
+  {% if order.supplier.phone %}<div>Телефон: {{ order.supplier.phone }}</div>{% endif %}
+  <div class="print-meta">
+    <div><b>Створив:</b> {{ order.user }}</div>
+    <div><b>Номер документа:</b> {{ order.number }}</div>
+  </div>
+  <table class="print-table">
+    <thead><tr><th>№</th><th>Товар</th><th>Бренд / артикул</th><th>Од.</th><th class="n">Замовлено</th><th class="n">Ціна</th><th class="n">Сума</th></tr></thead>
+    <tbody>
+    {% for item in items %}
+      <tr>
+        <td>{{ forloop.counter }}</td>
+        <td>{{ item.product.name }}</td>
+        <td>{{ item.product.brand }}{% if item.product.brand %} / {% endif %}{{ item.product.sku }}</td>
+        <td>{{ item.product.unit }}</td>
+        <td class="n">{{ item.quantity|floatformat:"-3" }}</td>
+        <td class="n">{{ item.cost_price|floatformat:2 }}</td>
+        <td class="n">{{ item.line_total|floatformat:2 }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="7">У замовленні немає позицій.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="print-total">Разом: {{ total|floatformat:2 }} ₴</div>
+  {% if order.note %}<div class="print-note"><b>Примітка для постачальника:</b>
+{{ order.note }}</div>{% endif %}
+  <div class="print-sign"><div>Підпис постачальника</div><div>Підпис відповідальної особи</div></div>
+</section>
+{% endblock %}

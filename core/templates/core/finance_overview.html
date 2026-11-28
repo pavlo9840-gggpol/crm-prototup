@@ -1,0 +1,39 @@
+{% extends "core/base.html" %}
+{% block content %}
+{% include "core/report_nav.html" %}
+<h2>Фінансовий результат</h2>
+<form class="filter">
+  <label>З дати <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
+  <label>По дату <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
+  <button class="btn">Показати</button>
+  <a class="btn" href="?from={{ date_from|date:'Y-m-d' }}&to={{ date_to|date:'Y-m-d' }}&export=csv">Експорт CSV</a>
+</form>
+<div class="kpi">
+  <div class="card">Продажі<b>{{ gross_sales|floatformat:2 }} ₴</b></div>
+  <div class="card">Повернення<b>{{ returned_revenue|floatformat:2 }} ₴</b></div>
+  <div class="card">Чиста виручка<b>{{ revenue|floatformat:2 }} ₴</b></div>
+  <div class="card">Собівартість після повернень<b>{{ cost|floatformat:2 }} ₴</b></div>
+  <div class="card">Валова маржа<b>{{ gross_profit|floatformat:2 }} ₴</b></div>
+  <div class="card">Інші доходи<b>{{ other_income|floatformat:2 }} ₴</b></div>
+  <div class="card">Операційні витрати<b>{{ expenses|floatformat:2 }} ₴</b></div>
+  <div class="card">Операційний результат<b>{{ operating_result|floatformat:2 }} ₴</b></div>
+</div>
+<h3>Рух коштів — окремо від прибутку</h3>
+<p class="muted">Надходження та вилучення з каси й банку не додаються повторно до виручки або витрат: це рух грошей, а не окремий фінансовий результат.</p>
+<div class="kpi">
+  <div class="card">Каса: внесення<b>{{ cash_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Каса: вилучення<b>{{ cash_out|floatformat:2 }} ₴</b></div>
+  <div class="card">Банк: надходження<b>{{ bank_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Банк: списання<b>{{ bank_out|floatformat:2 }} ₴</b></div>
+</div>
+<h3>Витрати за категоріями</h3>
+<table>
+<tr><th>Категорія</th><th class="n">Операцій</th><th class="n">Сума</th></tr>
+{% for row in expense_rows %}
+<tr><td>{{ row.category }}</td><td class="n">{{ row.count }}</td><td class="n">{{ row.total|floatformat:2 }} ₴</td></tr>
+{% empty %}
+<tr><td colspan="3">Витрат за цей період немає.</td></tr>
+{% endfor %}
+</table>
+<p class="muted">Повернення відображаються за датою оформлення повернення, а продажі — за датою фактичної передачі товару клієнту. Тому повернення за старий продаж зменшує результат саме того періоду, коли його провели.</p>
+{% endblock %}

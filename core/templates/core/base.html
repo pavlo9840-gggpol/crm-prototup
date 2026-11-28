@@ -57,17 +57,17 @@ ul.errorlist{list-style:none;padding:0;margin:4px 0;color:var(--bad);font-size:1
 body.sb-open .sidebar{transform:none}main{padding:12px}table{display:block;overflow-x:auto}.top .who span{display:none}}
 @media print{.top,.sidebar,.msg{display:none!important}main{padding:0}.card{box-shadow:none}}
 </style></head><body class="{% block bodyclass %}{% endblock %}">
-{% if user.is_authenticated %}<div class="top">{% if user.is_staff %}<button type="button" class="burger" id="burger" aria-label="Меню">☰</button>{% endif %}<b>🔧 {{ company_name }}</b>
-{% if not user.is_staff %}<div class="nav">{% for label, name in cashier_nav %}{% url name as href %}<a href="{{ href }}" class="{% if cur_url == name %}on{% endif %}">{{ label }}</a>{% endfor %}</div>{% endif %}
-<span class="sp"></span>{% if user.is_staff %}{% for r in rates_chip %}<a href="{% url 'rates' %}" class="rate" title="Курс НБУ / ваш курс. Натисніть, щоб змінити{% if r.stale %}. Курс застарів!{% endif %}" style="font-weight:600;{% if r.stale %}color:#ffd27a{% endif %}">{{ r.code }} {{ r.rate|floatformat:2 }}{% if r.stale %} ⚠{% endif %}</a>{% endfor %}{% endif %}<span class="who"><i>{{ user.username|slice:":1"|upper }}</i><span>{{ user.username }}</span></span>
+{% if user.is_authenticated %}<div class="top">{% if can_manage_company %}<button type="button" class="burger" id="burger" aria-label="Меню">☰</button>{% endif %}<b>🔧 {{ company_name|default:"АвтоЗапас" }}</b>
+{% if not can_manage_company %}<div class="nav">{% for label, name in cashier_nav %}{% url name as href %}<a href="{{ href }}" class="{% if cur_url == name %}on{% endif %}">{{ label }}</a>{% endfor %}</div>{% endif %}
+<span class="sp"></span>{% if can_manage_company %}{% for r in rates_chip %}<a href="{% url 'rates' %}" class="rate" title="Курс НБУ / ваш курс. Натисніть, щоб змінити{% if r.stale %}. Курс застарів!{% endif %}" style="font-weight:600;{% if r.stale %}color:#ffd27a{% endif %}">{{ r.code }} {{ r.rate|floatformat:2 }}{% if r.stale %} ⚠{% endif %}</a>{% endfor %}{% endif %}<span class="who"><i>{{ user.username|slice:":1"|upper }}</i><span>{{ user.username }}</span></span>
 <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button>Вийти</button></form></div>{% endif %}
-<div class="shell">{% if user.is_staff %}<nav class="sidebar" id="sidebar">
+<div class="shell">{% if can_manage_company %}<nav class="sidebar" id="sidebar">
 {% for g in nav_groups %}{% if g.single %}<a class="solo {% if g.items.0.active %}on{% endif %}" href="{% url g.items.0.name %}"><span class="ic">{{ g.icon }}</span>{{ g.items.0.label }}</a>
 {% else %}<div class="grp {% if g.has_active %}open act{% endif %}" data-g="{{ g.title }}"><button type="button" class="gh"><span class="ic">{{ g.icon }}</span><span>{{ g.title }}</span><i>▸</i></button>
 <div class="gb">{% for it in g.items %}{% url it.name as href %}<a href="{{ href }}" class="{% if it.active %}on{% endif %}">{{ it.label }}</a>{% endfor %}</div></div>{% endif %}{% endfor %}
-<div class="grp" data-g="Система"><button type="button" class="gh"><span class="ic">🧰</span><span>Система</span><i>▸</i></button><div class="gb"><a href="/admin/">Адмін-панель Django</a></div></div>
+{% if user.is_staff %}<div class="grp" data-g="Система"><button type="button" class="gh"><span class="ic">🧰</span><span>Система</span><i>▸</i></button><div class="gb"><a href="/admin/">Адмін-панель Django</a></div></div>{% endif %}
 </nav>{% endif %}
-<main>{% for m in messages %}<div class="msg {{ m.tags }}"><span>{{ m }}</span><button type="button" class="x" aria-label="Закрити" onclick="this.parentNode.remove()">×</button></div>{% endfor %}{% block content %}{% endblock %}</main></div><script>
+<main>{% if installation_conflict %}<div class="msg error"><span>Виявлено більше одного локального магазину в базі. Для безпечного переходу з попередньої версії потрібне об'єднання даних; робота тимчасово обмежена, щоб не змішати записи.</span></div>{% endif %}{% for m in messages %}<div class="msg {{ m.tags }}"><span>{{ m }}</span><button type="button" class="x" aria-label="Закрити" onclick="this.parentNode.remove()">×</button></div>{% endfor %}{% block content %}{% endblock %}</main></div><script>
 (function(){var sb=document.getElementById('sidebar');if(!sb)return;var K='nav-open',st={};try{st=JSON.parse(localStorage.getItem(K)||'{}')}catch(e){}
 sb.querySelectorAll('.grp').forEach(function(g){var n=g.dataset.g;if(g.classList.contains('act'))return;if(st[n]===true)g.classList.add('open');else g.classList.remove('open')});
 sb.addEventListener('click',function(e){var h=e.target.closest('.gh');if(!h)return;var g=h.parentElement;g.classList.toggle('open');st[g.dataset.g]=g.classList.contains('open');try{localStorage.setItem(K,JSON.stringify(st))}catch(e){}});

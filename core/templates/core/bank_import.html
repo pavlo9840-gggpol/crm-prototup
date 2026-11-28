@@ -1,0 +1,32 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>Імпорт банківської виписки CSV</h2>
+<p class="muted">Імпорт додає записи до управлінського журналу. Він не підтверджує реальний баланс банку, не створює бухгалтерські проводки та не прив'язує автоматично платежі до продажів, закупівель чи авансів.</p>
+<div class="card">
+  <h3>Формат CSV</h3>
+  <p>Файл UTF-8 або UTF-8 із BOM. Заголовки можуть бути українською або англійською.</p>
+  <table><tr><th>Поле</th><th>Обов'язкове</th><th>Приклад</th></tr>
+  <tr><td>date / Дата</td><td>Так</td><td>2026-11-18 або 18.11.2026</td></tr>
+  <tr><td>direction / Напрямок</td><td>Так</td><td>income або expense</td></tr>
+  <tr><td>amount / Сума</td><td>Так</td><td>1250.50</td></tr>
+  <tr><td>counterparty / Контрагент</td><td>Ні</td><td>ТОВ Приклад</td></tr>
+  <tr><td>document_ref / Призначення</td><td>Ні</td><td>Оплата рахунку №123</td></tr>
+  <tr><td>category / Категорія</td><td>Ні</td><td>Оплата постачальнику</td></tr>
+  <tr><td>iban / Рахунок</td><td>Ні</td><td>UA...</td></tr>
+  <tr><td>note / Примітка</td><td>Ні</td><td>Коментар</td></tr></table>
+  <p><a class="btn" href="/static/core/bank_statement_template.csv" download>Завантажити шаблон CSV</a></p>
+  <p><strong>Напрямки:</strong> income / надходження / credit; expense / списання / debit.</p>
+  <p>Повторний імпорт однакової операції з тим самим рахунком, датою, напрямком, сумою, контрагентом і призначенням буде пропущено. Якщо банк має унікальний ID операції, його поки слід включати до призначення/примітки, щоб не змішувати схожі платежі.</p>
+</div>
+<div class="card">
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn primary">Імпортувати</button>
+    <a class="btn" href="{% url 'bank_ledger' %}">Назад</a>
+  </form>
+</div>
+{% if errors %}
+<div class="card"><h3>Помилки рядків</h3><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>
+{% endif %}
+{% endblock %}

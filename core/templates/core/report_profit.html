@@ -1,4 +1,15 @@
-{% extends "core/base.html" %}{% block content %}{% include "core/report_nav.html" %}<h2>Звіт про маржу</h2>
+{% extends "core/base.html" %}{% block content %}{% include "core/report_nav.html" %}
+<h2>Звіт про маржу</h2>
 <form class="filter"><input type="date" name="from" value="{{ d1|date:'Y-m-d' }}"><input type="date" name="to" value="{{ d2|date:'Y-m-d' }}"><button class="btn">Показати</button></form>
-<div class="kpi"><div class="card">Продажі<b>{{ rev|floatformat:2 }} ₴</b></div><div class="card">Собівартість<b>{{ cost|floatformat:2 }} ₴</b></div><div class="card">Маржа<b>{{ margin|floatformat:2 }} ₴</b></div></div>
-<table><tr><th>Товар<th class="n">К-сть<th class="n">Продажі<th class="n">Собівартість<th class="n">Маржа<th class="n">%</tr>{% for r in rows %}<tr><td>{{ r.product__name }}<td class="n">{{ r.q|floatformat:"-3" }}<td class="n">{{ r.rev|floatformat:2 }}<td class="n">{{ r.cost|floatformat:2 }}<td class="n">{{ r.margin|floatformat:2 }}<td class="n">{{ r.pct|floatformat:1 }}</tr>{% endfor %}</table>{% endblock %}
+<div class="kpi"><div class="card">Продажі<b>{{ rev|floatformat:2 }} ₴</b></div><div class="card">Собівартість<b>{{ cost|floatformat:2 }} ₴</b></div><div class="card">Валова маржа<b>{{ margin|floatformat:2 }} ₴</b></div></div>
+<h3>Рентабельність за категоріями</h3>
+<table><tr><th>Категорія</th><th class="n">К-сть</th><th class="n">Продажі</th><th class="n">Собівартість</th><th class="n">Маржа</th><th class="n">Маржа, %</th></tr>
+{% for r in category_rows %}<tr><td>{{ r.product__category__name|default:"Без категорії" }}</td><td class="n">{{ r.q|floatformat:"-3" }}</td><td class="n">{{ r.rev|floatformat:2 }}</td><td class="n">{{ r.cost|floatformat:2 }}</td><td class="n">{{ r.margin|floatformat:2 }}</td><td class="n">{{ r.pct|floatformat:1 }}%</td></tr>{% empty %}<tr><td colspan="6">За цей період переданих клієнтам товарів немає.</td></tr>{% endfor %}</table>
+<h3>Товари з найнижчою маржею</h3>
+<p class="muted">Показано до 10 позицій із найнижчою відсотковою маржею. Це підказка для перевірки цін, а не автоматична зміна націнки.</p>
+<table><tr><th>Товар</th><th>Артикул</th><th class="n">Продажі</th><th class="n">Маржа</th><th class="n">Маржа, %</th></tr>
+{% for r in low_margin_rows %}<tr><td>{{ r.product__name }}</td><td>{{ r.product__sku }}</td><td class="n">{{ r.rev|floatformat:2 }}</td><td class="n">{{ r.margin|floatformat:2 }}</td><td class="n">{{ r.pct|floatformat:1 }}%</td></tr>{% empty %}<tr><td colspan="5">Немає даних для аналізу.</td></tr>{% endfor %}</table>
+<h3>Деталізація за товарами</h3>
+<table><tr><th>Товар</th><th>Артикул</th><th>Категорія</th><th class="n">К-сть</th><th class="n">Продажі</th><th class="n">Собівартість</th><th class="n">Маржа</th><th class="n">%</th></tr>
+{% for r in rows %}<tr><td>{{ r.product__name }}</td><td>{{ r.product__sku }}</td><td>{{ r.product__category__name|default:"Без категорії" }}</td><td class="n">{{ r.q|floatformat:"-3" }}</td><td class="n">{{ r.rev|floatformat:2 }}</td><td class="n">{{ r.cost|floatformat:2 }}</td><td class="n">{{ r.margin|floatformat:2 }}</td><td class="n">{{ r.pct|floatformat:1 }}%</td></tr>{% empty %}<tr><td colspan="8">За цей період переданих клієнтам товарів немає.</td></tr>{% endfor %}</table>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "core/base.html" %}{% block content %}
+<h2>{{ supplier.name }}</h2>
+<p>{{ supplier.contact_person }}{% if supplier.phone %} · {{ supplier.phone }}{% endif %} · {% if supplier.is_active %}Активний{% else %}Неактивний{% endif %}
+· <a href="{% url 'supplier_edit' supplier.pk %}">Редагувати</a> · <a href="{% url 'supplier_api' supplier.pk %}">API / прайс</a></p>
+{% if supplier.notes %}<p>{{ supplier.notes }}</p>{% endif %}
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:16px 0">
+<div class="card"><small>Закупівлі</small><h3>{{ account_totals.purchases|floatformat:2 }} ₴</h3></div>
+<div class="card"><small>Сплачено</small><h3>{{ account_totals.paid|floatformat:2 }} ₴</h3></div>
+<div class="card"><small>Компенсації</small><h3>{{ account_totals.compensated|floatformat:2 }} ₴</h3></div>
+<div class="card"><small>Борг постачальнику</small><h3>{{ account_totals.debt|floatformat:2 }} ₴</h3></div>
+<div class="card"><small>Кредит / переплата постачальника</small><h3>{{ account_totals.supplier_credit|floatformat:2 }} ₴</h3></div>
+</div>
+<style>@media print{.no-print{display:none!important}main{max-width:none!important;padding:0!important}table{box-shadow:none!important}}</style>
+<form method="get" class="filter no-print">
+<label>З дати <input type="date" name="date_from" value="{{ date_from }}"></label>
+<label>До дати <input type="date" name="date_to" value="{{ date_to }}"></label>
+<button class="btn">Фільтрувати журнал</button>
+<button class="btn gray" name="export" value="csv">Експорт CSV</button>
+<button class="btn gray" type="button" onclick="window.print()">Друк акта звірки</button>
+<a class="btn gray" href="{% url 'supplier_balances_report' %}">Загальний звіт</a>
+</form>
+<div class="card"><h3>Єдиний журнал взаєморозрахунків</h3>
+<p><small>Закупівлі збільшують борг; оплати та компенсації зменшують. Аванси й переміщення кредиту показані окремо та не змінюють борг закупівель у цьому журналі. Скасовані операції залишаються в історії, але не впливають на залишок.</small></p>
+<table><tr><th>Дата</th><th>Операція</th><th>Документ</th><th>Опис</th><th class="n">Сума</th><th class="n">Вплив на борг</th><th class="n">Залишок</th><th>Стан</th></tr>
+{% for event in account_events %}<tr><td>{{ event.date|date:"d.m.Y H:i" }}</td><td>{{ event.kind }}</td><td>{% if event.url %}<a href="{{ event.url }}">{{ event.document }}</a>{% else %}{{ event.document }}{% endif %}</td><td>{{ event.description|default:"—" }}</td><td class="n">{{ event.amount|floatformat:2 }}</td><td class="n">{{ event.effect|floatformat:2 }}</td><td class="n"><b>{{ event.running_balance|floatformat:2 }}</b></td><td>{% if event.is_void %}Скасовано{% else %}Активна{% endif %}</td></tr>{% empty %}<tr><td colspan="8">Операцій ще немає.</td></tr>{% endfor %}</table></div>
+<div class="card"><h3>Аванси постачальнику</h3><p>Невикористаний залишок: <b>{{ account_totals.advance_balance|floatformat:2 }} ₴</b></p><a class="btn green" href="{% url 'advance_new' 'supplier' supplier.pk %}">＋ Видати аванс</a>
+<table><tr><th>Дата</th><th>Початкова сума</th><th>Залишок</th><th>Спосіб</th><th>Статус</th></tr>{% for adv in account_advances %}<tr><td>{{ adv.created_at|date:"d.m.Y H:i" }}</td><td>{{ adv.amount|floatformat:2 }} ₴</td><td>{{ adv.remaining|floatformat:2 }} ₴</td><td>{{ adv.get_payment_method_display }}</td><td>{% if adv.is_void %}Скасовано: {{ adv.void_reason }}{% else %}Активний{% endif %}</td></tr>{% empty %}<tr><td colspan="5">Авансів ще немає.</td></tr>{% endfor %}</table></div>
+<h3>Історія закупівель</h3>
+<table><tr><th>Накладна</th><th>Дата</th><th>Статус</th><th class="n">Сума</th><th class="n">Сплачено</th><th class="n">Компенсовано</th><th class="n">Борг</th><th class="n">Кредит</th></tr>
+{% for row in purchase_rows %}<tr><td><a href="{% url 'purchase_detail' row.document.pk %}">{{ row.document.number }}</a></td><td>{{ row.document.created_at|date:"d.m.Y H:i" }}</td><td>{{ row.document.status }}</td><td class="n">{{ row.document.total|floatformat:2 }} ₴</td><td class="n">{{ row.paid|floatformat:2 }} ₴</td><td class="n">{{ row.compensated|floatformat:2 }} ₴</td><td class="n"><b>{{ row.balance|floatformat:2 }} ₴</b></td><td class="n">{{ row.supplier_credit|floatformat:2 }} ₴</td></tr>{% empty %}<tr><td colspan="8">Закупівель ще немає.</td></tr>{% endfor %}</table>
+<h3>Історія компенсацій</h3>
+<table><tr><th>Дата</th><th>Документ повернення</th><th>Закупівля</th><th>Спосіб</th><th class="n">Сума</th><th>Документ / рахунок</th></tr>
+{% for comp in account_compensations %}<tr><td>{{ comp.created_at|date:"d.m.Y H:i" }}</td><td>{{ comp.supplier_return.number }}</td><td><a href="{% url 'purchase_detail' comp.purchase_id %}">{{ comp.purchase.number }}</a></td><td>{{ comp.get_kind_display }}</td><td class="n">{{ comp.amount|floatformat:2 }} ₴</td><td>{% if comp.bank_account %}{{ comp.bank_account.iban }}{% else %}{{ comp.number }}{% endif %}{% if comp.is_void %} · Скасовано: {{ comp.void_reason }}{% endif %}</td></tr>{% empty %}<tr><td colspan="6">Компенсацій ще немає.</td></tr>{% endfor %}</table>
+<h3>Історія оплат</h3>
+<table><tr><th>Дата</th><th>Накладна</th><th>Сума</th><th>Спосіб</th><th>Документ</th><th>Статус</th></tr>
+{% for payment in account_payments %}<tr><td>{{ payment.created_at|date:"d.m.Y H:i" }}</td><td><a href="{% url 'purchase_detail' payment.purchase_id %}">{{ payment.purchase.number }}</a></td><td>{{ payment.amount|floatformat:2 }} ₴</td><td>{{ payment.get_payment_method_display }}</td><td>{{ payment.document_ref|default:"—" }}</td><td>{% if payment.is_void %}Скасовано: {{ payment.void_reason }}{% else %}Активна{% endif %}</td></tr>{% empty %}<tr><td colspan="6">Оплат ще немає.</td></tr>{% endfor %}</table>
+<p><a class="btn" href="{% url 'supplier_list' %}">← До постачальників</a></p>
+{% endblock %}

@@ -28,15 +28,18 @@ class FitmentTest(TestCase):
 class CarPartsTest(TestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_user("anna", password="x")
+        owner = U.objects.create_superuser("carparts-admin", "", "x")
+        anna = U.objects.create_user("anna", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(owner, "Car parts test shop", [(anna, "cashier")])
         self.c = self.client
         self.c.login(username="anna", password="x")
-        MarkupTier.objects.create(name="Роздріб", percent=30, is_default=True)
-        self.sto = MarkupTier.objects.create(name="СТО", percent=15)
-        self.sup = Supplier.objects.create(name="Busmarket")
-        self.cust = Customer.objects.create(name="СТО Вікторія", phone="1", markup_tier=self.sto)
-        self.car = CustomerCar.objects.create(customer=self.cust, plate="AA1234BB", make="Renault", model="Trafic II", year=2008)
-        self.cat = Category.objects.create(name="Підвіска")
+        MarkupTier.objects.create(company=self.company, name="Роздріб", percent=30, is_default=True)
+        self.sto = MarkupTier.objects.create(company=self.company, name="СТО", percent=15)
+        self.sup = Supplier.objects.create(company=self.company, name="Busmarket")
+        self.cust = Customer.objects.create(company=self.company, name="СТО Вікторія", phone="1", markup_tier=self.sto)
+        self.car = CustomerCar.objects.create(company=self.company, customer=self.cust, plate="AA1234BB", make="Renault", model="Trafic II", year=2008)
+        self.cat = Category.objects.create(company=self.company, name="Підвіска")
         self.add("BILSTEIN", "19-152615", "Амортизатор задній Renault Trafic II", 1000, "Renault Trafic II 2001-2014", own=3, cat=self.cat)
         self.add("SACHS", "315849", "Амортизатор задній Renault Trafic II", 800, "Renault Trafic II 2001-2014")
         self.add("TRW", "GDB1833", "Колодки гальмівні передні Renault Trafic II", 600, "Renault Trafic II 01-")
@@ -45,10 +48,10 @@ class CarPartsTest(TestCase):
         self.add("NGK", "N-NODATA", "Свічка", 50, "")                                                               # застосовності немає
 
     def add(self, brand, sku, name, cost, cars, own=None, cat=None):
-        SupplierItem.objects.create(supplier=self.sup, brand=brand, sku=sku, sku_norm="".join(c for c in sku if c.isalnum()).upper(), name=name, cost=cost)
-        PartInfo.objects.create(brand=brand, sku_norm="".join(c for c in sku if c.isalnum()).upper(), sku=sku, cars=cars)
+        SupplierItem.objects.create(company=self.company, supplier=self.sup, brand=brand, sku=sku, sku_norm="".join(c for c in sku if c.isalnum()).upper(), name=name, cost=cost)
+        PartInfo.objects.create(company=self.company, brand=brand, sku_norm="".join(c for c in sku if c.isalnum()).upper(), sku=sku, cars=cars)
         if own:
-            Product.objects.create(name=name, sku=sku, brand=brand, cost_price=cost, price=1300, current_stock=own, category=cat)
+            Product.objects.create(company=self.company, name=name, sku=sku, brand=brand, cost_price=cost, price=1300, current_stock=own, category=cat)
 
     def get(self, **kw):
         return self.c.get("/car-parts/", kw)
@@ -64,7 +67,7 @@ class CarPartsTest(TestCase):
         row = {x["sku"]: x for g in r.context["groups"] for x in g["rows"]}
         self.assertEqual(row["315849"]["offer_price"], D("920.00"))         # 800 +15% (умови СТО), не +30%
         self.assertEqual(row["GDB1833"]["offer_price"], D("690.00"))
-        PriceRule.objects.create(name="мін.маржа", min_margin_pct=40, rounding=10)
+        PriceRule.objects.create(company=self.company, name="мін.маржа", min_margin_pct=40, rounding=10)
         row = {x["sku"]: x for g in self.get(car=self.car.pk).context["groups"] for x in g["rows"]}
         self.assertEqual(row["315849"]["offer_price"], D("1340.00"))        # 800 / 0.6 = 1333.33 → до 10 вгору
         self.assertContains(self.get(car=self.car.pk), "для клієнта <b>СТО Вікторія</b>")
@@ -83,8 +86,10 @@ class CarPartsTest(TestCase):
 
     def test_links_from_customer_card_and_pos_and_login_required(self):
         adm = self.client_class()
-        get_user_model().objects.create_superuser("admin", "", "x")
-        adm.login(username="admin", password="x")
+        admin_user = get_user_model().objects.create_superuser("carparts-manager", "", "x")
+        from core.models import StaffMembership
+        StaffMembership.objects.create(company=self.company, user=admin_user, role="manager")
+        adm.login(username="carparts-manager", password="x")
         self.assertContains(adm.get(f"/customers/{self.cust.pk}/"), f"/car-parts/?car={self.car.pk}")
         self.c.post("/shift/", {"action": "open", "cash": "0"})
         self.assertIn('id="carparts"', self.c.get("/pos/").content.decode())

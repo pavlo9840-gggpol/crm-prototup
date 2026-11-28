@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}{% block content %}<h2>Прайси постачальників</h2>
+<p><a class="btn" href="{% url 'supplier_price_history' %}">Історія зміни закупівельних цін</a></p>
 <div class="card" style="max-width:760px"><p style="margin-top:0">Завантажте Excel (.xlsx) або CSV від постачальника. Позиції потрапляють у <b>віртуальний каталог</b>: на склад вони не заходять, залишок складу не змінюється. Менеджер бачить їх на касі під час пошуку. Повторний імпорт оновлює ціни, а позиції, яких у новому файлі немає, ставляться як «немає в наявності».</p>
 <form method="post" action="{% url 'price_map' %}" enctype="multipart/form-data">{% csrf_token %}
 <p>Постачальник: <select name="supplier" required><option value="">— оберіть —</option>{% for s in suppliers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select>

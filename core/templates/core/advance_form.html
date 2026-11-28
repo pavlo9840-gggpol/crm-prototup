@@ -1,0 +1,14 @@
+{% extends "core/base.html" %}
+{% block content %}
+<h2>{{ title }}</h2>
+<p class="muted">Аванс зберігається окремо від продажу або закупівлі. Пізніше його можна повністю чи частково використати для погашення документа того самого контрагента.</p>
+<div class="card" style="max-width:620px">
+  <h3>{{ party }}</h3>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn primary" type="submit">Зареєструвати аванс</button>
+    <a class="btn" href="{% url back_url party_id %}">Скасувати</a>
+  </form>
+</div>
+{% endblock %}

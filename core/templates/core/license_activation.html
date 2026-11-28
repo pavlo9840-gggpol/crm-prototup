@@ -1,0 +1,27 @@
+{% extends "core/base.html" %}
+{% block title %}Активація ліцензії — АвтоЗапас{% endblock %}
+{% block content %}
+<div class="card" style="max-width:760px;margin:36px auto">
+  <h2>Активація АвтоЗапас</h2>
+  <p class="muted">Вставте ліцензійний ключ, отриманий від постачальника програми. Перевірка цифрового підпису виконується локально; постійне підключення до інтернету не потрібне.</p>
+  {% if activation %}
+    <div class="card" style="background:#f5f8ff">
+      <b>Збережена ліцензія:</b> {{ activation.license_id }} · {{ activation.get_plan_display }}<br>
+      {% if activation.expires_at %}Діє до: {{ activation.expires_at|date:"d.m.Y H:i" }}{% else %}Безстрокова ліцензія{% endif %}<br>
+      Ліміт користувачів: {{ activation.max_users }} · Робочих місць: {{ activation.max_workstations }}
+    </div>
+  {% endif %}
+  <div class="card" style="background:#f7f7f7;margin:16px 0">
+    <b>Код цієї інсталяції</b>
+    <p style="font-family:monospace;font-size:1.05rem;word-break:break-all;margin:8px 0">{{ installation_id }}</p>
+    <p class="muted">Передайте цей код постачальнику програми для випуску ліцензії. Ключ буде працювати лише на цій інсталяції.</p>
+  </div>
+  <form method="post">
+    {% csrf_token %}
+    <p><label for="license_key">Ліцензійний ключ</label>
+    <textarea id="license_key" name="license_key" rows="5" required autocomplete="off" spellcheck="false" style="width:100%;font-family:monospace" placeholder="AZ1.…"></textarea></p>
+    <button class="btn">Перевірити та активувати</button>
+  </form>
+  <p class="muted" style="margin-top:16px">Якщо ключ не приймається, перевірте, чи він повністю скопійований та чи відповідає цій версії програми.</p>
+</div>
+{% endblock %}

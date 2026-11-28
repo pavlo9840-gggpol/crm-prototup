@@ -19,9 +19,15 @@ D0, CENT = Decimal("0"), Decimal("0.01")
 class RuleSet:
     """Усі активні правила в памʼяті (для масових розрахунків без запитів на кожен товар)."""
 
-    def __init__(self):
-        self.rules = list(PriceRule.objects.filter(is_active=True))
-        self.parent = dict(Category.objects.values_list("pk", "parent_id")) if any(r.category_id for r in self.rules) else {}
+    def __init__(self, company=None):
+        self.company = company
+        rules = PriceRule.objects.filter(is_active=True)
+        categories = Category.objects.all()
+        if company is not None:
+            rules = rules.filter(company=company)
+            categories = categories.filter(company=company)
+        self.rules = list(rules)
+        self.parent = dict(categories.values_list("pk", "parent_id")) if any(r.category_id for r in self.rules) else {}
 
     def chain(self, category_id):
         out, seen = [], set()
@@ -58,20 +64,24 @@ def compute_price(cost, pct, rule=None):
     return price.quantize(CENT, ROUND_HALF_UP)
 
 
-def base_pct(customer, rule, default_pct=None):
+def base_pct(customer, rule, default_pct=None, company=None):
     from . import services
+    company = company or (customer.company if customer is not None else None)
     if customer is not None and customer.markup_tier_id:
-        return customer.markup_tier.percent
+        tier = customer.markup_tier
+        if company is None or tier.company_id == company.pk:
+            return tier.percent
     if rule is not None and rule.markup_pct is not None:
         return rule.markup_pct
-    return default_pct if default_pct is not None else services.tier_pct(None)
+    company = company or (customer.company if customer is not None else None)
+    return default_pct if default_pct is not None else services.tier_pct(None, company=company)
 
 
 def list_price(cost, brand, category_id=None, customer=None, rs=None):
     """(ціна, правило) для закупівельної ціни `cost`."""
-    rs = rs or RuleSet()
+    rs = rs or RuleSet(company=getattr(customer, "company", None))
     rule = rs.for_(brand, category_id)
-    return compute_price(cost, base_pct(customer, rule), rule), rule
+    return compute_price(cost, base_pct(customer, rule, company=rs.company), rule), rule
 
 
 def rule_json(rule):
@@ -92,24 +102,24 @@ def replacement_costs(products):
     norms = {p.sku_norm for p in products if p.sku_norm}
     if not norms:
         return {}
-    qs = (SupplierItem.objects.filter(available=True, sku_norm__in=norms, cost__gt=0).values("brand", "sku_norm").annotate(c=Min("cost")))
+    qs = (SupplierItem.objects.filter(company=products[0].company, available=True, sku_norm__in=norms, cost__gt=0).values("brand", "sku_norm").annotate(c=Min("cost")))
     return {(r["brand"].upper(), r["sku_norm"]): r["c"] for r in qs}
 
 
 def reprice_product(product, user=None, cost=None, rs=None):
     """Перераховує ціну продажу за правилами від `cost` (або від закупівельної ціни товару).
     Повертає (стара, нова) або None, якщо нічого не змінилось. Зміна пишеться в історію цін."""
-    p = Product.objects.get(pk=product.pk)
+    p = Product.objects.get(pk=product.pk, company=product.company)
     base = Decimal(cost) if cost is not None else p.cost_price
     if not base or base <= 0:
         return None
-    rs = rs or RuleSet()
+    rs = rs or RuleSet(company=p.company)
     rule = rs.for_(p.brand, p.category_id)
-    new = compute_price(base, base_pct(None, rule), rule)
+    new = compute_price(base, base_pct(None, rule, company=p.company), rule)
     if new == p.price:
         return None
-    PriceHistory.objects.create(product=p, field="price", old_value=p.price, new_value=new, changed_by=user)
-    Product.objects.filter(pk=p.pk).update(price=new)
+    PriceHistory.objects.create(company=p.company, product=p, field="price", old_value=p.price, new_value=new, changed_by=user)
+    Product.objects.filter(pk=p.pk, company=p.company).update(price=new)
     return p.price, new
 
 
@@ -119,11 +129,9 @@ def reprice_after_supplier_change(changed_keys, user=None):
         return 0
     prods = [p for p in Product.objects.filter(auto_price=True, sku_norm__in={n for _, n in changed_keys})
              if (p.brand.upper(), p.sku_norm) in changed_keys]
-    if not prods:
-        return 0
-    repl, rs, n = replacement_costs(prods), RuleSet(), 0
+    n = 0
     for p in prods:
-        c = repl.get((p.brand.upper(), p.sku_norm))
-        if c and reprice_product(p, user, cost=c, rs=rs):
+        c = replacement_costs([p]).get((p.brand.upper(), p.sku_norm))
+        if c and reprice_product(p, user, cost=c, rs=RuleSet(company=p.company)):
             n += 1
     return n

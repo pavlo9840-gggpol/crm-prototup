@@ -82,6 +82,10 @@ def add(a, b, sign=1):
 
 def compute_payment(total_kop, payment, card_kop, received_kop, counts, drawer):
     """drawer: dict of counts or None (no shift => no drawer tracking)."""
+    if payment == "credit":
+        return {"ok": True, "msg": "Продаж буде оформлено в борг клієнту.", "cash_due": 0, "card": 0,
+                "received": 0, "change": 0, "rounding": 0, "plan": {}, "recv_counts": {},
+                "drawer_after": drawer, "shortfall": 0}
     if payment == "card":
         card_kop = total_kop
     elif payment == "cash":

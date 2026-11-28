@@ -1,0 +1,22 @@
+{% extends "core/base.html" %}
+{% block title %}Аналітика постачальників{% endblock %}
+{% block content %}
+<h2>Аналітика постачальників</h2>
+<p>Порівняння поточних цін і фактичної якості виконання замовлень за період.</p>
+<form method="get" class="filter" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:14px 0">
+  <label>Постачальник<select name="supplier"><option value="">Усі постачальники</option>{% for s in suppliers %}<option value="{{ s.pk }}"{% if selected_supplier == s.pk|stringformat:"s" %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>
+  <label>Пошук товару<input name="q" value="{{ query }}" placeholder="Назва, артикул, бренд"></label>
+  <label>Від<input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
+  <label>До<input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
+  <button class="btn">Застосувати</button><a class="btn" href="{% url 'supplier_analytics' %}">Скинути</a>
+</form>
+<p><a class="btn" href="?{% if selected_supplier %}supplier={{ selected_supplier }}&{% endif %}{% if query %}q={{ query|urlencode }}&{% endif %}from={{ date_from|date:'Y-m-d' }}&to={{ date_to|date:'Y-m-d' }}&export=csv">Експортувати CSV</a></p>
+<h3>Виконання замовлень</h3>
+<div style="overflow-x:auto"><table><tr><th>Постачальник</th><th class="n">Замовлень</th><th class="n">Повністю отримано</th><th class="n">Повнота, %</th><th class="n">Вчасно, %</th><th class="n">Планова сума</th><th class="n">Фактична сума</th><th class="n">Сер. фактична ціна</th><th class="n">Відхилення</th><th class="n">Рейтинг</th><th>Оцінка</th></tr>
+{% for row in performance %}<tr><td><b>{{ row.supplier.name }}</b></td><td class="n">{{ row.orders }}</td><td class="n">{{ row.completed }}</td><td class="n">{{ row.fill_rate|floatformat:1 }}%</td><td class="n">{% if row.on_time_rate != None %}{{ row.on_time_rate|floatformat:1 }}%{% else %}—{% endif %}</td><td class="n">{{ row.planned_value|floatformat:2 }} ₴</td><td class="n">{{ row.actual_value|floatformat:2 }} ₴</td><td class="n">{% if row.avg_actual_cost != None %}{{ row.avg_actual_cost|floatformat:2 }} ₴{% else %}—{% endif %}</td><td class="n">{{ row.price_delta|floatformat:2 }} ₴</td><td class="n">{% if row.rating_score != None %}<b>{{ row.rating_score|floatformat:1 }}/100</b>{% else %}—{% endif %}</td><td>{{ row.rating_label }}</td></tr>
+{% empty %}<tr><td colspan="11">За цей період замовлень немає.</td></tr>{% endfor %}</table></div>
+<p class="muted">Рейтинг — зважена оцінка: своєчасність 50%, повнота 30%, цінове відхилення 20%. Якщо показника немає, решта ваг нормалізується. Перевищення планової ціни знижує оцінку; економія не створює балів понад 100. Це орієнтир, а не автоматичне рішення про вибір постачальника. Повнота = отримана кількість / замовлена кількість. Своєчасність враховує лише повністю отримані замовлення з очікуваною датою; датою завершення є дата останнього приймання. Відхилення ціни порівнює фактичну вартість отриманої кількості з плановою ціною тієї самої кількості.</p>
+<h3 style="margin-top:24px">Порівняння закупівельних цін</h3>
+<div style="overflow-x:auto"><table><tr><th>Товар</th><th>Артикул</th><th>Постачальник</th><th class="n">Ціна</th><th class="n">Наявність</th><th class="n">Різниця до мінімуму</th></tr>
+{% for group in comparisons %}{% for offer in group.offers %}<tr>{% if forloop.first %}<td rowspan="{{ group.offers|length }}"><b>{{ group.product.name }}</b></td><td rowspan="{{ group.offers|length }}">{{ group.product.sku }}</td>{% endif %}<td>{{ offer.supplier.name }}</td><td class="n"><b>{{ offer.cost|floatformat:2 }} ₴</b></td><td class="n">{% if offer.qty_avail == None %}Не вказано{% else %}{{ offer.qty_avail|floatformat:"-3" }}{% endif %}</td><td class="n">{{ offer.delta_to_min|floatformat:2 }} ₴{% if offer.is_cheapest %} · мінімум{% endif %}</td></tr>{% endfor %}{% empty %}<tr><td colspan="6">Немає товарів із двома або більше доступними пропозиціями. Перевірте прив'язку прайсів до карток товарів.</td></tr>{% endfor %}</table></div>
+{% endblock %}

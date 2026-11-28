@@ -1,0 +1,56 @@
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import redirect, render
+from django.utils import timezone
+
+from .licensing import LicenseError, get_installation_id, verify_license_token
+from .models import StaffMembership, LicenseActivation
+
+
+@login_required
+def activate_license(request):
+    membership = getattr(request, "staff_membership", None)
+    if request.company is None:
+        raise PermissionDenied
+    if not request.user.is_superuser and not (
+        membership and membership.role in ("owner", "admin")
+    ):
+        raise PermissionDenied
+
+    current = LicenseActivation.objects.filter(pk=1).first()
+    if request.method == "POST":
+        token = request.POST.get("license_key", "")
+        try:
+            installation_id = get_installation_id()
+            claims = verify_license_token(token, expected_installation_id=installation_id)
+            active_users = StaffMembership.objects.filter(company=request.company, is_active=True).values("user_id").distinct().count()
+            if active_users > claims["max_users"]:
+                raise LicenseError(
+                    f"У ліцензії дозволено {claims['max_users']} користувач(ів), "
+                    f"а в магазині активних облікових записів: {active_users}."
+                )
+        except LicenseError as exc:
+            messages.error(request, str(exc))
+        else:
+            LicenseActivation.objects.update_or_create(
+                pk=1,
+                defaults={
+                    "token": token.strip(),
+                    "license_id": claims["license_id"],
+                    "plan": claims["plan"],
+                    "issued_at": claims["issued_at"],
+                    "expires_at": claims["expires_at"],
+                    "max_users": claims["max_users"],
+                    "max_workstations": claims["max_workstations"],
+                    "features": claims["features"],
+                },
+            )
+            messages.success(request, "Ліцензію АвтоЗапас успішно активовано.")
+            return redirect("dashboard")
+
+    return render(request, "core/license_activation.html", {
+        "activation": current,
+        "today": timezone.localdate(),
+        "installation_id": get_installation_id(),
+    })

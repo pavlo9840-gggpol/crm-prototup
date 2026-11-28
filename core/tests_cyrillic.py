@@ -12,14 +12,16 @@ class CyrillicSearchTest(TestCase):
 
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
+        admin = U.objects.create_superuser("admin", "", "x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(admin, "Cyrillic search shop", [])
         self.c = self.client
         self.c.login(username="admin", password="x")
         self.c.post("/shift/", {"action": "open", "cash": "0"})
-        self.p = Product.objects.create(name="Амортизатор задній Renault", sku="A-1", brand="SACHS", price=100, current_stock=2)
-        self.cust = Customer.objects.create(name="Іван Петренко", phone="0501112233")
-        s = Supplier.objects.create(name="S")
-        SupplierItem.objects.create(supplier=s, brand="MEYLE", sku="M1", sku_norm="M1", name="Колодки Гальмівні ПЕРЕДНІ", cost=5)
+        self.p = Product.objects.create(company=self.company, name="Амортизатор задній Renault", sku="A-1", brand="SACHS", price=100, current_stock=2)
+        self.cust = Customer.objects.create(company=self.company, name="Іван Петренко", phone="0501112233")
+        s = Supplier.objects.create(company=self.company, name="S")
+        SupplierItem.objects.create(company=self.company, supplier=s, brand="MEYLE", sku="M1", sku_norm="M1", name="Колодки Гальмівні ПЕРЕДНІ", cost=5)
 
     def test_all_searches_ignore_case_for_cyrillic(self):
         for q in ("амортиз", "АМОРТИЗ", "Амортиз", "задній renault"):

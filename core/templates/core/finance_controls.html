@@ -1,0 +1,157 @@
+{% extends "core/base.html" %}
+{% block content %}
+{% include "core/report_nav.html" %}
+<h2>Фінансовий контроль</h2>
+<p class="muted">Контрольний екран не змінює платежі автоматично. Звірка банку виконується у журналі банку; сторнування — у відповідному документі.</p>
+<form class="filter">
+  <label>З дати <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
+  <label>По дату <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
+  <button class="btn">Показати період</button>
+</form>
+<p><a class="btn" href="?from={{ date_from|date:'Y-m-d' }}&to={{ date_to|date:'Y-m-d' }}&export=csv">Завантажити підсумковий CSV</a></p>
+<section class="card">
+  <h3>Фіксація фінансового періоду</h3>
+  {% if period_close %}
+    <p><strong>Період зафіксовано:</strong> {{ period_close.closed_at|date:"d.m.Y H:i" }} · {{ period_close.closed_by }}</p>
+    <p>Контрольна сума SHA-256: <code>{{ period_close.checksum }}</code></p>
+    {% if period_close_integrity %}<p><strong>Контрольна сума перевірена: знімок цілісний.</strong></p>{% else %}<p><strong>УВАГА: контрольна сума не збігається з вмістом знімка.</strong></p>{% endif %}
+    <p class="muted">Це незмінний знімок управлінських показників на момент закриття. Нові операції не перезаписують його автоматично; бухгалтерські операції не блокуються.</p>
+  {% else %}
+    <p class="muted">Зафіксуйте незмінний знімок показників за вибраний період. Борги, переплати та залишки авансів у знімку є поточними на момент закриття, а не історичними залишками на дату завершення періоду. Перед цим перевірте незвірені банківські операції, відкриті касові зміни та сторнування. Це не блокує подальше проведення документів.</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="close_period">
+      <input type="hidden" name="from" value="{{ date_from|date:'Y-m-d' }}">
+      <input type="hidden" name="to" value="{{ date_to|date:'Y-m-d' }}">
+      <label><input type="checkbox" name="confirm_snapshot" value="1" required> Підтверджую правильність даних і фіксацію незмінного знімка.</label>
+      <button class="btn btn-primary" type="submit">Зафіксувати закриття періоду</button>
+    </form>
+  {% endif %}
+</section>
+<h3>Поточні залишки взаєморозрахунків</h3>
+<div class="kpi">
+  <div class="card">Борг клієнтів<b>{{ customer_debt_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Борг постачальникам<b>{{ supplier_debt_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Невикористані аванси клієнтів<b>{{ customer_advance_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Аванси постачальникам<b>{{ supplier_advance_total|floatformat:2 }} ₴</b></div>
+</div>
+<div class="kpi">
+  <div class="card">Переплати / суми до повернення клієнтам<b>{{ customer_credit_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Переплата постачальникам / кредит<b>{{ supplier_credit_total|floatformat:2 }} ₴</b></div>
+</div>
+<div class="grid">
+  <section>
+    <h3>Переплати та суми до повернення клієнтам</h3>
+    <table><tr><th>Клієнт</th><th>Продаж</th><th>Сума</th></tr>
+    {% for row in customer_credits %}
+    <tr><td>{{ row.party }}</td><td>{{ row.document.number|default:row.document.pk }}</td><td>{{ row.balance|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="3">Переплат клієнтів немає.</td></tr>{% endfor %}</table>
+  </section>
+  <section>
+    <h3>Кредит / переплата постачальникам</h3>
+    <table><tr><th>Постачальник</th><th>Закупівля</th><th>Кредит</th></tr>
+    {% for row in supplier_credits %}
+    <tr><td>{{ row.party }}</td><td>{{ row.document.number|default:row.document.pk }}</td><td>{{ row.balance|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="3">Кредитних залишків немає.</td></tr>{% endfor %}</table>
+  </section>
+</div>
+<h3>Банківська звірка за період</h3>
+<div class="kpi">
+  <div class="card">Незвірені надходження виписки<b>{{ bank_unmatched_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Незвірені списання виписки<b>{{ bank_unmatched_out|floatformat:2 }} ₴</b></div>
+  <div class="card">Платежі клієнтів без звірки<b>{{ payment_unmatched_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Платежі постачальникам без звірки<b>{{ payment_unmatched_out|floatformat:2 }} ₴</b></div>
+  <div class="card">Активних звірок у періоді<b>{{ active_matches }}</b></div>
+</div>
+<p><a class="btn" href="{% url 'bank_ledger' %}">Відкрити журнал банку та виконати звірку</a></p>
+<div class="grid">
+  <section>
+    <h3>Банківські операції без звірки</h3>
+    <table><tr><th>Дата</th><th>Рахунок</th><th>Напрямок</th><th>Сума</th><th>Призначення</th></tr>
+    {% for row in bank_rows %}
+    <tr><td>{{ row.transaction_date|date:"d.m.Y" }}</td><td>{{ row.account.iban }}</td><td>{{ row.get_direction_display }}</td><td>{{ row.amount|floatformat:2 }} ₴</td><td>{{ row.document_ref|default:row.category }}</td></tr>
+    {% empty %}<tr><td colspan="5">Незвірених банківських операцій немає.</td></tr>{% endfor %}</table>
+  </section>
+  <section>
+    <h3>Платежі банком без звірки</h3>
+    <table><tr><th>Дата</th><th>Документ</th><th>Контрагент</th><th>Сума</th></tr>
+    {% for row in payment_rows %}
+    <tr><td>{{ row.created_at|date:"d.m.Y" }}</td><td>{% if row.sale_id %}Продаж №{{ row.sale.number|default:row.sale_id }}{% else %}Закупівля №{{ row.purchase.number|default:row.purchase_id }}{% endif %}</td><td>{% if row.sale_id %}{{ row.sale.customer }}{% else %}{{ row.purchase.supplier }}{% endif %}</td><td>{{ row.amount|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="4">Незвірених платежів немає.</td></tr>{% endfor %}</table>
+  </section>
+</div>
+<div class="grid">
+  <section>
+    <h3>Борги клієнтів</h3>
+    <table><tr><th>Клієнт</th><th>Продаж</th><th>Борг</th></tr>
+    {% for row in customer_debts %}
+    <tr><td>{{ row.party }}</td><td>{{ row.document.number|default:row.document.pk }}</td><td>{{ row.balance|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="3">Боргів клієнтів немає.</td></tr>{% endfor %}</table>
+  </section>
+  <section>
+    <h3>Борги постачальникам</h3>
+    <table><tr><th>Постачальник</th><th>Закупівля</th><th>Борг</th></tr>
+    {% for row in supplier_debts %}
+    <tr><td>{{ row.party }}</td><td>{{ row.document.number|default:row.document.pk }}</td><td>{{ row.balance|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="3">Боргів постачальникам немає.</td></tr>{% endfor %}</table>
+  </section>
+</div>
+<div class="grid">
+  <section>
+    <h3>Невикористані аванси клієнтів</h3>
+    <table><tr><th>Клієнт</th><th>Дата</th><th>Документ</th><th>Залишок</th></tr>
+    {% for row in customer_advances %}
+    <tr><td>{{ row.customer }}</td><td>{{ row.created_at|date:"d.m.Y" }}</td><td>{{ row.document_ref|default:"—" }}</td><td>{{ row.remaining|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="4">Невикористаних авансів клієнтів немає.</td></tr>{% endfor %}</table>
+  </section>
+  <section>
+    <h3>Невикористані аванси постачальникам</h3>
+    <table><tr><th>Постачальник</th><th>Дата</th><th>Документ</th><th>Залишок</th></tr>
+    {% for row in supplier_advances %}
+    <tr><td>{{ row.supplier }}</td><td>{{ row.created_at|date:"d.m.Y" }}</td><td>{{ row.document_ref|default:"—" }}</td><td>{{ row.remaining|floatformat:2 }} ₴</td></tr>
+    {% empty %}<tr><td colspan="4">Невикористаних авансів постачальникам немає.</td></tr>{% endfor %}</table>
+  </section>
+</div>
+<h3>Перевірка сторнувань</h3>
+<table><tr><th>Дата скасування</th><th>Документ</th><th>Причина</th><th>Користувач</th></tr>
+{% for row in reversal_gaps %}
+<tr><td>{{ row.voided_at|date:"d.m.Y H:i" }}</td><td>Платіж №{{ row.pk }}</td><td>{{ row.void_reason }}</td><td>{{ row.voided_by }}</td></tr>
+{% empty %}<tr><td colspan="4">Не виявлено скасованих готівкових платежів без компенсуючої операції.</td></tr>{% endfor %}</table>
+<h3>Підсумок руху коштів за період</h3>
+<div class="kpi">
+  <div class="card">Каса: надходження<b>{{ cash_period_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Каса: вилучення<b>{{ cash_period_out|floatformat:2 }} ₴</b></div>
+  <div class="card">Каса: корекції<b>{{ cash_adjustments|floatformat:2 }} ₴</b></div>
+  <div class="card">Чистий рух каси<b>{{ period_cash_net|floatformat:2 }} ₴</b></div>
+  <div class="card">Банк: надходження<b>{{ bank_period_in|floatformat:2 }} ₴</b></div>
+  <div class="card">Банк: списання<b>{{ bank_period_out|floatformat:2 }} ₴</b></div>
+  <div class="card">Чистий рух банку<b>{{ period_bank_net|floatformat:2 }} ₴</b></div>
+  <div class="card">Сумарний рух коштів<b>{{ period_net_movement|floatformat:2 }} ₴</b></div>
+</div>
+<p class="muted">Це рух коштів за випискою та касовими операціями, а не прибуток. Початкові та розрахункові залишки кожного банківського рахунку з урахуванням дати початкового балансу дивіться в журналі банку.</p>
+<h3>Закриття касових змін</h3>
+<div class="kpi">
+  <div class="card">Закрито змін<b>{{ closed_shift_count }}</b></div>
+  <div class="card">Відкриті зміни<b>{{ open_shift_count }}</b></div>
+  <div class="card">Початкова готівка змін<b>{{ shift_opening_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Очікувано в касах зараз / при закритті<b>{{ shift_expected_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Фактично перераховано при закритті<b>{{ shift_counted_total|floatformat:2 }} ₴</b></div>
+  <div class="card">Сумарна розбіжність закритих змін<b>{{ shift_discrepancy_total|floatformat:2 }} ₴</b></div>
+</div>
+<table><tr><th>Касир</th><th>Відкриття</th><th>Закриття</th><th>Стартова сума</th><th>Очікувано</th><th>Перераховано</th><th>Різниця</th></tr>
+{% for row in shift_rows %}
+<tr>
+<td>{{ row.shift.cashier }}</td>
+<td>{{ row.shift.opened_at|date:"d.m.Y H:i" }}</td>
+<td>{% if row.shift.closed_at %}{{ row.shift.closed_at|date:"d.m.Y H:i" }}{% else %}<strong>Зміна відкрита</strong>{% endif %}</td>
+<td>{{ row.opening|floatformat:2 }} ₴</td><td>{{ row.expected|floatformat:2 }} ₴</td>
+<td>{% if row.counted != None %}{{ row.counted|floatformat:2 }} ₴{% else %}—{% endif %}</td>
+<td>{% if row.discrepancy != None %}{{ row.discrepancy|floatformat:2 }} ₴{% else %}—{% endif %}</td>
+</tr>
+{% empty %}<tr><td colspan="7">Касових змін за цей період немає.</td></tr>{% endfor %}</table>
+<h3>Сторнування компенсацій постачальників без зворотної операції</h3>
+<table><tr><th>Дата скасування</th><th>Постачальник</th><th>Компенсація</th><th>Причина</th></tr>
+{% for row in compensation_reversal_gaps %}
+<tr><td>{{ row.voided_at|date:"d.m.Y H:i" }}</td><td>{{ row.supplier }}</td><td>№{{ row.number|default:row.pk }} · {{ row.amount|floatformat:2 }} ₴</td><td>{{ row.void_reason }}</td></tr>
+{% empty %}<tr><td colspan="4">Не виявлено скасованих компенсацій без зворотної операції.</td></tr>{% endfor %}</table>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "core/base.html" %}
+{% block content %}
+<div class="pagehead"><div><h1>Відправлення Нової пошти</h1><p class="muted">Чернетки, експрес-накладні та останній відомий статус доставки.</p></div><a class="btn" href="{% url 'shipment_new' %}">＋ Створити відправлення</a></div>
+<form class="filter" method="get">
+<input name="q" value="{{ q }}" placeholder="ТТН, одержувач, телефон або місто">
+<select name="status"><option value="">Усі статуси</option>{% for key,label in statuses %}<option value="{{ key }}" {% if status == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+<button class="btn">Знайти</button><a class="btn gray" href="{% url 'shipment_list' %}">Скинути</a>
+</form>
+<div class="card"><p class="muted">Знайдено: {{ total_count }} · показано до 300 записів</p>
+{% if shipments %}<div class="table-wrap"><table><thead><tr><th>Створено</th><th>Одержувач</th><th>Доставка</th><th>ТТН / статус</th><th>Дії</th></tr></thead><tbody>
+{% for s in shipments %}<tr><td>{{ s.created_at|date:"d.m.Y H:i" }}<br><small class="muted">№{{ s.pk }}</small></td><td><strong>{{ s.recipient_name }}</strong><br>{{ s.recipient_phone }}<br><small>{{ s.recipient_city }}{% if s.recipient_warehouse %} · {{ s.recipient_warehouse }}{% endif %}</small></td><td>{{ s.description }}<br><small>{{ s.weight }} кг · {{ s.seats_amount }} місць</small>{% if s.cod_amount %}<br><small>Післяплата: {{ s.cod_amount }} грн</small>{% endif %}</td><td>{% if s.ttn %}<strong>{{ s.ttn }}</strong>{% else %}<span class="tag">Без ТТН</span>{% endif %}<br><span class="tag {% if s.status == 'delivered' %}ok{% elif s.status == 'problem' %}bad{% elif s.status == 'in_transit' %}info{% endif %}">{{ s.get_status_display }}</span>{% if s.status_text %}<br><small>{{ s.status_text }}</small>{% endif %}{% if s.last_tracked_at %}<br><small class="muted">Оновлено {{ s.last_tracked_at|date:"d.m H:i" }}</small>{% endif %}{% if s.api_error %}<br><small class="err">{{ s.api_error }}</small>{% endif %}</td><td class="actions">{% if not s.ttn %}<form method="post" action="{% url 'shipment_create_ttn' s.pk %}">{% csrf_token %}<button class="btn sm" onclick="return confirm('Створити реальну ТТН у Новій пошті?')">Створити ТТН</button></form>{% else %}<form method="post" action="{% url 'shipment_track' s.pk %}">{% csrf_token %}<button class="btn sm gray">Оновити статус</button></form>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="empty"><h3>Відправлень поки немає</h3><p>Створи чернетку, щоб підготувати дані одержувача й оформити ТТН.</p><a class="btn" href="{% url 'shipment_new' %}">Створити відправлення</a></div>{% endif %}
+</div>
+{% endblock %}

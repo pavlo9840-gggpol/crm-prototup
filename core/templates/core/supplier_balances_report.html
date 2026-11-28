@@ -1,0 +1,29 @@
+{% extends "core/base.html" %}{% block content %}
+<h2>Взаєморозрахунки з постачальниками</h2>
+<p class="muted">Поточний борг і кредит показані на сьогодні. Закупівлі, оплати та компенсації нижче — обороти лише за вибраний період.</p>
+<form method="get" class="filter">
+<input name="q" value="{{ q }}" placeholder="Назва, контакт або телефон постачальника">
+<select name="active"><option value="">Усі постачальники</option><option value="1" {% if active == "1" %}selected{% endif %}>Активні</option><option value="0" {% if active == "0" %}selected{% endif %}>Неактивні</option></select>
+<label>З дати <input type="date" name="date_from" value="{{ date_from }}"></label>
+<label>До дати <input type="date" name="date_to" value="{{ date_to }}"></label>
+<button class="btn">Застосувати</button><a class="btn gray" href="{% url 'supplier_balances_report' %}">Скинути</a>
+<button class="btn gray" name="export" value="csv">Експорт CSV</button>
+<button class="btn gray" type="button" onclick="window.print()">Друк</button>
+</form>
+<div class="kpi">
+<div class="card">Загальний борг<b>{{ totals.debt|floatformat:2 }} ₴</b></div>
+<div class="card">Переплата / кредит<b>{{ totals.credit|floatformat:2 }} ₴</b></div>
+<div class="card">Невикористані аванси<b>{{ totals.advance|floatformat:2 }} ₴</b></div>
+</div>
+<div class="card"><h3>Оборот за період</h3>
+<table><tr><th>Закупівлі</th><th>Оплати</th><th>Компенсації</th></tr>
+<tr><td>{{ totals.purchases_period|floatformat:2 }} ₴</td><td>{{ totals.payments_period|floatformat:2 }} ₴</td><td>{{ totals.compensations_period|floatformat:2 }} ₴</td></tr></table></div>
+<table><tr><th>Постачальник</th><th class="n">Борг</th><th class="n">Переплата</th><th class="n">Аванс</th><th class="n">Закупівлі за період</th><th class="n">Оплати за період</th><th class="n">Компенсації</th></tr>
+{% for row in rows %}<tr><td><a href="{% url 'supplier_account' row.supplier.pk %}">{{ row.supplier.name }}</a>{% if not row.supplier.is_active %} <span class="tag">Неактивний</span>{% endif %}</td>
+<td class="n"><b>{{ row.debt|floatformat:2 }} ₴</b></td><td class="n">{{ row.credit|floatformat:2 }} ₴</td><td class="n">{{ row.advance|floatformat:2 }} ₴</td>
+<td class="n">{{ row.purchases_period|floatformat:2 }} ₴</td><td class="n">{{ row.payments_period|floatformat:2 }} ₴</td><td class="n">{{ row.compensations_period|floatformat:2 }} ₴</td></tr>
+{% empty %}<tr><td colspan="7">За заданими умовами постачальників не знайдено.</td></tr>{% endfor %}
+<tr><th>РАЗОМ</th><th class="n">{{ totals.debt|floatformat:2 }} ₴</th><th class="n">{{ totals.credit|floatformat:2 }} ₴</th><th class="n">{{ totals.advance|floatformat:2 }} ₴</th><th class="n">{{ totals.purchases_period|floatformat:2 }} ₴</th><th class="n">{{ totals.payments_period|floatformat:2 }} ₴</th><th class="n">{{ totals.compensations_period|floatformat:2 }} ₴</th></tr>
+</table>
+<p><a class="btn gray" href="{% url 'supplier_list' %}">← До постачальників</a></p>
+{% endblock %}

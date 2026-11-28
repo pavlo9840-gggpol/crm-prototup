@@ -62,15 +62,17 @@ class RatesTest(TestCase):
 class CurrencyFlowTest(TestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
+        owner = U.objects.create_superuser("currency-admin", "", "x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(owner, "Currency test shop", [])
         U.objects.create_user("anna", password="x")
         self.adm, self.anna = self.client, self.client_class()
-        self.adm.login(username="admin", password="x")
+        self.adm.login(username="currency-admin", password="x")
         self.anna.login(username="anna", password="x")
-        MarkupTier.objects.create(name="Роздріб", percent=30, is_default=True)
+        MarkupTier.objects.create(company=self.company, name="Роздріб", percent=30, is_default=True)
         self.eur = Currency.objects.get(code="EUR")
-        self.sup = Supplier.objects.create(name="Euro-Parts", currency=self.eur, rate_margin_pct=D("2"))
-        self.uah_sup = Supplier.objects.create(name="Грн-постачальник")
+        self.sup = Supplier.objects.create(company=self.company, name="Euro-Parts", currency=self.eur, rate_margin_pct=D("2"))
+        self.uah_sup = Supplier.objects.create(company=self.company, name="Грн-постачальник")
         rate("EUR", 50)
 
     def import_price(self, sup, rows):
@@ -98,12 +100,12 @@ class CurrencyFlowTest(TestCase):
         self.assertEqual((m.cost, m.price_orig), (D("300.00"), None))
 
     def test_rate_change_recomputes_prices_and_auto_price_but_not_fixed_or_history(self):
-        PriceRule.objects.create(name="r", markup_pct=30)
+        PriceRule.objects.create(company=self.company, name="r", markup_pct=30)
         self.import_price(self.sup, [["BILSTEIN", "19-152615", "Амортизатор", 20]])
-        fixed = Supplier.objects.create(name="Свій курс", currency=self.eur, fixed_rate=D("40"))
-        SupplierItem.objects.create(supplier=fixed, brand="X", sku="F1", sku_norm="F1", cost=D("800"), price_orig=D("20"))
-        auto = Product.objects.create(name="Амортизатор", sku="19-152615", brand="BILSTEIN", cost_price=900, price=1170, auto_price=True)
-        manual = Product.objects.create(name="Ручна ціна", sku="X-2", brand="BILSTEIN", cost_price=900, price=1170)
+        fixed = Supplier.objects.create(company=self.company, name="Свій курс", currency=self.eur, fixed_rate=D("40"))
+        SupplierItem.objects.create(company=self.company, supplier=fixed, brand="X", sku="F1", sku_norm="F1", cost=D("800"), price_orig=D("20"))
+        auto = Product.objects.create(company=self.company, name="Амортизатор", sku="19-152615", brand="BILSTEIN", cost_price=900, price=1170, auto_price=True)
+        manual = Product.objects.create(company=self.company, name="Ручна ціна", sku="X-2", brand="BILSTEIN", cost_price=900, price=1170)
         changed, n = currency.save_rate("EUR", D("52"), TODAY())
         self.assertEqual((changed, n), (True, 1))
         self.assertEqual(SupplierItem.objects.get(sku="19-152615").cost, D("1060.80"))
@@ -127,7 +129,7 @@ class CurrencyFlowTest(TestCase):
         self.assertEqual(SupplierItem.objects.count(), 0)
 
     def test_api_sync_for_foreign_supplier_converts_and_reports_missing_rate(self):
-        SupplierApi.objects.create(supplier=self.sup, url="https://x/api", fmt="json", auth_mode="none", items_path="items",
+        SupplierApi.objects.create(company=self.company, supplier=self.sup, url="https://x/api", fmt="json", auth_mode="none", items_path="items",
                                    f_sku="a", f_brand="b", f_name="n", f_cost="p")
         net = lambda url, headers: json.dumps({"items": [{"a": "X-1", "b": "Meyle", "n": "Тяга", "p": 10}]}).encode()
         apisync.sync_supplier(Supplier.objects.select_related("api", "currency").get(pk=self.sup.pk), None, fetch=net)
@@ -174,8 +176,10 @@ class RatesPageTest(TestCase):
 
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("admin", "", "x")
-        U.objects.create_user("anna", password="x")
+        admin = U.objects.create_superuser("admin", "", "x")
+        anna = U.objects.create_user("anna", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(admin, "Rates page shop", [(anna, "cashier")])
         self.adm, self.anna = self.client, self.client_class()
         self.adm.login(username="admin", password="x")
         self.anna.login(username="anna", password="x")
@@ -208,7 +212,7 @@ class RatesPageTest(TestCase):
         self.assertEqual(self.anna.get("/rates/").status_code, 403)
         self.assertEqual(self.anna.post("/rates/", {"act": "manual", "code": "EUR", "rate": "50"}).status_code, 403)
         self.assertContains(self.adm.get("/rates/"), "немає курсу")
-        self.assertNotContains(self.adm.get("/"), 'class="rate"')
+        self.assertNotContains(self.adm.get("/", follow=True), 'class="rate"')
         post = lambda **kw: self.adm.post("/rates/", dict({"act": "manual", "code": "EUR", "rate": "50,80", "date": TODAY().isoformat()}, **kw), follow=True)
         self.assertContains(post(), "Курс EUR збережено: 50.8")
         self.assertEqual(ExchangeRate.objects.get().rate, D("50.8"))

@@ -2,18 +2,22 @@ import json
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from core.models import Product, Supplier, Sale, StockMovement
+from core.models import Company, StaffMembership, Product, Supplier, Sale, StockMovement
 
 
 class AcceptanceTest(TestCase):
     def test_flow(self):
         U = get_user_model()
-        U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
-        p = Product.objects.create(name="Кола", sku="K1", barcode="123", price=30, cost_price=20, min_stock=150)
-        sup = Supplier.objects.create(name="S")
+        admin = U.objects.create_superuser("a", "", "x"); cashier = U.objects.create_user("c", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        company = create_test_company(admin, "Acceptance shop", [(cashier, "cashier")])
+        p = Product.objects.create(company=company, name="Кола", sku="K1", barcode="123", price=30, cost_price=20, min_stock=150)
+        sup = Supplier.objects.create(company=company, name="S")
         adm, cash = self.client, self.client_class()
         adm.login(username="a", password="x"); cash.login(username="c", password="x")
-        adm.post("/purchases/new/", {"supplier": sup.pk, "product": [p.pk], "qty": ["100"], "cost": ["20"]})
+        purchase_payload = {"supplier": sup.pk, "product": [p.pk], "qty": ["100"], "cost": ["20"],
+                            "batch_number": [""], "expiry_date": [""], "serial_numbers": [""]}
+        adm.post("/purchases/new/", purchase_payload)
         p.refresh_from_db(); self.assertEqual(p.current_stock, 100)
         self.assertEqual(cash.get("/pos/").status_code, 302)
         cash.post("/shift/", {"action": "open", "cash": "0"})
@@ -25,8 +29,8 @@ class AcceptanceTest(TestCase):
         p.refresh_from_db(); self.assertEqual(p.current_stock, 97)
         r = cash.post("/pos/checkout/", json.dumps({"items": [{"id": p.pk, "qty": 999}]}), content_type="application/json")
         self.assertEqual(r.status_code, 400); print(r.json()["error"])
-        adm.post("/purchases/new/", {"supplier": sup.pk, "product": [p.pk], "qty": ["50"], "cost": ["20"]})
-        adm.post("/inventory/adjust/", {"product": p.pk, "kind": "writeoff", "quantity": "2", "reason": "damaged"})
+        adm.post("/purchases/new/", dict(purchase_payload, qty=["50"]))
+        adm.post("/inventory/adjust/", {"product": p.pk, "kind": "writeoff", "quantity": "2", "reason": "damaged", "note": "Пошкоджено"})
         p.refresh_from_db(); self.assertEqual(p.current_stock, 145)
         self.assertEqual(StockMovement.objects.filter(product=p).count(), 4)
         self.assertEqual(sum(m.quantity_change for m in StockMovement.objects.filter(product=p)), 145)
@@ -53,8 +57,11 @@ class CashTest(TestCase):
         from core import cash
         self.cash = cash
         U = get_user_model()
-        U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
-        self.p = Product.objects.create(name="Кола", sku="K1", barcode="123", price=Decimal("30"), cost_price=20,
+        self.owner = U.objects.create_superuser("a", "", "x")
+        self.cashier = U.objects.create_user("c", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(self.owner, "Cash test store", [(self.cashier, "cashier")])
+        self.p = Product.objects.create(company=self.company, name="Кола", sku="K1", barcode="123", price=Decimal("30"), cost_price=20,
                                         current_stock=100, is_favorite=True)
         self.adm, self.cs = self.client, self.client_class()
         self.adm.login(username="a", password="x"); self.cs.login(username="c", password="x")
@@ -98,13 +105,19 @@ class CashTest(TestCase):
         self.assertEqual(self.cs.get("/designer/").status_code, 403)
         self.assertEqual(self.cs.get("/settings/company/").status_code, 403)
         self.assertEqual(self.cs.get(f"/sales/{sale['id']}/print/").status_code, 302)   # legacy URL redirects
-        r = self.adm.post("/settings/company/", {"name": "Тест-Маркет", "receipt_footer": "Дякуємо", "auto_print": "on",
+        from core.tests_tenant_helpers import create_test_company
+        foreign_owner = get_user_model().objects.create_user("foreign-settings-owner", password="x")
+        foreign_company = create_test_company(foreign_owner, "Foreign settings shop")
+        r = self.adm.post("/settings/company/", {"company": foreign_company.pk, "name": "Тест-Маркет", "receipt_footer": "Дякуємо", "auto_print": "on",
             "auto_print_format": "html", "vat_rate": "20",
             "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "0", "form-MIN_NUM_FORMS": "0", "form-MAX_NUM_FORMS": "1000",
             "form-0-bank_name": "ПриватБанк", "form-0-iban": "UA123", "form-0-currency": "UAH", "form-0-is_default": "on"})
         self.assertEqual(r.status_code, 302, getattr(r, "content", b"")[:300])
         from core.models import BankAccount, CompanySettings
-        self.assertEqual(BankAccount.objects.count(), 1); self.assertEqual(CompanySettings.get().name, "Тест-Маркет")
+        self.assertEqual(BankAccount.objects.count(), 1)
+        self.assertEqual(BankAccount.objects.get().company_id, self.company.pk)
+        self.assertEqual(CompanySettings.get(self.company).name, "Тест-Маркет")
+        self.assertEqual(CompanySettings.get(foreign_company).name, "Foreign settings shop")
         self.assertContains(self.adm.get(f"/print/sale_invoice/?ids={sale['id']}"), "Тест-Маркет")
         self.assertContains(self.adm.get(f"/print/sale_invoice/?ids={sale['id']}"), "у т.ч. ПДВ")
 
@@ -113,15 +126,17 @@ class DesignerTest(TestCase):
     def setUp(self):
         from core.models import PrintTemplate
         U = get_user_model()
-        U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
-        self.p = Product.objects.create(name="Кола", sku="K1", barcode="4820000000011", price=Decimal("30"), cost_price=20, current_stock=100)
-        self.sup = Supplier.objects.create(name="S")
+        self.owner = U.objects.create_superuser("a", "", "x"); self.cashier = U.objects.create_user("c", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(self.owner, "Designer test store", [(self.cashier, "cashier")])
+        self.p = Product.objects.create(company=self.company, name="Кола", sku="K1", barcode="4820000000011", price=Decimal("30"), cost_price=20, current_stock=100)
+        self.sup = Supplier.objects.create(company=self.company, name="S")
         self.adm, self.cs = self.client, self.client_class()
         self.adm.login(username="a", password="x"); self.cs.login(username="c", password="x")
         self.PT = PrintTemplate
 
     def _purchase(self, qty="10"):
-        self.adm.post("/purchases/new/", {"supplier": self.sup.pk, "product": [self.p.pk], "qty": [qty], "cost": ["20"]})
+        self.adm.post("/purchases/new/", {"supplier": self.sup.pk, "product": [self.p.pk], "qty": [qty], "cost": ["20"], "batch_number": [""], "expiry_date": [""], "serial_numbers": [""]})
         from core.models import Purchase
         return Purchase.objects.latest("pk")
 
@@ -156,9 +171,9 @@ class DesignerTest(TestCase):
         # print: default is the standard, chosen is mine
         self.cs.post("/shift/", {"action": "open"})
         from core.models import Sale
-        sale = Sale.objects.create(cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30, number="CH-1")
+        sale = Sale.objects.create(company=self.company, cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30, number="CH-1")
         from core.models import SaleItem
-        SaleItem.objects.create(sale=sale, product=self.p, quantity=1, original_price=30, price=30)
+        SaleItem.objects.create(company=self.company, sale=sale, product=self.p, quantity=1, original_price=30, price=30)
         r = self.adm.get(f"/print/sale_invoice/?ids={sale.pk}"); self.assertNotContains(r, "МІЙ ШАБЛОН ТЕКСТ")
         r = self.adm.get(f"/print/sale_invoice/?ids={sale.pk}&template={mine.pk}"); self.assertContains(r, "МІЙ ШАБЛОН ТЕКСТ")
         self.adm.post(f"/designer/default/{mine.pk}/")
@@ -204,7 +219,7 @@ class DesignerTest(TestCase):
         self.assertEqual([e["type"] for e in c["elements"]], ["image", "text", "field"])
         self.assertEqual(c["elements"][0]["src"], ""); self.assertTrue(w)
         with self.assertRaises(ValueError): designer.sanitize({"elements": "x"}, "receipt")
-        r = self.adm.post(f"/designer/save/{self.PT.objects.create(doc_type='receipt', name='t', layout={}).pk}/",
+        r = self.adm.post(f"/designer/save/{self.PT.objects.create(company=self.company, doc_type='receipt', name='t', layout={}).pk}/",
                           json.dumps({"name": "t", "layout": {"elements": "bad"}}), content_type="application/json")
         self.assertEqual(r.status_code, 400)
 
@@ -271,7 +286,7 @@ class DesignerTest(TestCase):
         r = self.adm.get(f"/print/pricetag/?ids={self.p.pk}&copies=2"); self.assertContains(r, "Сторінок: 2")
         self.assertContains(self.adm.get("/print/stock_report/"), "Кола")
         self.assertContains(self.adm.get("/print/movement_report/?from=2020-01-01"), "NK-")
-        self.adm.post("/inventory/adjust/", {"product": self.p.pk, "kind": "writeoff", "quantity": "2", "reason": "damaged"})
+        self.adm.post("/inventory/adjust/", {"product": self.p.pk, "kind": "writeoff", "quantity": "2", "reason": "damaged", "note": "Пошкоджено"})
         from core.models import StockAdjustment
         a = StockAdjustment.objects.get(); self.assertContains(self.adm.get(f"/print/writeoff/?ids={a.pk}"), "ADJ-")
         self.assertContains(self.adm.get("/inventory/adjustments/"), "ADJ-")
@@ -288,9 +303,9 @@ class HardeningTest(DesignerTest):
     def test_txt_receipt_and_zip_backup(self):
         self.cs.post("/shift/", {"action": "open"})
         from core.models import Sale, SaleItem
-        sale = Sale.objects.create(cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30,
+        sale = Sale.objects.create(company=self.company, cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30,
                                    cash_received=50, change_given=20, number="CH-7")
-        SaleItem.objects.create(sale=sale, product=self.p, quantity=1, original_price=30, price=30)
+        SaleItem.objects.create(company=self.company, sale=sale, product=self.p, quantity=1, original_price=30, price=30)
         r = self.cs.get(f"/print/receipt/?ids={sale.pk}&fmt=txt&cols=32")
         self.assertEqual(r["Content-Type"], "text/plain; charset=utf-8")
         txt = r.content.decode(); self.assertIn("Чек № CH-7", txt); self.assertIn("Здача: 20.00", txt)
@@ -310,13 +325,34 @@ class HardeningTest(DesignerTest):
         self.assertContains(r, "ZIP")
 
     def test_corrupted_template_does_not_crash(self):
-        bad = self.PT.objects.create(doc_type="receipt", name="bad", layout={"elements": "oops"})
+        bad = self.PT.objects.create(company=self.company, doc_type="receipt", name="bad", layout={"elements": "oops"})
         self.assertEqual(self.adm.get(f"/designer/edit/{bad.pk}/").status_code, 404)
         self.cs.post("/shift/", {"action": "open"})
         from core.models import Sale, SaleItem
-        sale = Sale.objects.create(cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30, number="CH-8")
-        SaleItem.objects.create(sale=sale, product=self.p, quantity=1, original_price=30, price=30)
+        sale = Sale.objects.create(company=self.company, cashier=get_user_model().objects.get(username="c"), status="done", total=30, cash_amount=30, number="CH-8")
+        SaleItem.objects.create(company=self.company, sale=sale, product=self.p, quantity=1, original_price=30, price=30)
         self.assertEqual(self.cs.get(f"/print/receipt/?ids={sale.pk}&template={bad.pk}").status_code, 400)
+
+    def test_purchase_rejects_invalid_line_without_partial_post_or_orphan_supplier(self):
+        from core.models import Purchase as PurchaseModel
+        product = Product.objects.create(company=self.company, name="Фільтр", sku="F-1", cost_price=Decimal("10"), current_stock=5)
+        supplier = Supplier.objects.create(company=self.company, name="Постачальник")
+        purchase_count = PurchaseModel.objects.count()
+        movement_count = StockMovement.objects.count()
+        response = self.adm.post("/purchases/new/", {
+            "new_supplier": "Не має створитися",
+            "product": [str(product.pk), str(product.pk)],
+            "qty": ["2", "1"],
+            "cost": ["10", "-1"],
+            "batch_number": ["", ""], "expiry_date": ["", ""], "serial_numbers": ["", ""],
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "закупівельна ціна")
+        self.assertEqual(PurchaseModel.objects.count(), purchase_count)
+        self.assertEqual(Supplier.objects.filter(name="Не має створитися").count(), 0)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+        product.refresh_from_db()
+        self.assertEqual(product.current_stock, Decimal("5"))
 
     def test_bad_json_and_empty_purchase(self):
         self.cs.post("/shift/", {"action": "open"})
@@ -325,7 +361,8 @@ class HardeningTest(DesignerTest):
             self.assertIn(r.status_code, (200, 400), url)
         from core.models import Supplier as S
         n = S.objects.count()
-        r = self.adm.post("/purchases/new/", {"new_supplier": "Ghost", "product": [""], "qty": [""], "cost": [""]})
+        r = self.adm.post("/purchases/new/", {"new_supplier": "Ghost", "product": [""], "qty": [""], "cost": [""],
+            "batch_number": [""], "expiry_date": [""], "serial_numbers": [""]})
         self.assertEqual(S.objects.count(), n); self.assertContains(r, "Додайте хоча б один товар")
 
 
@@ -333,19 +370,48 @@ class V4Test(TestCase):
     def setUp(self):
         from core.models import PrintTemplate
         U = get_user_model()
-        self.admin = U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
+        self.admin = U.objects.create_superuser("a", "", "x"); self.cashier = U.objects.create_user("c", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(self.admin, "V4 test store", [(self.cashier, "cashier")])
         self.adm, self.cs = self.client, self.client_class()
         self.adm.login(username="a", password="x"); self.cs.login(username="c", password="x")
         self.PT = PrintTemplate
 
+    def test_purchase_list_search_supplier_and_filtered_totals(self):
+        from decimal import Decimal
+        from core.models import Product, Purchase, Supplier
+        from core.services import create_purchase
+
+        supplier_a = Supplier.objects.create(company=self.company, name="Фільтри Захід")
+        supplier_b = Supplier.objects.create(company=self.company, name="АвтоСвіт")
+        product = Product.objects.create(company=self.company, name="Масляний фільтр", sku="OF-22", cost_price=Decimal("12.00"))
+        create_purchase(self.admin, supplier_a, [(product, Decimal("2"), Decimal("12.00"))])
+        create_purchase(self.admin, supplier_b, [(product, Decimal("1"), Decimal("12.00"))])
+
+        response = self.adm.get("/purchases/?q=Фільтри")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Фільтри Захід")
+        self.assertContains(response, "Знайдено накладних: <strong>1</strong>")
+        self.assertEqual(response.context["summary_total"], Decimal("24.00"))
+        self.assertContains(response, 'value="Фільтри"')
+
+        response = self.adm.get(f"/purchases/?supplier={supplier_b.pk}")
+        self.assertContains(response, "АвтоСвіт")
+        self.assertEqual(response.context["summary_total"], Decimal("12.00"))
+        self.assertContains(response, f'value="{supplier_b.pk}" selected')
+
+        response = self.adm.get("/purchases/?q=немає-такого")
+        self.assertContains(response, "Накладних за вибраними умовами не знайдено")
+        self.assertContains(response, "Знайдено накладних: <strong>0</strong>")
+
     # ---- legacy templates -> designer
     def test_legacy_conversion(self):
         from core.models import DocTemplate
-        old = DocTemplate.objects.create(kind="receipt", paper="80mm", body=(
+        old = DocTemplate.objects.create(company=self.company, kind="receipt", paper="80mm", body=(
             '<div class="c"><b>{{ company.name }}</b><br>{% if company.phone %}Тел.: {{ company.phone }}<br>{% endif %}</div><hr>'
             'Чек № <b>{{ doc.number }}</b><br>Касир: {{ doc.user }}<hr><table>{% for i in items %}<tr><td>{{ i.name }}</td>'
             '<td>{{ i.qty }}</td><td class="r">{{ i.total }}</td></tr>{% endfor %}</table><div class="tot">РАЗОМ: {{ doc.total }}</div>'))
-        DocTemplate.objects.create(kind="purchase", paper="a4", body="<h2>Накладна {{ doc.number }}</h2>{% for i in items %}{{ i.name }}{% endfor %}")
+        DocTemplate.objects.create(company=self.company, kind="purchase", paper="a4", body="<h2>Накладна {{ doc.number }}</h2>{% for i in items %}{{ i.name }}{% endfor %}")
         r = self.adm.get("/designer/"); self.assertContains(r, "Старі шаблони"); self.assertContains(r, "Перетворити на новий")
         r = self.adm.post(f"/designer/legacy/{old.pk}/convert/"); self.assertEqual(r.status_code, 302)
         t = self.PT.objects.get(name__contains="зі старої версії"); self.assertEqual(t.doc_type, "receipt")
@@ -389,15 +455,28 @@ class V4Test(TestCase):
         self.assertEqual(c.get("/", follow=True).redirect_chain[-1][0], "/shift/")        # cashier lands in POS flow
         # edit: promote, change password, deactivate
         self.adm.post(f"/users/{u.pk}/edit/", {"username": "ola", "role": "admin", "is_active": "on", "password": ""})
-        u.refresh_from_db(); self.assertTrue(u.is_superuser and u.is_staff and u.check_password("secret1"))
+        u.refresh_from_db()
+        from core.models import StaffMembership
+        self.assertEqual(StaffMembership.objects.get(company=self.company, user=u).role, "admin")
+        self.assertFalse(u.is_superuser or u.is_staff)
+        self.assertTrue(u.check_password("secret1"))
         self.adm.post(f"/users/{u.pk}/edit/", {"username": "ola", "role": "cashier", "password": "newpass1"})
-        u.refresh_from_db(); self.assertFalse(u.is_active); self.assertTrue(u.check_password("newpass1")); self.assertFalse(u.is_superuser)
-        self.assertFalse(self.client_class().login(username="ola", password="newpass1"))
+        u.refresh_from_db()
+        self.assertTrue(u.is_active)  # глобальний обліковий запис зберігається; доступ визначає StaffMembership
+        self.assertFalse(StaffMembership.objects.get(company=self.company, user=u).is_active)
+        self.assertTrue(u.check_password("newpass1"))
+        self.assertFalse(u.is_superuser)
+        inactive_staff_client = self.client_class()
+        self.assertTrue(inactive_staff_client.login(username="ola", password="newpass1"))
+        self.assertEqual(inactive_staff_client.get("/").status_code, 403)  # пароль чинний, але локальну роль деактивовано
         # cannot change own role / lock out last admin
         self.adm.post(f"/users/{self.admin.pk}/edit/", {"username": "a", "role": "cashier", "password": ""})
         self.admin.refresh_from_db(); self.assertTrue(self.admin.is_superuser and self.admin.is_active)
-        other = U.objects.create_superuser("b", "", "x"); self.adm.post(f"/users/{other.pk}/edit/", {"username": "b", "role": "cashier"})
-        other.refresh_from_db(); self.assertFalse(other.is_superuser)       # allowed: another admin (a) remains
+        other = U.objects.create_superuser("b", "", "x")
+        response = self.adm.post(f"/users/{other.pk}/edit/", {"username": "b", "role": "cashier"})
+        self.assertEqual(response.status_code, 404)  # глобальний recovery-admin не є учасником цього магазину
+        other.refresh_from_db()
+        self.assertTrue(other.is_superuser)  # чужий глобальний обліковий запис не можна перетворити на касира
         b = self.client_class(); b.login(username="a", password="x")
         U.objects.filter(pk=u.pk).update(is_active=True)
 
@@ -408,8 +487,8 @@ class V4Test(TestCase):
 
     def test_csv_export_import(self):
         from core.models import PriceHistory, StockMovement, Category
-        cat = Category.objects.create(name="Напої")
-        p = Product.objects.create(name="Кола", sku="COLA", barcode="111", price=30, cost_price=20, category=cat, unit="пляшка")
+        cat = Category.objects.create(company=self.company, name="Напої")
+        p = Product.objects.create(company=self.company, name="Кола", sku="COLA", barcode="111", price=30, cost_price=20, category=cat, unit="пляшка")
         csv_ = self.adm.get("/products/export/").content.decode("utf-8-sig")
         self.assertIn("Код;Назва;Штрих-код", csv_); self.assertIn("COLA;Кола;111;Напої;пляшка;20.00;30.00", csv_)
         self.assertIn("COLA05", self.adm.get("/products/export/?template=1").content.decode("utf-8-sig"))
@@ -441,7 +520,7 @@ class V4Test(TestCase):
     def test_new_pages_and_nav(self):
         for url in ("/users/", "/users/new/", f"/users/{self.admin.pk}/edit/", "/backup/", "/products/import/", "/products/", "/designer/"):
             self.assertEqual(self.adm.get(url).status_code, 200, url)
-        r = self.adm.get("/users/"); self.assertContains(r, 'data-g="Налаштування"'); self.assertContains(r, "Резервні копії")
+        r = self.adm.get("/users/"); self.assertContains(r, 'data-g="Система"'); self.assertContains(r, "Резервні копії")
 
 
 from django.test import TransactionTestCase
@@ -450,7 +529,9 @@ from django.test import TransactionTestCase
 class BackupTest(TransactionTestCase):
     def setUp(self):
         U = get_user_model()
-        U.objects.create_superuser("a", "", "x"); U.objects.create_user("c", password="x")
+        owner = U.objects.create_superuser("a", "", "x"); cashier = U.objects.create_user("c", password="x")
+        from core.tests_tenant_helpers import create_test_company
+        self.company = create_test_company(owner, "Backup test store", [(cashier, "cashier")])
         self.adm, self.cs = self.client, self.client_class()
         self.adm.login(username="a", password="x"); self.cs.login(username="c", password="x")
 
@@ -459,7 +540,7 @@ class BackupTest(TransactionTestCase):
         from pathlib import Path
         from unittest import mock
         from core import admin_tools
-        Product.objects.create(name="P", sku="S1", price=1)
+        Product.objects.create(company=self.company, name="P", sku="S1", price=1)
         r = self.adm.post("/backup/", {"action": "download"}); self.assertEqual(r["Content-Type"], "application/zip")
         z = zipfile.ZipFile(io.BytesIO(r.content)); self.assertIn("db.sqlite3", z.namelist()); self.assertIn("README.txt", z.namelist())
         with tempfile.TemporaryDirectory() as td:
@@ -474,3 +555,320 @@ class BackupTest(TransactionTestCase):
                 self.assertEqual(self.adm.get("/backup/download/evil.zip/").status_code, 404)
         self.assertEqual(self.cs.get("/backup/").status_code, 403)
 
+
+
+class FinanceOverviewReportTest(TestCase):
+    def setUp(self):
+        from core.models import FinanceEntry
+        U = get_user_model()
+        self.user = U.objects.create_superuser("finadmin", "", "x")
+        self.company = Company.objects.create(name="Finance test", slug="finance-test", owner=self.user)
+        StaffMembership.objects.create(company=self.company, user=self.user, role="owner")
+        self.client.login(username="finadmin", password="x")
+        self.FinanceEntry = FinanceEntry
+
+    def test_report_is_available_and_tenant_scoped(self):
+        from datetime import date
+        from core.models import Product, Sale, SaleItem
+        from django.utils import timezone
+        from decimal import Decimal
+        product = Product.objects.create(company=self.company, name="Test item", sku="FIN-1", price=150, cost_price=90)
+        sale = Sale.objects.create(company=self.company, cashier=self.user, total=Decimal("300.00"), status=Sale.DONE)
+        SaleItem.objects.create(company=self.company, sale=sale, product=product, quantity=2,
+                                original_price=150, price=150, cost_price=90, earned_at=timezone.now())
+        self.FinanceEntry.objects.create(company=self.company, entry_type="income", category="Інше",
+                                         amount=Decimal("50.00"), created_by=self.user)
+        self.FinanceEntry.objects.create(company=self.company, entry_type="expense", category="Оренда",
+                                         amount=Decimal("30.00"), created_by=self.user)
+        response = self.client.get("/reports/finance/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["revenue"], Decimal("300.00"))
+        self.assertEqual(response.context["cost"], Decimal("180.00"))
+        self.assertEqual(response.context["gross_profit"], Decimal("120.00"))
+        self.assertEqual(response.context["other_income"], Decimal("50.00"))
+        self.assertEqual(response.context["expenses"], Decimal("30.00"))
+        self.assertEqual(response.context["operating_result"], Decimal("140.00"))
+        # A second tenant's sale must never leak into this report.
+        other = Company.objects.create(name="Other tenant", slug="finance-other", owner=self.user)
+        other_product = Product.objects.create(company=other, name="Other item", sku="FIN-OTHER", price=999, cost_price=500)
+        other_sale = Sale.objects.create(company=other, cashier=self.user, total=Decimal("999.00"), status=Sale.DONE)
+        SaleItem.objects.create(company=other, sale=other_sale, product=other_product, quantity=1,
+                                original_price=999, price=999, cost_price=500, earned_at=timezone.now())
+        response = self.client.get("/reports/finance/")
+        self.assertEqual(response.context["revenue"], Decimal("300.00"))
+
+    def test_report_csv_export_and_formula_safe_category(self):
+        self.FinanceEntry.objects.create(company=self.company, entry_type="expense", category="=CMD()",
+                                         amount=Decimal("10.00"), created_by=self.user)
+        response = self.client.get("/reports/finance/?export=csv")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertTrue(response.content.startswith(b"\xef\xbb\xbf"))
+        self.assertIn(b"'=CMD()", response.content)
+
+    def test_settlements_and_advances_do_not_double_count_profit(self):
+        from decimal import Decimal
+        from django.utils import timezone
+        from core.models import (
+            AccountAdvance, BankAccount, BankTransaction, Customer, Product, Purchase,
+            Sale, SaleItem, SettlementPayment, Supplier,
+        )
+
+        customer = Customer.objects.create(company=self.company, name="Finance customer", phone="+380501111111")
+        supplier = Supplier.objects.create(company=self.company, name="Finance supplier")
+        product = Product.objects.create(company=self.company, name="Paid item", sku="FIN-PAID",
+                                         price=100, cost_price=40)
+        sale = Sale.objects.create(company=self.company, cashier=self.user, customer=customer,
+                                   total=Decimal("100.00"), status=Sale.DONE,
+                                   cash_amount=Decimal("60.00"), card_amount=Decimal("40.00"))
+        SaleItem.objects.create(company=self.company, sale=sale, product=product, quantity=1,
+                                 original_price=100, price=100, cost_price=40, earned_at=timezone.now())
+        purchase = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
+                                            total=Decimal("50.00"))
+        SettlementPayment.objects.create(company=self.company, sale=sale, amount=Decimal("20.00"),
+                                          payment_method="bank", created_by=self.user)
+        SettlementPayment.objects.create(company=self.company, purchase=purchase, amount=Decimal("25.00"),
+                                          payment_method="bank", created_by=self.user)
+        AccountAdvance.objects.create(company=self.company, party_type="customer", customer=customer,
+                                      amount=Decimal("30.00"), remaining=Decimal("30.00"),
+                                      payment_method="bank", created_by=self.user)
+        AccountAdvance.objects.create(company=self.company, party_type="supplier", supplier=supplier,
+                                      amount=Decimal("15.00"), remaining=Decimal("15.00"),
+                                      payment_method="bank", created_by=self.user)
+        account = BankAccount.objects.create(company=self.company, bank_name="Test bank",
+                                             iban="UA123456789012345678901234567")
+        BankTransaction.objects.create(company=self.company, account=account, transaction_date=timezone.localdate(),
+                                       direction=BankTransaction.INCOME, category="Оплата клієнта",
+                                       amount=Decimal("20.00"), created_by=self.user)
+
+        response = self.client.get("/reports/finance/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["revenue"], Decimal("100.00"))
+        self.assertEqual(response.context["cost"], Decimal("40.00"))
+        self.assertEqual(response.context["gross_profit"], Decimal("60.00"))
+        self.assertEqual(response.context["other_income"], Decimal("0.00"))
+        self.assertEqual(response.context["expenses"], Decimal("0.00"))
+        self.assertEqual(response.context["operating_result"], Decimal("60.00"))
+        self.assertEqual(response.context["bank_in"], Decimal("20.00"))
+
+    def test_cash_withdrawals_are_reported_as_positive_outflows(self):
+        from decimal import Decimal
+        from core.models import CashOperation, Shift
+
+        shift = Shift.objects.create(company=self.company, cashier=self.user)
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                     kind="out", amount=Decimal("-25.00"), note="Вилучення")
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                     kind="in", amount=Decimal("10.00"), note="Внесення")
+        response = self.client.get("/reports/finance/")
+        self.assertEqual(response.context["cash_in"], Decimal("10.00"))
+        self.assertEqual(response.context["cash_out"], Decimal("25.00"))
+
+    def test_returns_are_recognized_in_the_period_they_are_processed(self):
+        from datetime import timedelta
+        from decimal import Decimal
+        from django.utils import timezone
+        from core.models import Product, Sale, SaleItem, SaleReturn, SaleReturnItem
+
+        product = Product.objects.create(company=self.company, name="Returned item", sku="FIN-RET",
+                                         price=150, cost_price=90)
+        old_sale = Sale.objects.create(company=self.company, cashier=self.user, total=Decimal("150.00"),
+                                       status=Sale.DONE)
+        old_earned_at = timezone.now() - timedelta(days=40)
+        item = SaleItem.objects.create(company=self.company, sale=old_sale, product=product, quantity=1,
+                                       original_price=150, price=150, cost_price=90,
+                                       returned_qty=1, earned_at=old_earned_at)
+        sale_return = SaleReturn.objects.create(company=self.company, sale=old_sale, user=self.user,
+                                                total=Decimal("150.00"), refund_method="card",
+                                                card_amount=Decimal("150.00"))
+        SaleReturnItem.objects.create(company=self.company, sale_return=sale_return, sale_item=item,
+                                      quantity=1, price=Decimal("150.00"))
+
+        response = self.client.get("/reports/finance/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["gross_sales"], Decimal("0.00"))
+        self.assertEqual(response.context["returned_revenue"], Decimal("150.00"))
+        self.assertEqual(response.context["returned_cost"], Decimal("90.00"))
+        self.assertEqual(response.context["revenue"], Decimal("-150.00"))
+        self.assertEqual(response.context["cost"], Decimal("-90.00"))
+        self.assertEqual(response.context["gross_profit"], Decimal("-60.00"))
+
+
+class FinanceControlsReportTest(TestCase):
+    def setUp(self):
+        from core.models import Company, StaffMembership
+        U = get_user_model()
+        self.user = U.objects.create_superuser("controlsadmin", "", "x")
+        self.company = Company.objects.create(name="Controls test", slug="controls-test", owner=self.user)
+        StaffMembership.objects.create(company=self.company, user=self.user, role="owner")
+        self.client.login(username="controlsadmin", password="x")
+
+    def test_controls_report_shows_debts_advances_and_unmatched_bank_items(self):
+        from decimal import Decimal
+        from django.utils import timezone
+        from core.models import (
+            AccountAdvance, BankAccount, BankReconciliation, BankTransaction,
+            Customer, Purchase, Sale, SettlementPayment, Supplier,
+        )
+        customer = Customer.objects.create(company=self.company, name="Control customer", phone="+380501234567")
+        supplier = Supplier.objects.create(company=self.company, name="Control supplier")
+        sale = Sale.objects.create(company=self.company, cashier=self.user, customer=customer,
+                                   total=Decimal("200.00"), cash_amount=Decimal("50.00"),
+                                   status=Sale.DONE)
+        purchase = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
+                                           total=Decimal("300.00"))
+        customer_payment = SettlementPayment.objects.create(
+            company=self.company, sale=sale, amount=Decimal("15.00"),
+            payment_method="bank", created_by=self.user,
+        )
+        supplier_payment = SettlementPayment.objects.create(
+            company=self.company, purchase=purchase, amount=Decimal("20.00"),
+            payment_method="bank", created_by=self.user,
+        )
+        account = BankAccount.objects.create(company=self.company, bank_name="Control bank",
+                                             iban="UA123456789012345678901234567")
+        matched_in = BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.INCOME, category="Оплата клієнта",
+            amount=Decimal("15.00"), created_by=self.user,
+        )
+        matched_out = BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.EXPENSE, category="Оплата постачальнику",
+            amount=Decimal("20.00"), created_by=self.user,
+        )
+        BankReconciliation.objects.create(company=self.company, bank_transaction=matched_in,
+                                           settlement_payment=customer_payment, matched_by=self.user)
+        BankReconciliation.objects.create(company=self.company, bank_transaction=matched_out,
+                                           settlement_payment=supplier_payment, matched_by=self.user)
+        BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.INCOME, category="Невідоме надходження",
+            amount=Decimal("30.00"), created_by=self.user,
+        )
+        AccountAdvance.objects.create(company=self.company, party_type=AccountAdvance.CUSTOMER,
+                                      customer=customer, amount=Decimal("25.00"), remaining=Decimal("25.00"),
+                                      payment_method="bank", created_by=self.user)
+        AccountAdvance.objects.create(company=self.company, party_type=AccountAdvance.SUPPLIER,
+                                      supplier=supplier, amount=Decimal("35.00"), remaining=Decimal("35.00"),
+                                      payment_method="bank", created_by=self.user)
+
+        response = self.client.get("/reports/finance/controls/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["customer_debt_total"], Decimal("135.00"))
+        self.assertEqual(response.context["supplier_debt_total"], Decimal("280.00"))
+        self.assertEqual(response.context["customer_advance_total"], Decimal("25.00"))
+        self.assertEqual(response.context["supplier_advance_total"], Decimal("35.00"))
+        self.assertEqual(response.context["bank_unmatched_in"], Decimal("30.00"))
+        self.assertEqual(response.context["bank_unmatched_out"], Decimal("0.00"))
+        self.assertEqual(response.context["payment_unmatched_in"], Decimal("0.00"))
+        self.assertEqual(response.context["payment_unmatched_out"], Decimal("0.00"))
+        self.assertEqual(response.context["active_matches"], 2)
+
+    def test_controls_report_flags_voided_cash_payment_without_reversal(self):
+        from decimal import Decimal
+        from core.models import CashOperation, Customer, Sale, SettlementPayment, Shift
+        customer = Customer.objects.create(company=self.company, name="Reversal customer", phone="+380501234568")
+        sale = Sale.objects.create(company=self.company, cashier=self.user, customer=customer,
+                                   total=Decimal("100.00"), status=Sale.DONE)
+        shift = Shift.objects.create(company=self.company, cashier=self.user)
+        operation = CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                                 kind="in", amount=Decimal("20.00"))
+        SettlementPayment.objects.create(company=self.company, sale=sale, amount=Decimal("20.00"),
+                                         payment_method="cash", cash_operation=operation,
+                                         created_by=self.user, is_void=True,
+                                         void_reason="Помилковий платіж")
+        response = self.client.get("/reports/finance/controls/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["reversal_gaps"]), 1)
+
+
+    def test_controls_report_identifies_customer_refunds_due_and_supplier_credit(self):
+        from decimal import Decimal
+        from core.models import Customer, Purchase, Sale, SaleReturn, Supplier, SupplierCreditApplication
+        customer = Customer.objects.create(company=self.company, name="Credit customer", phone="+380501234569")
+        supplier = Supplier.objects.create(company=self.company, name="Credit supplier")
+        sale = Sale.objects.create(company=self.company, cashier=self.user, customer=customer,
+                                   total=Decimal("100.00"), cash_amount=Decimal("100.00"),
+                                   status=Sale.DONE)
+        SaleReturn.objects.create(company=self.company, sale=sale, user=self.user,
+                                  total=Decimal("20.00"), refund_method="pending")
+        source = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
+                                         total=Decimal("100.00"))
+        target = Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
+                                         total=Decimal("200.00"))
+        from core.models import SettlementPayment
+        SettlementPayment.objects.create(company=self.company, purchase=source, amount=Decimal("130.00"),
+                                          payment_method="bank", created_by=self.user)
+        response = self.client.get("/reports/finance/controls/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["customer_credit_total"], Decimal("20.00"))
+        self.assertEqual(response.context["supplier_credit_total"], Decimal("30.00"))
+
+
+    def test_controls_report_period_cashflow_and_shift_closing(self):
+        from decimal import Decimal
+        from django.utils import timezone
+        from core.models import BankAccount, BankTransaction, CashOperation, Shift
+        shift = Shift.objects.create(
+            company=self.company, cashier=self.user, opening_cash=Decimal("100.00"),
+            drawer={"10000": 2}, closing_counted={"10000": 1},
+            discrepancy=Decimal("-100.00"), closed_at=timezone.now(),
+        )
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                     kind="in", amount=Decimal("50.00"))
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                     kind="out", amount=Decimal("-10.00"))
+        CashOperation.objects.create(company=self.company, shift=shift, user=self.user,
+                                     kind="adjust", amount=Decimal("5.00"))
+        account = BankAccount.objects.create(company=self.company, bank_name="Period bank",
+                                             iban="UA123456789012345678901234567")
+        BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.INCOME, category="Надходження",
+            amount=Decimal("70.00"), created_by=self.user,
+        )
+        BankTransaction.objects.create(
+            company=self.company, account=account, transaction_date=timezone.localdate(),
+            direction=BankTransaction.EXPENSE, category="Списання",
+            amount=Decimal("20.00"), created_by=self.user,
+        )
+        response = self.client.get("/reports/finance/controls/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["cash_period_in"], Decimal("50.00"))
+        self.assertEqual(response.context["cash_period_out"], Decimal("10.00"))
+        self.assertEqual(response.context["cash_adjustments"], Decimal("5.00"))
+        self.assertEqual(response.context["period_cash_net"], Decimal("45.00"))
+        self.assertEqual(response.context["bank_period_in"], Decimal("70.00"))
+        self.assertEqual(response.context["bank_period_out"], Decimal("20.00"))
+        self.assertEqual(response.context["period_bank_net"], Decimal("50.00"))
+        self.assertEqual(response.context["period_net_movement"], Decimal("95.00"))
+        self.assertEqual(response.context["closed_shift_count"], 1)
+        self.assertEqual(response.context["shift_opening_total"], Decimal("100.00"))
+        self.assertEqual(response.context["shift_expected_total"], Decimal("200.00"))
+        self.assertEqual(response.context["shift_counted_total"], Decimal("100.00"))
+        self.assertEqual(response.context["shift_discrepancy_total"], Decimal("-100.00"))
+
+
+    def test_controls_report_csv_export_neutralizes_formula_injection(self):
+        from decimal import Decimal
+        from core.models import Customer, Sale, Supplier, Purchase
+        customer = Customer.objects.create(company=self.company, name="=1+1", phone="+380501234570")
+        supplier = Supplier.objects.create(company=self.company, name="@SUM(A1:A2)")
+        Sale.objects.create(company=self.company, cashier=self.user, customer=customer,
+                            total=Decimal("100.00"), status=Sale.DONE)
+        Purchase.objects.create(company=self.company, supplier=supplier, user=self.user,
+                                 total=Decimal("80.00"))
+        response = self.client.get("/reports/finance/controls/?export=csv")
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8-sig")
+        self.assertIn("'=1+1", content)
+        self.assertIn("'@SUM(A1:A2)", content)
+
+    def test_controls_report_csv_export_contains_period_summary(self):
+        response = self.client.get("/reports/finance/controls/?export=csv")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertTrue(response.content.startswith(b"\xef\xbb\xbf"))
+        self.assertIn("Борг клієнтів".encode("utf-8"), response.content)
+        self.assertIn("Сумарний рух коштів".encode("utf-8"), response.content)
