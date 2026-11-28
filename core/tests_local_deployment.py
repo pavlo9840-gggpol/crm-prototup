@@ -81,6 +81,38 @@ class LinuxDeploymentAssetsTests(SimpleTestCase):
         )
 
 
+    def test_installer_normalizes_missing_legacy_settings_under_bash_nounset(self):
+        script = (ROOT / "deploy/linux/install.sh").read_text(encoding="utf-8")
+        start = script.index("# Older customer configurations may predate these optional settings.")
+        end = script.index('[[ "${AUTOZAPAZ_LICENSE_PUBLIC_KEY:-}"', start)
+        normalization = script[start:end]
+
+        completed = subprocess.run(
+            ["/bin/bash", "-uc", normalization + 'printf "%s|%s\\n" "$DJANGO_CSRF_TRUSTED_ORIGINS" "$AUTOZAPAZ_SECURE_COOKIES"'],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "|0")
+
+    def test_installer_rejects_invalid_secure_cookie_setting(self):
+        script = (ROOT / "deploy/linux/install.sh").read_text(encoding="utf-8")
+        start = script.index("# Older customer configurations may predate these optional settings.")
+        end = script.index('[[ "${AUTOZAPAZ_LICENSE_PUBLIC_KEY:-}"', start)
+        normalization = script[start:end]
+
+        completed = subprocess.run(
+            ["/bin/bash", "-uc", normalization],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "AUTOZAPAZ_SECURE_COOKIES": "yes"},
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("AUTOZAPAZ_SECURE_COOKIES", completed.stderr)
+
     def test_updater_validates_trusted_installation_paths_before_verifier(self):
         script = (ROOT / "deploy/linux/update.sh").read_text(encoding="utf-8")
         install_root = script.index('[[ -d "$INSTALL_ROOT" && ! -L "$INSTALL_ROOT" ]]')
